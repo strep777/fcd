@@ -20,9 +20,9 @@ const rois=[
  // crossings, including the upper side at y288.5..295.5 and lower columns.
  // Include both the old (635.75,289.5) join and later (638,297.5),
  // (644,304) and (652,307) joins; relocating a knot must not hide it.
- // The terminal dark indentation begins around x655..657 at y304..306.
- // Exclude x>=654 here, rather than treating the internal pink-gray shadow
- // at x652..654,y298..303 as evidence of an exterior sharp corner.
+ // The terminal ink/shadow interval around x655..661,y304..307 is not
+ // certified by this broad-bend test and remains a known visual defect.
+ // Excluding x>=654 is a scope limit, not evidence of a true source notch.
  {name:'raised pink paw lower pad broad outer bend',color:'#f9b2b3',minX:633,maxX:653,minY:288,maxY:307.5}
 ];
 const angle=(a:{x:number;y:number},b:{x:number;y:number})=>Math.abs(Math.atan2(a.x*b.y-a.y*b.x,a.x*b.x+a.y*b.y));
