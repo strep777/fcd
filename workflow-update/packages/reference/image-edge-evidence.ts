@@ -26,25 +26,28 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
     const pigment = (owner: number) => owner < 0 ? exterior : palette[owner];
     const targets = new Int32Array(size).fill(-2), scores = new Float32Array(size);
     let supportedEdges = 0;
-    function probe(i: number, j: number, stride: number, coordinate: number, limit: number) {
+    function tryProbe(i: number, j: number, stride: number, coordinate: number, limit: number, reach = 6) {
         const a = initial[i], b = initial[j];
         const pa = pigment(a), pb = pigment(b), darkPair = pa.dark !== pb.dark;
-        if (a === b || pa.dark && pb.dark || (a < 0 || b < 0) && !darkPair || coordinate < 7 || coordinate + 7 >= limit)
-            return;
+        // A shorter color profile can avoid a different material beyond a
+        // bend. Silhouette/ink profiles retain their original support width.
+        if (reach < 6 && darkPair) return false;
+        if (a === b || pa.dark && pb.dark || (a < 0 || b < 0) && !darkPair || coordinate < reach+1 || coordinate + reach+1 >= limit)
+            return false;
         const channelsA = darkPair ? pa.linear : pa.rgb, channelsB = darkPair ? pb.linear : pb.rgb;
         const delta = channelsA.map((v, c) => v - channelsB[c]), norm = Math.hypot(...delta);
         if (norm < .015)
-            return;
+            return false;
         const dir = delta.map(v => v / norm);
         // Confirm broad support on both sides. A third owner, exterior, an ink
         // separator, or a narrow tip excludes the search corridor entirely.
-        for (let t = -6; t <= 7; t++) {
+        for (let t = -reach; t <= reach+1; t++) {
             const owner = initial[i + t * stride];
             if (owner !== a && owner !== b)
-                return;
+                return false;
         }
-        if (initial[i - 6 * stride] !== a || initial[i + 7 * stride] !== b)
-            return;
+        if (initial[i - reach * stride] !== a || initial[i + (reach+1) * stride] !== b)
+            return false;
         if (darkPair) {
             const darkOwner = pa.dark ? a : b, x = i % width, y = Math.floor(i / width);
             let supported = false;
@@ -59,7 +62,7 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
                     }
                 }
             if (!supported)
-                return;
+                return false;
         }
         // Normalize only the narrow color profiles actually examined. A full
         // three-channel Float32 raster costs 192 MiB at the image size limit.
@@ -79,12 +82,20 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
             const v = value(t);
             return .5 * dir.reduce((s, d) => s + Math.abs(d - v), 0) / (sum - 1.5);
         };
+        if (reach < 6) {
+            // Both sides need two same-owner original pixels whose variation
+            // fits their byte-quantization budget. Never borrow a plateau
+            // through another material or through an unresolved blur tail.
+            if (initial[i + (-reach + 1) * stride] !== a || initial[i + reach * stride] !== b) return false;
+            const va = Math.abs(value(-reach) - value(-reach + 1)), vb = Math.abs(value(reach) - value(reach + 1));
+            if (va > quantization(-reach) + quantization(-reach + 1) || vb > quantization(reach) + quantization(reach + 1)) return false;
+        }
         const gradient = (t: number) => (value(t - 2) + 2 * value(t - 1) - 2 * value(t + 1) - value(t + 2)) / 8;
-        const sideA = darkPair && pa.dark ? dir.reduce((s, d, c) => s + d * pa.linear[c], 0) : value(-6);
-        const sideB = darkPair && pb.dark ? dir.reduce((s, d, c) => s + d * pb.linear[c], 0) : value(7);
+        const sideA = darkPair && pa.dark ? dir.reduce((s, d, c) => s + d * pa.linear[c], 0) : value(-reach);
+        const sideB = darkPair && pb.dark ? dir.reduce((s, d, c) => s + d * pb.linear[c], 0) : value(reach+1);
         const contrast = sideA - sideB;
         let peak = 0, opposite = 0;
-        for (let t = -4; t <= 5; t++) {
+        for (let t = -reach+2; t <= reach-1; t++) {
             const g = gradient(t);
             opposite = Math.max(opposite, -g);
             if (g > peak) {
@@ -95,15 +106,15 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
         // must instead rise above measured variation within both source-side
         // plateaus. Fixed color-distance gates alone reject quiet pastel edges.
         if (darkPair && (norm < .12 || contrast < .08 || peak < .025))
-            return;
+            return false;
         const highContrast = norm >= .12 && contrast >= .08 && peak >= .025;
         if (!highContrast) {
-            const plateauNoise = Math.max(Math.abs(value(-6) - value(-5)), Math.abs(value(6) - value(7)));
+            const plateauNoise = Math.max(Math.abs(value(-reach) - value(-reach+1)), Math.abs(value(reach) - value(reach+1)));
             if (contrast < Math.max(.015, plateauNoise * 4) || peak < .004)
-                return;
+                return false;
         }
         if (peak < contrast * .10)
-            return;
+            return false;
         // A blurred color step can have two nearly equal derivative ridges.
         // Selecting the larger ridge jumps between their sides as JPEG blocks
         // vary. Locate the half-contrast crossing of the original color profile
@@ -114,27 +125,26 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
         // second pigment edge. Reject a strong reverse transition only when
         // it reaches the interior side of the independently measured level.
         if (!darkPair && opposite > peak * .5) {
-            for (let t = -4; t <= 5; t++) {
+            for (let t = -reach+2; t <= reach-1; t++) {
                 if (gradient(t) < -peak * .5 && Math.max(value(t - 1), value(t), value(t + 1)) >= level)
-                    return;
+                    return false;
             }
         }
         const crossings: number[] = [];
-        for (let t = -4; t < 5; t++) {
+        for (let t = -reach+2; t < reach-1; t++) {
             const left = value(t), right = value(t + 1);
             if (left >= level && right < level)
                 crossings.push(t + .5 + (left - level) / (left - right));
         }
         let recrosses = false;
-        for (let t = -4; t < 5; t++)
+        for (let t = -reach+2; t < reach-1; t++)
             if (value(t) < level && value(t + 1) >= level)
                 recrosses = true;
         if (crossings.length !== 1 || !darkPair && recrosses)
-            return;
+            return false;
         const edge = crossings[0], original = 1;
         if (Math.abs(edge - original) > 4.5)
-            return;
-        supportedEdges++;
+            return false;
         // A unique crossing does not establish a pixel's side when its center
         // is almost on that crossing. Retain the original ownership unless
         // the directional evidence exceeds quantization and the observed
@@ -156,9 +166,28 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
             return original;
         };
         // Each side contributes one half to the level's observed variation.
-        const plateauVariation = (quietVariation(-6, -5, a, -1) + quietVariation(7, 6, b, 1)) / 2;
-        const levelUncertainty = plateauVariation + (quantization(-6) + quantization(7)) / 2;
-        for (let t = -4; t <= 5; t++) {
+        const plateauVariation = reach === 6
+            ? (quietVariation(-6, -5, a, -1) + quietVariation(7, 6, b, 1)) / 2
+            : (Math.abs(value(-reach) - value(-reach + 1)) + Math.abs(value(reach) - value(reach + 1))) / 2;
+        const levelUncertainty = plateauVariation + (quantization(-reach) + quantization(reach+1)) / 2;
+        if (reach < 6) {
+            const envelope = (sign: number, threshold: number) => {
+                const xs: number[] = []; let reverse = 0;
+                for (let t = -reach + 2; t < reach - 1; t++) {
+                    const l = value(t) + sign * quantization(t), r = value(t + 1) + sign * quantization(t + 1);
+                    if (l >= threshold && r < threshold) xs.push(t + .5 + (l - threshold) / (l - r));
+                    if (l < threshold && r >= threshold) reverse++;
+                }
+                return { xs, reverse };
+            };
+            const early = envelope(-1, level + levelUncertainty), late = envelope(1, level - levelUncertainty);
+            if (early.xs.length !== 1 || late.xs.length !== 1 || early.reverse || late.reverse) return false;
+            const uncertainty = Math.max(edge - early.xs[0], late.xs[0] - edge);
+            if (!Number.isFinite(uncertainty) || uncertainty < 0 || uncertainty > .5) return false;
+        }
+
+        supportedEdges++;
+        for (let t = -reach+2; t <= reach-1; t++) {
             const p = i + t * stride, target = t + .5 < edge ? a : b;
             // Exterior correction is removal-only. Independent source pixels
             // can disprove a pale claw halo without inventing foreground.
@@ -174,6 +203,14 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
                 targets[p] = target;
             }
         }
+        return true;
+    }
+    function probe(i: number, j: number, stride: number, coordinate: number, limit: number) {
+        // Prefer the widest independently supported profile. A successful
+        // profile with uncertain pixel ownership must not be retried merely
+        // to obtain a different decision from a narrower window.
+        if (tryProbe(i, j, stride, coordinate, limit, 6)) return;
+        for (const reach of [5, 4, 3, 2]) if (tryProbe(i, j, stride, coordinate, limit, reach)) return;
     }
     for (let y = 0; y < height; y++)
         for (let x = 0; x < width; x++) {
