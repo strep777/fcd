@@ -1,3 +1,4 @@
+import {refitMeasuredCubicWindow} from './joint-source-fit';
 import type { Piece, Point } from '../schema/index';
 import { safeContour, contourBoundaryError } from './contour-topology';
 import {boxIndex,type Box} from '../surface/spatial';
@@ -179,6 +180,30 @@ function shortSpanDirection(span: Point[], curve: Curve, g: Grid) {
     }
     return true;
 }
+/** Sample the measured polyline for arc-length integration only. The original
+ * vertices remain the source of direction and hard distance contracts. */
+function sampleMeasuredSpan(span: Point[], pixel: number) {
+    const counts: number[] = [];
+    let count = 1;
+    for (let i = 0; i + 1 < span.length; i++) {
+        const n = Math.max(1, Math.ceil(length(span[i], span[i + 1]) / (pixel * .5) - 1e-9));
+        counts.push(n);
+        count += n;
+    }
+    if (count > 384)
+        return span;
+    const sampled: Point[] = [];
+    for (let i = 0; i + 1 < span.length; i++) {
+        const p = span[i], b = span[i + 1], n = counts[i];
+        sampled.push(p);
+        for (let j = 1; j < n; j++) {
+            const t = j / n;
+            sampled.push({ id: '', xMm: p.xMm + t * (b.xMm - p.xMm), yMm: p.yMm + t * (b.yMm - p.yMm) });
+        }
+    }
+    sampled.push(span.at(-1)!);
+    return sampled;
+}
 /** Recover controls directly from source coordinates. Raster chord tangents
  * can constrain a genuine arc to the wrong direction; independent least
  * squares controls avoid that bias. Endpoints remain exact, and no continuity,
@@ -191,14 +216,14 @@ function geometricCubic(span: Point[], g: Grid, createId: () => string, requireC
     for (let i = 1; i < span.length; i++) arc.push(arc.at(-1)! + length(span[i - 1], span[i]));
     const core = span.filter((_, i) => arc[i] > g.size * 2 && arc.at(-1)! - arc[i] > g.size * 2);
     if (requireCurvedCore && core.length >= 3 && straight(core, g)) return;
-    const parameters = arc.map(t => t / arc.at(-1)!);
+    const measuredSpan=span;span=sampleMeasuredSpan(span,g.size);arc.splice(0,arc.length,0);for(let i=1;i<span.length;i++)arc.push(arc.at(-1)!+length(span[i-1],span[i]));const parameters = arc.map(t => t / arc.at(-1)!);
     for (let iteration = 0; iteration < 12; iteration++) {
         let aa = 0, ab = 0, bb = 0, ax = 0, bx = 0, ay = 0, by = 0;
         for (let i = 1; i + 1 < span.length; i++) {
             const t = parameters[i], s = 1 - t, b0 = s * s * s, b1 = 3 * t * s * s, b2 = 3 * t * t * s, b3 = t * t * t;
             const rx = span[i].xMm - b0 * a.xMm - b3 * b.xMm, ry = span[i].yMm - b0 * a.yMm - b3 * b.yMm;
-            aa += b1 * b1; ab += b1 * b2; bb += b2 * b2;
-            ax += b1 * rx; bx += b2 * rx; ay += b1 * ry; by += b2 * ry;
+            const weight=(arc[i+1]-arc[i-1])/2;aa += weight*b1 * b1; ab += weight*b1 * b2; bb += weight*b2 * b2;
+            ax += weight*b1 * rx; bx += weight*b2 * rx; ay += weight*b1 * ry; by += weight*b2 * ry;
         }
         const det = aa * bb - ab * ab;
         if (det <= 1e-12) return;
@@ -209,7 +234,7 @@ function geometricCubic(span: Point[], g: Grid, createId: () => string, requireC
         try {
             const sampled = flatten(a, c1, c2, b, g.size * .01, createId);
             // .1-pixel sampling contributes .05; flattening contributes .01.
-            if (shortSpanDirection(span, c, g) && Math.max(spanError(span, sampled, g.size, g.size * .1), spanError(sampled, span, g.size, g.size * .1)) + g.size * .06 <= g.size * 1.05) return c;
+            if (shortSpanDirection(measuredSpan, c, g) && Math.max(spanError(measuredSpan, sampled, g.size, g.size * .1), spanError(sampled, measuredSpan, g.size, g.size * .1)) + g.size * .06 <= g.size * 1.05) return c;
         } catch { return; }
         const p = [a, c1, c2, b], next = [...parameters];
         for (let j = 1; j + 1 < span.length; j++) {
@@ -254,16 +279,16 @@ function ring(points: Point[], pixel: number, createId: () => string, allowCurve
         if (requireCurvedCore && core.length >= 3 && straight(core, g))
             return undefined;
         const oneSided = (p: Point, direction: number) => { const q = at(lookup.get(p.id)!, direction, Math.min(g.size * 6, arc.at(-1)! * .25)), dx = (q.xMm - p.xMm) * direction, dy = (q.yMm - p.yMm) * direction, n = Math.hypot(dx, dy); return n ? { x: dx / n, y: dy / n } : tangent(p); }, u = fixed.has(a.id) ? oneSided(a, 1) : tangent(a), v = fixed.has(b.id) ? oneSided(b, -1) : tangent(b);
-        const parameters = arc.map(t => t / arc.at(-1)!);
+        const measuredSpan=span;span=sampleMeasuredSpan(span,g.size);arc.splice(0,arc.length,0);for(let i=1;i<span.length;i++)arc.push(arc.at(-1)!+length(span[i-1],span[i]));const parameters = arc.map(t => t / arc.at(-1)!);
         for (let iteration = 0; iteration < 6; iteration++) {
             let aa = 0, ab = 0, bb = 0, ax = 0, bx = 0;
             for (let j = 1; j + 1 < span.length; j++) {
                 const t = parameters[j], s = 1 - t, b0 = s * s * s, b1 = 3 * t * s * s, b2 = 3 * t * t * s, b3 = t * t * t, rx = span[j].xMm - (b0 + b1) * a.xMm - (b2 + b3) * b.xMm, ry = span[j].yMm - (b0 + b1) * a.yMm - (b2 + b3) * b.yMm, ux = u.x * b1, uy = u.y * b1, vx = -v.x * b2, vy = -v.y * b2;
-                aa += ux * ux + uy * uy;
-                ab += ux * vx + uy * vy;
-                bb += vx * vx + vy * vy;
-                ax += ux * rx + uy * ry;
-                bx += vx * rx + vy * ry;
+                const weight=(arc[j+1]-arc[j-1])/2;aa += weight*(ux * ux + uy * uy);
+                ab += weight*(ux * vx + uy * vy);
+                bb += weight*(vx * vx + vy * vy);
+                ax += weight*(ux * rx + uy * ry);
+                bx += weight*(vx * rx + vy * ry);
             }
             const det = aa * bb - ab * ab;
             if (det <= 1e-12)
@@ -274,7 +299,7 @@ function ring(points: Point[], pixel: number, createId: () => string, allowCurve
             const c: Curve = { id: createId(), startNodeId: a.id, endNodeId: b.id, c1: { id: createId(), xMm: a.xMm + u.x * l, yMm: a.yMm + u.y * l }, c2: { id: createId(), xMm: b.xMm - v.x * r, yMm: b.yMm - v.y * r } };
             try {
                 const sampled = flatten(a, c.c1, c.c2, b, g.size * .01, createId);
-                if (shortSpanDirection(span, c, g) && Math.max(spanError(span, sampled, g.size, g.size * .1), spanError(sampled, span, g.size, g.size * .1)) + g.size * .06 <= g.size * 1.05)
+                if (shortSpanDirection(measuredSpan, c, g) && Math.max(spanError(measuredSpan, sampled, g.size, g.size * .1), spanError(sampled, measuredSpan, g.size, g.size * .1)) + g.size * .06 <= g.size * 1.05)
                     return c;
             }
             catch {
@@ -497,6 +522,18 @@ function ring(points: Point[], pixel: number, createId: () => string, allowCurve
         nodes.splice(nodes.indexOf(a) + 1, 0, center);
         curves = [...curves.filter(c => c !== curve), { ...curve, endNodeId: center.id, c1: p, c2: s }, { ...curve, id: createId(), startNodeId: center.id, c1: t, c2: r }];
     }
+    // Refit only existing source spans; protected source corners stay exact.
+    if (openChain && allowCurves)
+        for (let i = 1; i + 1 < nodes.length; i++) {
+            const a = nodes[i - 1], k = nodes[i], b = nodes[i + 1], first = curves.find(c => c.startNodeId === a.id && c.endNodeId === k.id), last = curves.find(c => c.startNodeId === k.id && c.endNodeId === b.id), from = lookup.get(a.id), to = lookup.get(b.id);
+            if ((!first && !last) || from === undefined || to === undefined || to <= from)
+                continue;
+            const result = refitMeasuredCubicWindow(points.slice(from, to + 1), { nodes: [a, k, b], curves: [first, last].filter((c): c is Curve => !!c) }, { grid: g, protectedIds: fixed, bevel, createId, tools: { flatten, spanError, straight: (source, grid) => straight(source, grid, true) } });
+            if (result) {
+                nodes = nodes.map((n, j) => j === i ? result.nodes[1] : n);
+                curves = [...curves.filter(c => c !== first && c !== last), ...result.curves];
+            }
+        }
     return { nodes, curves, segments, fixed, g };
 }
 /** A nearly parallel narrow strip is ill-conditioned: independent raster-line

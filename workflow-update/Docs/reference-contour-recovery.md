@@ -25,6 +25,14 @@ Counting only output anchors incorrectly favors two broad cubics over a small st
 
 Equivalent traversal phases and the existing local-corner line candidate are considered before a compact marking falls back to its raster staircase. Partial support can permit a phase search, but never accepts a result: the full straight evidence, topology, area and bidirectional distance gates still apply. No image coordinates, fixture identifiers or preferred polygon shape enter this selection.
 
+## Measured curve fitting
+
+Cubic least squares integrates over source arc length rather than giving each coalesced raster vertex equal weight. Bounded half-pixel sampling supplies the integration points; the original, unchanged source polyline supplies direction and hard distance checks. This avoids bias toward densely alternating raster steps and avoids rebuilding spatial indexes over redundant collinear subdivisions. Sampling does not move the measured boundary.
+
+An open shared chain may jointly refit two existing adjacent spans when at least one is already a cubic. A line participating in this fit is at most six native pixels long and starts as its exact cubic representation. The existing source knot and span assignment remain fixed identities. Only that knot and the two inner controls are unknowns; outer endpoints and outer controls remain exact. The knot stays within 0.9 native pixels of its original source position. Protected corners, junctions, contact bevels and wholly straight source windows cannot be converted this way.
+
+The bounded solve accepts only a lower bidirectional source-distance RMS and independently requires the original 1.05-native-pixel distance envelope, including sampling and flattening margins. It has no join-angle, tangent-continuity or curvature objective. Subsequent whole-chain and assembled-owner checks still enforce area, topology, holes and shared geometry. A lower local data residual is not a claim of global optimality or of semantic certainty in noisy source pixels. Independent analytic tests cover untouched measurements, exact outer controls, forward/reverse equivalence, transformed coordinates, real corners, curve-plus-line windows and rejected resource limits.
+
 ## Regression evidence
 
 The integration regressions cover the actual blue diamond; straight slopes 0.13, 0.3, 0.6, 1, 1.5 and 2.7 at pixel scales 0.05, 1 and 10 after rotation and large translation; small pointed markings; true notches; near-contact bevels; curved rings and holes; the original ear, body and yellow thigh; complete claws; and native validation of both real images.
