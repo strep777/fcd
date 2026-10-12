@@ -33,7 +33,8 @@ function cuffProject(){
  }
  return p;
 }
-const cuffAudit=async()=> (await import(pathToFileURL(resolve('tests/real-mapping-coverage-audit.mjs')).href)).assertJpegCuffOrder;
+function cuffFeatures(p:any){return Object.fromEntries(['front','back'].map(view=>{const back=view==='back',sources=p.patternLibrary.filter((s:any)=>s.view===view);return [view,{yellow:{sourcePieceId:sources[back?26:24].piece.id},paws:(back?[[2,'#dcd0d7',2722],[37,'#080608',255],[38,'#080608',142]]:[[7,'#ede7ea',2340],[47,'#08060a',251],[48,'#08060a',111]]).map(([index,color,pixels])=>({sourcePieceId:sources[index as number].piece.id,color,pixels}))}];}));}
+const cuffAudit=async()=> {const audit=(await import(pathToFileURL(resolve('tests/real-mapping-coverage-audit.mjs')).href)).assertJpegCuffOrder;return (p:any,features=cuffFeatures(p))=>audit(p,features);};
 it('JPEG cuff audit measures both original paw claws and neutral palms on the existing arm axis with signed front/back species sides',async()=>{
  const audit=await cuffAudit(),p=cuffProject(),checks=audit(p);expect(checks.map((c:any)=>[c.view,c.side,c.modelSide])).toEqual([['front','left','right'],['back','right','left']]);
  for(const check of checks){const paws=check.rows.filter((r:any)=>r.part==='paw');expect(paws).toHaveLength(3);expect(paws.every((r:any)=>r.station>1&&r.visibleAreaFraction>.3)).toBe(true);expect(paws.map((r:any)=>r.sourcePixels)).toEqual(check.view==='front'?[2340,251,111]:[2722,255,142]);}
@@ -53,4 +54,7 @@ it.each(['old-arm-metadata','old-arm-placement','wrong-source-side','wrong-model
  if(kind==='hand-on-finger')hand.fragments[0].faceId=p.markings[3].fragments[0].faceId;
  if(kind==='reversed-cuff')yellow.fragments[0].faceId=p.markings[0].fragments[0].faceId;
  expect(()=>audit(p)).toThrow();
+});
+it('cuff audit retains physical source identities after unrelated region reordering',async()=>{
+ const audit=await cuffAudit(),p=cuffProject(),features=cuffFeatures(p);p.patternLibrary.reverse();expect(audit(p,features)).toHaveLength(2);
 });
