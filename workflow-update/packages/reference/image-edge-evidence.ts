@@ -68,6 +68,17 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
             const sum = darkPair ? 255 : rgba[offset] + rgba[offset + 1] + rgba[offset + 2] + 1;
             return (dir[0] * rgba[offset] + dir[1] * rgba[offset + 1] + dir[2] * rgba[offset + 2]) / sum;
         };
+        // Bound an original 8-bit channel's half-unit quantization error.
+        // For normalized chroma, f'=f+sum((dir-f)*delta)/(sum+sum(delta));
+        // the denominator also changes, so a fixed linear RGB bound is unsafe.
+        const quantization = (t: number) => {
+            if (darkPair) return .5 * dir.reduce((s, d) => s + Math.abs(d), 0) / 255;
+            const offset = (i + t * stride) * 4;
+            const sum = rgba[offset] + rgba[offset + 1] + rgba[offset + 2] + 1;
+            if (sum <= 1.5) return Infinity;
+            const v = value(t);
+            return .5 * dir.reduce((s, d) => s + Math.abs(d - v), 0) / (sum - 1.5);
+        };
         const gradient = (t: number) => (value(t - 2) + 2 * value(t - 1) - 2 * value(t + 1) - value(t + 2)) / 8;
         const sideA = darkPair && pa.dark ? dir.reduce((s, d, c) => s + d * pa.linear[c], 0) : value(-6);
         const sideB = darkPair && pb.dark ? dir.reduce((s, d, c) => s + d * pb.linear[c], 0) : value(7);
@@ -124,6 +135,29 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
         if (Math.abs(edge - original) > 4.5)
             return;
         supportedEdges++;
+        // A unique crossing does not establish a pixel's side when its center
+        // is almost on that crossing. Retain the original ownership unless
+        // the directional evidence exceeds quantization and the observed
+        // source plateau variation. This is a local confidence budget, not a
+        // bound on all possible JPEG noise or a contour-smoothing operation.
+        // A biased mask can place the side samples in a blurred transition's
+        // tail. A same-owner, outward quiet pair distinguishes that directed
+        // tail from local fluctuation. Do not change the level or crossing.
+        const quietVariation = (offset: number, inward: number, owner: number, outward: number) => {
+            const original = Math.abs(value(offset) - value(inward));
+            if (initial[i + inward * stride] !== owner) return original;
+            for (let t = offset; Math.abs(t) <= 11; t += outward) {
+                const inner = t - outward;
+                if (coordinate + t < 0 || coordinate + t >= limit || initial[i + t * stride] !== owner || initial[i + inner * stride] !== owner) return original;
+                const variation = Math.abs(value(t) - value(inner)), rounding = quantization(t) + quantization(inner);
+                if (-outward * (value(t) - value(inner)) < -rounding) return original;
+                if (variation <= rounding) return variation;
+            }
+            return original;
+        };
+        // Each side contributes one half to the level's observed variation.
+        const plateauVariation = (quietVariation(-6, -5, a, -1) + quietVariation(7, 6, b, 1)) / 2;
+        const levelUncertainty = plateauVariation + (quantization(-6) + quantization(7)) / 2;
         for (let t = -4; t <= 5; t++) {
             const p = i + t * stride, target = t + .5 < edge ? a : b;
             // Exterior correction is removal-only. Independent source pixels
@@ -131,6 +165,9 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
             if (initial[p] < 0)
                 continue;
             if (initial[p] === target)
+                continue;
+            const margin = target === a ? value(t) - level : level - value(t);
+            if (margin <= levelUncertainty + quantization(t))
                 continue;
             if (peak > scores[p]) {
                 scores[p] = peak;
