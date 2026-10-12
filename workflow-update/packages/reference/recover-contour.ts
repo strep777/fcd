@@ -208,7 +208,7 @@ function sampleMeasuredSpan(span: Point[], pixel: number) {
  * can constrain a genuine arc to the wrong direction; independent least
  * squares controls avoid that bias. Endpoints remain exact, and no continuity,
  * curvature energy or aesthetic smoothness term enters this fit. */
-function geometricCubic(span: Point[], g: Grid, createId: () => string, requireCurvedCore = true): Curve | undefined {
+function geometricCubic(span: Point[], g: Grid, createId: () => string, requireCurvedCore = true, integrate = true): Curve | undefined {
     if (span.length < 5) return;
     const a = span[0], b = span.at(-1)!, d = length(a, b);
     if (d < g.size * 4) return;
@@ -216,13 +216,13 @@ function geometricCubic(span: Point[], g: Grid, createId: () => string, requireC
     for (let i = 1; i < span.length; i++) arc.push(arc.at(-1)! + length(span[i - 1], span[i]));
     const core = span.filter((_, i) => arc[i] > g.size * 2 && arc.at(-1)! - arc[i] > g.size * 2);
     if (requireCurvedCore && core.length >= 3 && straight(core, g)) return;
-    const measuredSpan=span;span=sampleMeasuredSpan(span,g.size);arc.splice(0,arc.length,0);for(let i=1;i<span.length;i++)arc.push(arc.at(-1)!+length(span[i-1],span[i]));const parameters = arc.map(t => t / arc.at(-1)!);
+    const measuredSpan=span;span=integrate?sampleMeasuredSpan(span,g.size):span;arc.splice(0,arc.length,0);for(let i=1;i<span.length;i++)arc.push(arc.at(-1)!+length(span[i-1],span[i]));const parameters = arc.map(t => t / arc.at(-1)!);
     for (let iteration = 0; iteration < 12; iteration++) {
         let aa = 0, ab = 0, bb = 0, ax = 0, bx = 0, ay = 0, by = 0;
         for (let i = 1; i + 1 < span.length; i++) {
             const t = parameters[i], s = 1 - t, b0 = s * s * s, b1 = 3 * t * s * s, b2 = 3 * t * t * s, b3 = t * t * t;
             const rx = span[i].xMm - b0 * a.xMm - b3 * b.xMm, ry = span[i].yMm - b0 * a.yMm - b3 * b.yMm;
-            const weight=(arc[i+1]-arc[i-1])/2;aa += weight*b1 * b1; ab += weight*b1 * b2; bb += weight*b2 * b2;
+            const weight=integrate?(arc[i+1]-arc[i-1])/2:1;aa += weight*b1 * b1; ab += weight*b1 * b2; bb += weight*b2 * b2;
             ax += weight*b1 * rx; bx += weight*b2 * rx; ay += weight*b1 * ry; by += weight*b2 * ry;
         }
         const det = aa * bb - ab * ab;
@@ -279,12 +279,12 @@ function ring(points: Point[], pixel: number, createId: () => string, allowCurve
         if (requireCurvedCore && core.length >= 3 && straight(core, g))
             return undefined;
         const oneSided = (p: Point, direction: number) => { const q = at(lookup.get(p.id)!, direction, Math.min(g.size * 6, arc.at(-1)! * .25)), dx = (q.xMm - p.xMm) * direction, dy = (q.yMm - p.yMm) * direction, n = Math.hypot(dx, dy); return n ? { x: dx / n, y: dy / n } : tangent(p); }, u = fixed.has(a.id) ? oneSided(a, 1) : tangent(a), v = fixed.has(b.id) ? oneSided(b, -1) : tangent(b);
-        const measuredSpan=span;span=sampleMeasuredSpan(span,g.size);arc.splice(0,arc.length,0);for(let i=1;i<span.length;i++)arc.push(arc.at(-1)!+length(span[i-1],span[i]));const parameters = arc.map(t => t / arc.at(-1)!);
+        const measuredSpan=span;span=openChain?sampleMeasuredSpan(span,g.size):span;arc.splice(0,arc.length,0);for(let i=1;i<span.length;i++)arc.push(arc.at(-1)!+length(span[i-1],span[i]));const parameters = arc.map(t => t / arc.at(-1)!);
         for (let iteration = 0; iteration < 6; iteration++) {
             let aa = 0, ab = 0, bb = 0, ax = 0, bx = 0;
             for (let j = 1; j + 1 < span.length; j++) {
                 const t = parameters[j], s = 1 - t, b0 = s * s * s, b1 = 3 * t * s * s, b2 = 3 * t * t * s, b3 = t * t * t, rx = span[j].xMm - (b0 + b1) * a.xMm - (b2 + b3) * b.xMm, ry = span[j].yMm - (b0 + b1) * a.yMm - (b2 + b3) * b.yMm, ux = u.x * b1, uy = u.y * b1, vx = -v.x * b2, vy = -v.y * b2;
-                const weight=(arc[j+1]-arc[j-1])/2;aa += weight*(ux * ux + uy * uy);
+                const weight=openChain?(arc[j+1]-arc[j-1])/2:1;aa += weight*(ux * ux + uy * uy);
                 ab += weight*(ux * vx + uy * vy);
                 bb += weight*(vx * vx + vy * vy);
                 ax += weight*(ux * rx + uy * ry);
@@ -326,7 +326,7 @@ function ring(points: Point[], pixel: number, createId: () => string, allowCurve
             return;
         }
         if (depth < 20) {
-            const c = allowCurves ? cubic(span) ?? geometricCubic(span, g, createId) : undefined;
+            const c = allowCurves ? cubic(span) ?? geometricCubic(span, g, createId, true, openChain) : undefined;
             if (c) {
                 segments.push({ a, b, curve: c });
                 return;
@@ -439,7 +439,7 @@ function ring(points: Point[], pixel: number, createId: () => string, allowCurve
                 const raw = end > start ? points.slice(start, end + 1) : [...points.slice(start), ...points.slice(0, end + 1)];
                 const span = anchors ? raw.map((p, k) => k === 0 || k === raw.length - 1 ? anchors.get(p.id) ?? p : p) : raw;
                 if (straight(span, g)) continue;
-                const c = cubic(span, requireCurvedCore) ?? geometricCubic(span, g, createId, requireCurvedCore);
+                const c = cubic(span, requireCurvedCore) ?? geometricCubic(span, g, createId, requireCurvedCore, openChain);
                 if (!c) continue;
                 if (anchors) {
                     recoveredAnchors.set(span[0].id, span[0]);
