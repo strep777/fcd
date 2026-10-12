@@ -87,8 +87,9 @@ fn angle(a: f64, b: f64, c: f64) -> f64 {
 fn overlapping(a: [usize; 3], b: [usize; 3], uv: &[[f64; 2]]) -> bool {
     let pa = a.map(|i| uv[i]);
     let pb = b.map(|i| uv[i]);
-    let inside =
-        |p: [f64; 2], r: [[f64; 2]; 3]| (0..3).all(|i| crate::numerical::orientation(r[i], r[(i + 1) % 3], p)>0);
+    let inside = |p: [f64; 2], r: [[f64; 2]; 3]| {
+        (0..3).all(|i| crate::numerical::orientation(r[i], r[(i + 1) % 3], p) > 0)
+    };
     for (i, p) in pa.iter().enumerate() {
         if !b.contains(&a[i]) && inside(*p, pb) {
             return true;
@@ -102,8 +103,9 @@ fn overlapping(a: [usize; 3], b: [usize; 3], uv: &[[f64; 2]]) -> bool {
     for i in 0..3 {
         for j in 0..3 {
             let (p, q, r, s) = (pa[i], pa[(i + 1) % 3], pb[j], pb[(j + 1) % 3]);
-            if crate::numerical::orientation(p,q,r)*crate::numerical::orientation(p,q,s)<0
-                && crate::numerical::orientation(r,s,p)*crate::numerical::orientation(r,s,q)<0
+            if crate::numerical::orientation(p, q, r) * crate::numerical::orientation(p, q, s) < 0
+                && crate::numerical::orientation(r, s, p) * crate::numerical::orientation(r, s, q)
+                    < 0
             {
                 return true;
             }
@@ -179,7 +181,12 @@ pub fn unwrap_mesh(mesh: &Mesh) -> Result<Vec<Patch>, &'static str> {
             vertices[j] = *ids.get(id).ok_or("INVALID_MESH")?;
         }
         let [a, b, c] = vertices;
-        if crate::numerical::area3([a,b,c].map(|i|{let v=&mesh.vertices[i];[v.x_mm,v.y_mm,v.z_mm]})).is_none() {
+        if crate::numerical::area3([a, b, c].map(|i| {
+            let v = &mesh.vertices[i];
+            [v.x_mm, v.y_mm, v.z_mm]
+        }))
+        .is_none()
+        {
             return Err("DEGENERATE_MESH");
         }
         faces.push(vertices);
@@ -305,9 +312,13 @@ fn parameterize_with_cuts(
 // A half-perimeter pair can therefore have zero or ill-conditioned distance.
 fn separated_boundary_anchors(vertices: &[Vertex], boundary: &[usize]) -> (usize, usize) {
     let farthest = |from: usize| -> usize {
-        *boundary.iter().max_by(|&&a, &&b| {
-            length(sub(&vertices[a], &vertices[from])).total_cmp(&length(sub(&vertices[b], &vertices[from])))
-        }).expect("nonempty boundary")
+        *boundary
+            .iter()
+            .max_by(|&&a, &&b| {
+                length(sub(&vertices[a], &vertices[from]))
+                    .total_cmp(&length(sub(&vertices[b], &vertices[from])))
+            })
+            .expect("nonempty boundary")
     };
     let first = farthest(boundary[0]);
     (first, farthest(first))
@@ -356,7 +367,7 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
     }
     let (first, second) = separated_boundary_anchors(&mesh.vertices, &boundary);
     let pinned_length = length(sub(&mesh.vertices[first], &mesh.vertices[second]));
-    if !pinned_length.is_finite() || pinned_length<=0. {
+    if !pinned_length.is_finite() || pinned_length <= 0. {
         return Err("NUMERICAL_FAILURE");
     }
     let fixed = BTreeMap::from([
@@ -488,7 +499,7 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
         numerator += l2 * l3;
         denominator += l2 * l2;
     }
-    if !denominator.is_finite() || denominator<=0. {
+    if !denominator.is_finite() || denominator <= 0. {
         return Err("NUMERICAL_FAILURE");
     }
     let scale = numerator / denominator;
@@ -523,7 +534,8 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
     }
     if mesh.method == "arap-balanced"
         && crate::arap::quality_ratios(mesh, &globals, &local_faces, &uv)
-            .iter().any(|&r| r > 1.)
+            .iter()
+            .any(|&r| r > 1.)
     {
         // Retry only a failed ordinary solution. Never trade one hard failure
         // for a smaller average: every face and all nonlocal overlaps must pass.
@@ -538,7 +550,8 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
         ) {
             if report.converged
                 && crate::arap::quality_ratios(mesh, &globals, &local_faces, &candidate)
-                    .iter().all(|&r| r <= 1.)
+                    .iter()
+                    .all(|&r| r <= 1.)
                 && matches!(has_overlap(&local_faces, &candidate), Ok(false))
             {
                 uv = candidate;
@@ -634,16 +647,131 @@ mod design_anchor_tests {
     use super::*;
     #[test]
     fn seam_copies_at_half_arc_are_not_coincident_anchors() {
-        let vertices: Vec<Vertex> = [10., 20., 10., 0.].iter().enumerate().map(|(i, &x)| Vertex {id:i.to_string(),x_mm:x,y_mm:0.,z_mm:0.}).collect();
-        let (a,b)=separated_boundary_anchors(&vertices,&[0,1,2,3]);
-        assert!(length(sub(&vertices[a],&vertices[b])) >= 19.);
+        let vertices: Vec<Vertex> = [10., 20., 10., 0.]
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| Vertex {
+                id: i.to_string(),
+                x_mm: x,
+                y_mm: 0.,
+                z_mm: 0.,
+            })
+            .collect();
+        let (a, b) = separated_boundary_anchors(&vertices, &[0, 1, 2, 3]);
+        assert!(length(sub(&vertices[a], &vertices[b])) >= 19.);
     }
 }
 
-#[cfg(test)]mod numerical_unwrap_tests{
- use super::*;
- fn mesh(points:&[[f64;3]],faces:&[[usize;3]],method:&str)->Mesh{Mesh{repair_cuts:false,method:method.into(),iterations:Some(100),vertices:points.iter().enumerate().map(|(i,p)|Vertex{id:i.to_string(),x_mm:p[0],y_mm:p[1],z_mm:p[2]}).collect(),faces:faces.iter().enumerate().map(|(i,f)|Face{id:i.to_string(),vertices:f.map(|n|n.to_string()),region:"panel".into()}).collect()}}
- #[test]fn real_small_triangles_complete_lscm_and_arap_without_distortion(){let fixtures:Vec<serde_json::Value>=serde_json::from_str(include_str!("../../../tests/fixtures/material-numerical-validity.json")).unwrap();for method in ["lscm","arap"]{for row in &fixtures{let p:[[f64;3];3]=std::array::from_fn(|i|std::array::from_fn(|j|row["points"][i][j].as_f64().unwrap()));let result=unwrap_mesh(&mesh(&p,&[[0,1,2]],method));if row["valid"].as_bool().unwrap(){let patches=result.unwrap();assert_eq!(patches.len(),1);assert!(patches[0].area_error_max<1e-5,"{} area {}",method,patches[0].area_error_max);assert!(patches[0].edge_error_max<1e-5);assert_eq!(patches[0].status,"acceptable");}else{assert!(matches!(result,Err("DEGENERATE_MESH")));}}}}
- #[test]fn scaled_translated_and_mixed_size_faces_keep_the_hard_metrics(){for method in ["lscm","arap"]{for scale in [1e-6,1.,1000.]{for offset in [0.,1000.]{let points=[[0.,0.,0.],[1e-4,0.,0.],[0.,1e-4,0.],[1.,0.,0.],[0.,1.,0.]].map(|p|[offset+scale*p[0],offset+scale*p[1],scale*p[2]]);let patches=unwrap_mesh(&mesh(&points,&[[0,1,2],[1,3,4],[1,4,2]],method)).unwrap();assert_eq!(patches.len(),1);assert_eq!(patches[0].face_ids.len(),3);assert!(patches[0].area_error_max<=0.15,"{} {} {} area {}",method,scale,offset,patches[0].area_error_max);assert!(patches[0].edge_error_max<=0.10);assert!(patches[0].distortion_max<=1.);}}}}
- #[test]fn flipped_uv_and_exact_degeneracy_are_still_rejected(){let m=mesh(&[[0.,0.,0.],[1e-4,0.,0.],[0.,1e-4,0.]],&[[0,1,2]],"arap");let mut uv=vec![[0.,0.],[0.,1e-4],[1e-4,0.]];assert!(crate::arap::quality_ratios(&m,&[0,1,2],&[[0,1,2]],&uv)[0].is_infinite());assert!(matches!(crate::arap::refine(&m,&[0,1,2],&[[0,1,2]],&mut uv,[0,1],10),Err("UNWRAP_FLIPPED")));assert!(matches!(unwrap_mesh(&mesh(&[[0.,0.,0.],[1.,0.,0.],[2.,0.,0.]],&[[0,1,2]],"lscm")),Err("DEGENERATE_MESH")));}
+#[cfg(test)]
+mod numerical_unwrap_tests {
+    use super::*;
+    fn mesh(points: &[[f64; 3]], faces: &[[usize; 3]], method: &str) -> Mesh {
+        Mesh {
+            repair_cuts: false,
+            method: method.into(),
+            iterations: Some(100),
+            vertices: points
+                .iter()
+                .enumerate()
+                .map(|(i, p)| Vertex {
+                    id: i.to_string(),
+                    x_mm: p[0],
+                    y_mm: p[1],
+                    z_mm: p[2],
+                })
+                .collect(),
+            faces: faces
+                .iter()
+                .enumerate()
+                .map(|(i, f)| Face {
+                    id: i.to_string(),
+                    vertices: f.map(|n| n.to_string()),
+                    region: "panel".into(),
+                })
+                .collect(),
+        }
+    }
+    #[test]
+    fn real_small_triangles_complete_lscm_and_arap_without_distortion() {
+        let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/material-numerical-validity.json"
+        ))
+        .unwrap();
+        for method in ["lscm", "arap"] {
+            for row in &fixtures {
+                let p: [[f64; 3]; 3] = std::array::from_fn(|i| {
+                    std::array::from_fn(|j| row["points"][i][j].as_f64().unwrap())
+                });
+                let result = unwrap_mesh(&mesh(&p, &[[0, 1, 2]], method));
+                if row["valid"].as_bool().unwrap() {
+                    let patches = result.unwrap();
+                    assert_eq!(patches.len(), 1);
+                    assert!(
+                        patches[0].area_error_max < 1e-5,
+                        "{} area {}",
+                        method,
+                        patches[0].area_error_max
+                    );
+                    assert!(patches[0].edge_error_max < 1e-5);
+                    assert_eq!(patches[0].status, "acceptable");
+                } else {
+                    assert!(matches!(result, Err("DEGENERATE_MESH")));
+                }
+            }
+        }
+    }
+    #[test]
+    fn scaled_translated_and_mixed_size_faces_keep_the_hard_metrics() {
+        for method in ["lscm", "arap"] {
+            for scale in [1e-6, 1., 1000.] {
+                for offset in [0., 1000.] {
+                    let points = [
+                        [0., 0., 0.],
+                        [1e-4, 0., 0.],
+                        [0., 1e-4, 0.],
+                        [1., 0., 0.],
+                        [0., 1., 0.],
+                    ]
+                    .map(|p| [offset + scale * p[0], offset + scale * p[1], scale * p[2]]);
+                    let patches =
+                        unwrap_mesh(&mesh(&points, &[[0, 1, 2], [1, 3, 4], [1, 4, 2]], method))
+                            .unwrap();
+                    assert_eq!(patches.len(), 1);
+                    assert_eq!(patches[0].face_ids.len(), 3);
+                    assert!(
+                        patches[0].area_error_max <= 0.15,
+                        "{} {} {} area {}",
+                        method,
+                        scale,
+                        offset,
+                        patches[0].area_error_max
+                    );
+                    assert!(patches[0].edge_error_max <= 0.10);
+                    assert!(patches[0].distortion_max <= 1.);
+                }
+            }
+        }
+    }
+    #[test]
+    fn flipped_uv_and_exact_degeneracy_are_still_rejected() {
+        let m = mesh(
+            &[[0., 0., 0.], [1e-4, 0., 0.], [0., 1e-4, 0.]],
+            &[[0, 1, 2]],
+            "arap",
+        );
+        let mut uv = vec![[0., 0.], [0., 1e-4], [1e-4, 0.]];
+        assert!(crate::arap::quality_ratios(&m, &[0, 1, 2], &[[0, 1, 2]], &uv)[0].is_infinite());
+        assert!(matches!(
+            crate::arap::refine(&m, &[0, 1, 2], &[[0, 1, 2]], &mut uv, [0, 1], 10),
+            Err("UNWRAP_FLIPPED")
+        ));
+        assert!(matches!(
+            unwrap_mesh(&mesh(
+                &[[0., 0., 0.], [1., 0., 0.], [2., 0., 0.]],
+                &[[0, 1, 2]],
+                "lscm"
+            )),
+            Err("DEGENERATE_MESH")
+        ));
+    }
 }

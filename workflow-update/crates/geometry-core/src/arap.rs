@@ -51,144 +51,10 @@ fn energy(elements: &[Element], uv: &[[f64; 2]]) -> f64 {
 fn positive(faces: &[[usize; 3]], uv: &[[f64; 2]]) -> bool {
     faces.iter().all(|f| {
         let [a, b, c] = f.map(|i| uv[i]);
-        crate::numerical::positive_area2([a,b,c]).is_some()
+        crate::numerical::positive_area2([a, b, c]).is_some()
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::surface::{Face, Vertex};
-
-    #[test]
-    fn initial_anchor_distance_is_not_a_material_constraint() {
-        let rest = [[0., 0.], [100., 0.], [100., 100.], [0., 100.]];
-        let mut mesh = Mesh {
-            repair_cuts: false,
-            method: "arap".into(),
-            iterations: Some(100),
-            vertices: rest
-                .iter()
-                .enumerate()
-                .map(|(i, p)| Vertex {
-                    id: i.to_string(),
-                    x_mm: p[0],
-                    y_mm: p[1],
-                    z_mm: 0.,
-                })
-                .collect(),
-            faces: vec![
-                Face {
-                    id: "a".into(),
-                    vertices: ["0".into(), "1".into(), "2".into()],
-                    region: "panel".into(),
-                },
-                Face {
-                    id: "b".into(),
-                    vertices: ["0".into(), "2".into(), "3".into()],
-                    region: "panel".into(),
-                },
-            ],
-        };
-        let mut uv = vec![[0., 0.], [80., 0.], [80., 100.], [0., 100.]];
-        let report = refine(
-            &mesh,
-            &[0, 1, 2, 3],
-            &[[0, 1, 2], [0, 2, 3]],
-            &mut uv,
-            [0, 1],
-            100,
-        )
-        .unwrap();
-        assert!(
-            report.energy_after < 1e-9,
-            "A free panel must not keep the initial anchor spacing: {}",
-            report.energy_after
-        );
-        assert!((uv[1][0].hypot(uv[1][1]) - 100.).abs() < 1e-3);
-        assert_eq!(uv[0], [0., 0.]);
-        let ordinary = crate::surface::unwrap_mesh(&mesh).unwrap();
-        mesh.method = "arap-balanced".into();
-        let unchanged = crate::surface::unwrap_mesh(&mesh).unwrap();
-        assert_eq!(serde_json::to_value(ordinary).unwrap(), serde_json::to_value(unchanged).unwrap(),
-            "A successful ordinary solution must skip reweighting entirely");
-    }
-
-    #[test]
-    fn fixed_reweighting_saves_a_real_domain_without_adding_seams() {
-        let fixture = include_str!("../../../tests/fixtures/arap-balanced-real-domain.json");
-        for iterations in [30, 100] {
-            let mut mesh: Mesh = serde_json::from_str(fixture).unwrap();
-            mesh.iterations = Some(iterations);
-            let ordinary = crate::surface::unwrap_mesh(&mesh).unwrap();
-            assert_eq!(ordinary.len(), 1);
-            assert!(ordinary[0].edge_error_max > 0.115);
-            mesh.method = "arap-balanced".into();
-            let balanced = crate::surface::unwrap_mesh(&mesh).unwrap();
-            assert_eq!(balanced.len(), 1, "A successful retry must not need a new seam");
-            let p = &balanced[0];
-            assert_eq!(p.face_ids.len(), 62);
-            assert_eq!(p.face_ids, ordinary[0].face_ids);
-            assert!(p.area_error_max <= 0.15);
-            assert!(p.edge_error_max <= 0.10);
-            assert!(p.distortion_max <= 0.15);
-            assert!(p.arap.as_ref().unwrap().converged);
-            assert!(!p.arap.as_ref().unwrap().reverted);
-            // The soft p95 warning remains; passing hard maxima is not a
-            // license to lower the existing manufacturing review threshold.
-            assert!(p.distortion_p95 > 0.05);
-            assert_eq!(p.status, "needsReview");
-        }
-    }
-
-    #[test]
-    fn rejected_reweighting_keeps_the_ordinary_geometry_and_report() {
-        let fixture = include_str!("../../../tests/fixtures/arap-balanced-real-domain.json");
-        let mut mesh: Mesh = serde_json::from_str(fixture).unwrap();
-        // A single iteration cannot turn this curved material into a valid chart.
-        // Candidate energy reduction alone must not change the ordinary result.
-        mesh.iterations = Some(1);
-        let ordinary = crate::surface::unwrap_mesh(&mesh).unwrap();
-        assert!(ordinary[0].edge_error_max > 0.10);
-        mesh.method = "arap-balanced".into();
-        let balanced = crate::surface::unwrap_mesh(&mesh).unwrap();
-        assert_eq!(serde_json::to_value(ordinary).unwrap(), serde_json::to_value(balanced).unwrap());
-    }
-
-    #[test]
-    fn skinny_valid_triangle_keeps_its_isometric_embedding() {
-        let mut uv = vec![[0., 0.], [100., 0.], [100., 0.0000001]];
-        let mesh = Mesh {
-            repair_cuts: false,
-            method: "arap".into(),
-            iterations: Some(30),
-            vertices: uv
-                .iter()
-                .enumerate()
-                .map(|(i, p)| Vertex {
-                    id: i.to_string(),
-                    x_mm: p[0],
-                    y_mm: p[1],
-                    z_mm: 0.,
-                })
-                .collect(),
-            faces: vec![Face {
-                id: "face".into(),
-                vertices: ["0".into(), "1".into(), "2".into()],
-                region: "panel".into(),
-            }],
-        };
-        let before = uv.clone();
-        let result = refine(&mesh, &[0, 1, 2], &[[0, 1, 2]], &mut uv, [0, 1], 30);
-        assert!(
-            result.is_ok(),
-            "A nonzero cross-product area must not be lost to subtraction cancellation"
-        );
-        let report = result.unwrap();
-        assert!(report.energy_after < 1e-12);
-        assert_eq!(uv, before);
-    }
-}
 /// Triangle ARAP parameterization: closest SO(2) rotations, FEM global least squares,
 /// one translation anchor, and energy-decreasing line search preserving triangle orientation.
 pub fn refine(
@@ -227,54 +93,67 @@ pub fn quality_ratios(
     faces: &[[usize; 3]],
     uv: &[[f64; 2]],
 ) -> Vec<f64> {
-    faces.iter().map(|f| {
-        let xyz = f.map(|i| &mesh.vertices[globals[i]]);
-        let p = f.map(|i| uv[i]);
-        let e1 = [
-            xyz[1].x_mm - xyz[0].x_mm,
-            xyz[1].y_mm - xyz[0].y_mm,
-            xyz[1].z_mm - xyz[0].z_mm,
-        ];
-        let e2 = [
-            xyz[2].x_mm - xyz[0].x_mm,
-            xyz[2].y_mm - xyz[0].y_mm,
-            xyz[2].z_mm - xyz[0].z_mm,
-        ];
-        let cross = [
-            e1[1] * e2[2] - e1[2] * e2[1],
-            e1[2] * e2[0] - e1[0] * e2[2],
-            e1[0] * e2[1] - e1[1] * e2[0],
-        ];
-        let area = inner(&cross, &cross).sqrt() / 2.;
-        let projected = ((p[1][0] - p[0][0]) * (p[2][1] - p[0][1])
-            - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0])) / 2.;
-        if crate::numerical::positive_area2(p).is_none() || crate::numerical::area3(xyz.map(|v|[v.x_mm,v.y_mm,v.z_mm])).is_none() {
-            return f64::INFINITY;
-        }
-        let ea = (projected / area - 1.).abs();
-        let l3: [f64; 3] = std::array::from_fn(|i| {
-            let a = xyz[i];
-            let b = xyz[(i + 1) % 3];
-            (b.x_mm - a.x_mm).hypot(b.y_mm - a.y_mm).hypot(b.z_mm - a.z_mm)
-        });
-        let l2: [f64; 3] = std::array::from_fn(|i| {
-            (p[(i + 1) % 3][0] - p[i][0]).hypot(p[(i + 1) % 3][1] - p[i][1])
-        });
-        let ee = (0..3)
-            .map(|i| (l2[i] / l3[i] - 1.).abs())
-            .fold(0., f64::max);
-        let angle = |a: f64, b: f64, c: f64| {
-            ((a * a + b * b - c * c) / (2. * a * b)).clamp(-1., 1.).acos()
-        };
-        let et = (0..3)
-            .map(|i| {
-                (angle(l3[i], l3[(i + 1) % 3], l3[(i + 2) % 3])
-                    - angle(l2[i], l2[(i + 1) % 3], l2[(i + 2) % 3])).abs()
-                    / std::f64::consts::PI
-            })
-            .fold(0., f64::max);
-        (ea / 0.15).max(ee / 0.10).max((0.4 * ea + 0.4 * ee + 0.2 * et) / 0.15)
-    }).collect()
+    faces
+        .iter()
+        .map(|f| {
+            let xyz = f.map(|i| &mesh.vertices[globals[i]]);
+            let p = f.map(|i| uv[i]);
+            let e1 = [
+                xyz[1].x_mm - xyz[0].x_mm,
+                xyz[1].y_mm - xyz[0].y_mm,
+                xyz[1].z_mm - xyz[0].z_mm,
+            ];
+            let e2 = [
+                xyz[2].x_mm - xyz[0].x_mm,
+                xyz[2].y_mm - xyz[0].y_mm,
+                xyz[2].z_mm - xyz[0].z_mm,
+            ];
+            let cross = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            let area = inner(&cross, &cross).sqrt() / 2.;
+            let projected = ((p[1][0] - p[0][0]) * (p[2][1] - p[0][1])
+                - (p[1][1] - p[0][1]) * (p[2][0] - p[0][0]))
+                / 2.;
+            if crate::numerical::positive_area2(p).is_none()
+                || crate::numerical::area3(xyz.map(|v| [v.x_mm, v.y_mm, v.z_mm])).is_none()
+            {
+                return f64::INFINITY;
+            }
+            let ea = (projected / area - 1.).abs();
+            let l3: [f64; 3] = std::array::from_fn(|i| {
+                let a = xyz[i];
+                let b = xyz[(i + 1) % 3];
+                (b.x_mm - a.x_mm)
+                    .hypot(b.y_mm - a.y_mm)
+                    .hypot(b.z_mm - a.z_mm)
+            });
+            let l2: [f64; 3] = std::array::from_fn(|i| {
+                (p[(i + 1) % 3][0] - p[i][0]).hypot(p[(i + 1) % 3][1] - p[i][1])
+            });
+            let ee = (0..3)
+                .map(|i| (l2[i] / l3[i] - 1.).abs())
+                .fold(0., f64::max);
+            let angle = |a: f64, b: f64, c: f64| {
+                ((a * a + b * b - c * c) / (2. * a * b))
+                    .clamp(-1., 1.)
+                    .acos()
+            };
+            let et = (0..3)
+                .map(|i| {
+                    (angle(l3[i], l3[(i + 1) % 3], l3[(i + 2) % 3])
+                        - angle(l2[i], l2[(i + 1) % 3], l2[(i + 2) % 3]))
+                    .abs()
+                        / std::f64::consts::PI
+                })
+                .fold(0., f64::max);
+            (ea / 0.15)
+                .max(ee / 0.10)
+                .max((0.4 * ea + 0.4 * ee + 0.2 * et) / 0.15)
+        })
+        .collect()
 }
 
 fn refine_with_weights(
@@ -286,20 +165,79 @@ fn refine_with_weights(
     limit: usize,
     weights: Option<&[f64]>,
 ) -> Result<ArapReport, &'static str> {
-    if faces.iter().any(|f|crate::numerical::area3(f.map(|i|{let v=&mesh.vertices[globals[i]];[v.x_mm,v.y_mm,v.z_mm]})).is_none()){return Err("NUMERICAL_FAILURE");}
+    if faces.iter().any(|f| {
+        crate::numerical::area3(f.map(|i| {
+            let v = &mesh.vertices[globals[i]];
+            [v.x_mm, v.y_mm, v.z_mm]
+        }))
+        .is_none()
+    }) {
+        return Err("NUMERICAL_FAILURE");
+    }
     // Unit patch coordinates make CG residuals independent of physical size.
     // Rest lengths, UVs and energy use the same scale; reports remain dimensionless.
-    let scale=faces.iter().flat_map(|f|(0..3).map(move |i|(f[i],f[(i+1)%3]))).map(|(a,b)|{
-        let a=&mesh.vertices[globals[a]];let b=&mesh.vertices[globals[b]];(a.x_mm-b.x_mm).hypot(a.y_mm-b.y_mm).hypot(a.z_mm-b.z_mm)
-    }).fold(0.,f64::max);
-    if !scale.is_finite()||scale<=0.{return Err("NUMERICAL_FAILURE");}
-    let origin=&mesh.vertices[globals[anchors[0]]];let uv_origin=uv[anchors[0]];
-    let conditioned=Mesh{repair_cuts:mesh.repair_cuts,method:mesh.method.clone(),iterations:mesh.iterations,vertices:mesh.vertices.iter().map(|v|crate::surface::Vertex{id:v.id.clone(),x_mm:(v.x_mm-origin.x_mm)/scale,y_mm:(v.y_mm-origin.y_mm)/scale,z_mm:(v.z_mm-origin.z_mm)/scale}).collect(),faces:mesh.faces.clone()};
-    let mut local:Vec<_>=uv.iter().map(|p|[(p[0]-uv_origin[0])/scale,(p[1]-uv_origin[1])/scale]).collect();
-    let report=refine_conditioned(&conditioned,globals,faces,&mut local,anchors,limit,weights)?;
-    if report.iterations>0{*uv=local.iter().map(|p|[p[0]*scale+uv_origin[0],p[1]*scale+uv_origin[1]]).collect();}Ok(report)
+    let scale = faces
+        .iter()
+        .flat_map(|f| (0..3).map(move |i| (f[i], f[(i + 1) % 3])))
+        .map(|(a, b)| {
+            let a = &mesh.vertices[globals[a]];
+            let b = &mesh.vertices[globals[b]];
+            (a.x_mm - b.x_mm)
+                .hypot(a.y_mm - b.y_mm)
+                .hypot(a.z_mm - b.z_mm)
+        })
+        .fold(0., f64::max);
+    if !scale.is_finite() || scale <= 0. {
+        return Err("NUMERICAL_FAILURE");
+    }
+    let origin = &mesh.vertices[globals[anchors[0]]];
+    let uv_origin = uv[anchors[0]];
+    let conditioned = Mesh {
+        repair_cuts: mesh.repair_cuts,
+        method: mesh.method.clone(),
+        iterations: mesh.iterations,
+        vertices: mesh
+            .vertices
+            .iter()
+            .map(|v| crate::surface::Vertex {
+                id: v.id.clone(),
+                x_mm: (v.x_mm - origin.x_mm) / scale,
+                y_mm: (v.y_mm - origin.y_mm) / scale,
+                z_mm: (v.z_mm - origin.z_mm) / scale,
+            })
+            .collect(),
+        faces: mesh.faces.clone(),
+    };
+    let mut local: Vec<_> = uv
+        .iter()
+        .map(|p| [(p[0] - uv_origin[0]) / scale, (p[1] - uv_origin[1]) / scale])
+        .collect();
+    let report = refine_conditioned(
+        &conditioned,
+        globals,
+        faces,
+        &mut local,
+        anchors,
+        limit,
+        weights,
+    )?;
+    if report.iterations > 0 {
+        *uv = local
+            .iter()
+            .map(|p| [p[0] * scale + uv_origin[0], p[1] * scale + uv_origin[1]])
+            .collect();
+    }
+    Ok(report)
 }
-fn refine_conditioned(mesh:&Mesh,globals:&[usize],faces:&[[usize;3]],uv:&mut Vec<[f64;2]>,anchors:[usize;2],limit:usize,weights:Option<&[f64]>)->Result<ArapReport,&'static str>{
+fn refine_conditioned(
+    mesh: &Mesh,
+    globals: &[usize],
+    faces: &[[usize; 3]],
+    uv: &mut Vec<[f64; 2]>,
+    anchors: [usize; 2],
+    limit: usize,
+    weights: Option<&[f64]>,
+) -> Result<ArapReport, &'static str> {
     let mut elements = vec![];
     for (face_index, &indices) in faces.iter().enumerate() {
         let [a, b, c] = indices.map(|i| &mesh.vertices[globals[i]]);
@@ -315,7 +253,7 @@ fn refine_conditioned(mesh:&Mesh,globals:&[usize],faces:&[[usize;3]],uv:&mut Vec
             e1[0] * e2[1] - e1[1] * e2[0],
         ];
         let h = inner(&cross, &cross).sqrt() / l;
-        if crate::numerical::area3([a,b,c].map(|v|[v.x_mm,v.y_mm,v.z_mm])).is_none() {
+        if crate::numerical::area3([a, b, c].map(|v| [v.x_mm, v.y_mm, v.z_mm])).is_none() {
             return Err("NUMERICAL_FAILURE");
         }
         elements.push(Element {
@@ -472,4 +410,149 @@ fn refine_conditioned(mesh:&Mesh,globals:&[usize],faces:&[[usize;3]],uv:&mut Vec
         converged,
         reverted: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::surface::{Face, Vertex};
+
+    #[test]
+    fn initial_anchor_distance_is_not_a_material_constraint() {
+        let rest = [[0., 0.], [100., 0.], [100., 100.], [0., 100.]];
+        let mut mesh = Mesh {
+            repair_cuts: false,
+            method: "arap".into(),
+            iterations: Some(100),
+            vertices: rest
+                .iter()
+                .enumerate()
+                .map(|(i, p)| Vertex {
+                    id: i.to_string(),
+                    x_mm: p[0],
+                    y_mm: p[1],
+                    z_mm: 0.,
+                })
+                .collect(),
+            faces: vec![
+                Face {
+                    id: "a".into(),
+                    vertices: ["0".into(), "1".into(), "2".into()],
+                    region: "panel".into(),
+                },
+                Face {
+                    id: "b".into(),
+                    vertices: ["0".into(), "2".into(), "3".into()],
+                    region: "panel".into(),
+                },
+            ],
+        };
+        let mut uv = vec![[0., 0.], [80., 0.], [80., 100.], [0., 100.]];
+        let report = refine(
+            &mesh,
+            &[0, 1, 2, 3],
+            &[[0, 1, 2], [0, 2, 3]],
+            &mut uv,
+            [0, 1],
+            100,
+        )
+        .unwrap();
+        assert!(
+            report.energy_after < 1e-9,
+            "A free panel must not keep the initial anchor spacing: {}",
+            report.energy_after
+        );
+        assert!((uv[1][0].hypot(uv[1][1]) - 100.).abs() < 1e-3);
+        assert_eq!(uv[0], [0., 0.]);
+        let ordinary = crate::surface::unwrap_mesh(&mesh).unwrap();
+        mesh.method = "arap-balanced".into();
+        let unchanged = crate::surface::unwrap_mesh(&mesh).unwrap();
+        assert_eq!(
+            serde_json::to_value(ordinary).unwrap(),
+            serde_json::to_value(unchanged).unwrap(),
+            "A successful ordinary solution must skip reweighting entirely"
+        );
+    }
+
+    #[test]
+    fn fixed_reweighting_saves_a_real_domain_without_adding_seams() {
+        let fixture = include_str!("../../../tests/fixtures/arap-balanced-real-domain.json");
+        for iterations in [30, 100] {
+            let mut mesh: Mesh = serde_json::from_str(fixture).unwrap();
+            mesh.iterations = Some(iterations);
+            let ordinary = crate::surface::unwrap_mesh(&mesh).unwrap();
+            assert_eq!(ordinary.len(), 1);
+            assert!(ordinary[0].edge_error_max > 0.115);
+            mesh.method = "arap-balanced".into();
+            let balanced = crate::surface::unwrap_mesh(&mesh).unwrap();
+            assert_eq!(
+                balanced.len(),
+                1,
+                "A successful retry must not need a new seam"
+            );
+            let p = &balanced[0];
+            assert_eq!(p.face_ids.len(), 62);
+            assert_eq!(p.face_ids, ordinary[0].face_ids);
+            assert!(p.area_error_max <= 0.15);
+            assert!(p.edge_error_max <= 0.10);
+            assert!(p.distortion_max <= 0.15);
+            assert!(p.arap.as_ref().unwrap().converged);
+            assert!(!p.arap.as_ref().unwrap().reverted);
+            // The soft p95 warning remains; passing hard maxima is not a
+            // license to lower the existing manufacturing review threshold.
+            assert!(p.distortion_p95 > 0.05);
+            assert_eq!(p.status, "needsReview");
+        }
+    }
+
+    #[test]
+    fn rejected_reweighting_keeps_the_ordinary_geometry_and_report() {
+        let fixture = include_str!("../../../tests/fixtures/arap-balanced-real-domain.json");
+        let mut mesh: Mesh = serde_json::from_str(fixture).unwrap();
+        // A single iteration cannot turn this curved material into a valid chart.
+        // Candidate energy reduction alone must not change the ordinary result.
+        mesh.iterations = Some(1);
+        let ordinary = crate::surface::unwrap_mesh(&mesh).unwrap();
+        assert!(ordinary[0].edge_error_max > 0.10);
+        mesh.method = "arap-balanced".into();
+        let balanced = crate::surface::unwrap_mesh(&mesh).unwrap();
+        assert_eq!(
+            serde_json::to_value(ordinary).unwrap(),
+            serde_json::to_value(balanced).unwrap()
+        );
+    }
+
+    #[test]
+    fn skinny_valid_triangle_keeps_its_isometric_embedding() {
+        let mut uv = vec![[0., 0.], [100., 0.], [100., 0.0000001]];
+        let mesh = Mesh {
+            repair_cuts: false,
+            method: "arap".into(),
+            iterations: Some(30),
+            vertices: uv
+                .iter()
+                .enumerate()
+                .map(|(i, p)| Vertex {
+                    id: i.to_string(),
+                    x_mm: p[0],
+                    y_mm: p[1],
+                    z_mm: 0.,
+                })
+                .collect(),
+            faces: vec![Face {
+                id: "face".into(),
+                vertices: ["0".into(), "1".into(), "2".into()],
+                region: "panel".into(),
+            }],
+        };
+        let before = uv.clone();
+        let result = refine(&mesh, &[0, 1, 2], &[[0, 1, 2]], &mut uv, [0, 1], 30);
+        assert!(
+            result.is_ok(),
+            "A nonzero cross-product area must not be lost to subtraction cancellation"
+        );
+        let report = result.unwrap();
+        assert!(report.energy_after < 1e-12);
+        assert_eq!(uv, before);
+    }
 }

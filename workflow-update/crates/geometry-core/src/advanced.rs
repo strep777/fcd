@@ -1,4 +1,7 @@
-use crate::{area, distance, intersects, issue, offset_sampled, validate, validate_sampled, Geometry, Piece, Point, SAMPLED_CONTOUR_LIMIT};
+use crate::{
+    area, distance, intersects, issue, offset_sampled, validate, validate_sampled, Geometry, Piece,
+    Point, SAMPLED_CONTOUR_LIMIT,
+};
 use clipper2_rust::{
     difference_64, inflate_paths_64, intersect_64, union_64, xor_64, EndType, FillRule, JoinType,
     Paths64, Point64,
@@ -83,7 +86,11 @@ fn polygons_with_limit(paths: Paths64, sampled: bool) -> Result<Vec<Polygon>, &'
         return Err("nodeCount");
     }
     for ring in &mut rings {
-        if sampled { validate_sampled(ring)?; } else { validate(ring)?; }
+        if sampled {
+            validate_sampled(ring)?;
+        } else {
+            validate(ring)?;
+        }
         let start = ring
             .iter()
             .enumerate()

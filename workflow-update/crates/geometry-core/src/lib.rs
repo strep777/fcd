@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 include!("schema_generated.rs");
 mod advanced;
 mod allowance;
+mod arap;
+pub mod clipping;
 #[cfg(test)]
 mod contour_budget_tests;
+mod numerical;
 #[cfg(test)]
 mod numerical_contour_tests;
-mod arap;
-mod numerical;
-pub mod clipping;
 pub mod surface;
 pub use advanced::{analyze, boolean};
 #[derive(Debug, Serialize)]
@@ -63,8 +63,10 @@ pub fn area(p: &[Point]) -> f64 {
     p.iter()
         .zip(p.iter().cycle().skip(1))
         .take(p.len())
-        .map(|(a, b)| (a.x_mm - origin.x_mm) * (b.y_mm - origin.y_mm)
-            - (b.x_mm - origin.x_mm) * (a.y_mm - origin.y_mm))
+        .map(|(a, b)| {
+            (a.x_mm - origin.x_mm) * (b.y_mm - origin.y_mm)
+                - (b.x_mm - origin.x_mm) * (a.y_mm - origin.y_mm)
+        })
         .sum::<f64>()
         / 2.0
 }
@@ -108,8 +110,12 @@ fn reliable_nonzero_area(p: &[Point]) -> bool {
     let mut absolute_terms = 0.;
     for i in 1..p.len() - 1 {
         let Some((det, bound)) = numerical::determinant(
-            origin, [p[i].x_mm, p[i].y_mm], [p[i + 1].x_mm, p[i + 1].y_mm],
-        ) else { return false; };
+            origin,
+            [p[i].x_mm, p[i].y_mm],
+            [p[i + 1].x_mm, p[i + 1].y_mm],
+        ) else {
+            return false;
+        };
         error += bound;
         absolute_terms += det.abs();
     }
@@ -149,10 +155,20 @@ fn validate_with_limit(p: &[Point], limit: usize) -> Result<(), &'static str> {
     validate_node_attributes(p, limit)?;
     // Broad-phase bounds avoid comparing every dense curve sample with every
     // other sample. The exact intersection predicate and its tolerance stay.
-    let mut boxes: Vec<_> = p.iter().enumerate().map(|(i, a)| {
-        let b = &p[(i + 1) % p.len()];
-        (i, a.x_mm.min(b.x_mm), a.y_mm.min(b.y_mm), a.x_mm.max(b.x_mm), a.y_mm.max(b.y_mm))
-    }).collect();
+    let mut boxes: Vec<_> = p
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let b = &p[(i + 1) % p.len()];
+            (
+                i,
+                a.x_mm.min(b.x_mm),
+                a.y_mm.min(b.y_mm),
+                a.x_mm.max(b.x_mm),
+                a.y_mm.max(b.y_mm),
+            )
+        })
+        .collect();
     boxes.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
     for (k, a) in boxes.iter().enumerate() {
         for b in boxes.iter().skip(k + 1) {
@@ -324,7 +340,10 @@ mod tests {
             (2046.0980573286251, 2076.4289813475416),
         ];
         for shift in [0., -2000., 500_000.] {
-            let moved: Vec<_> = original.iter().map(|(x, y)| (x + shift, y + shift)).collect();
+            let moved: Vec<_> = original
+                .iter()
+                .map(|(x, y)| (x + shift, y + shift))
+                .collect();
             let p = points(&moved);
             assert_eq!(validate(&p), Ok(()), "shift {shift}");
             assert!(area(&p) > 1e-6);
@@ -333,12 +352,32 @@ mod tests {
     #[test]
     fn segment_contact_uses_the_same_distance_budget_for_short_and_long_edges() {
         for length in [0.001, 1., 10_000.] {
-            let p = points(&[(0., 0.), (length, 0.), (length / 2., 0.00005), (length, 0.00005)]);
+            let p = points(&[
+                (0., 0.),
+                (length, 0.),
+                (length / 2., 0.00005),
+                (length, 0.00005),
+            ]);
             assert!(!intersects(&p[0], &p[1], &p[2], &p[3]));
             let contact = points(&[(0., 0.), (length, 0.), (length / 2., 0.), (length / 2., 1.)]);
-            assert!(intersects(&contact[0], &contact[1], &contact[2], &contact[3]));
-            let crossing = points(&[(0., 0.), (length, 0.), (length / 2., -0.00005), (length / 2., 0.00005)]);
-            assert!(intersects(&crossing[0], &crossing[1], &crossing[2], &crossing[3]));
+            assert!(intersects(
+                &contact[0],
+                &contact[1],
+                &contact[2],
+                &contact[3]
+            ));
+            let crossing = points(&[
+                (0., 0.),
+                (length, 0.),
+                (length / 2., -0.00005),
+                (length / 2., 0.00005),
+            ]);
+            assert!(intersects(
+                &crossing[0],
+                &crossing[1],
+                &crossing[2],
+                &crossing[3]
+            ));
         }
     }
     #[test]
