@@ -65,12 +65,19 @@ function stopGesture(){clearMove();preview.value=null;drag=null;pan=null;}
 function cancel(){clearMove();draftHistory.reset(()=>{draftClosed.value=true;holeTarget.value='';draft.value=[];preview.value=null;drag=null;pan=null;});}
 function changePreviewTool(value:'pan'|'select'){cancel();tool.value=value;measurement.value=[];}
 function changeTool(value:typeof tool.value){stage.value='pattern';cancel();tool.value=value;measurement.value=[];}
-async function put(piece:Piece){const p=project.value;if(!p)return;const ok=await store.run(()=>window.fpcad.apply(p.id,p.revision,{type:'piece.put',piece:JSON.parse(JSON.stringify(piece))}));if(ok)selectedId.value=piece.id;}
+async function put(piece:Piece){const p=project.value;if(!p)return false;const ok=await store.run(()=>window.fpcad.apply(p.id,p.revision,{type:'piece.put',piece:JSON.parse(JSON.stringify(piece))}));if(ok)selectedId.value=piece.id;return ok;}
 function createPiece(nodes:Point[],closed=true):Piece{return {id:crypto.randomUUID(),name:`Pattern ${(project.value?.pieces.length??0)+1}`,nodes,closed,allowanceMm:10,cutQty:1,mirror:false,material:language.value==='zh'?'毛皮':localize('Fur'),furRad:Math.PI/2,color:'#73c9b6'};}
 async function rectangle(){stage.value='pattern';const offset=(project.value?.pieces.length??0)*30;await put(createPiece([[offset,0],[offset+100,0],[offset+100,200],[offset,200]].map(([xMm,yMm])=>({id:crypto.randomUUID(),xMm,yMm}))));}
 async function circle(){stage.value='pattern';await put(circlePiece(createPiece([]),50,()=>crypto.randomUUID()));}
 function startOpenPath(){changeTool('polygon');draftClosed.value=false;draftHistory.reset();}
-async function finish(){if(draft.value.length<(draftClosed.value?3:2))return;const target=project.value?.pieces.find(p=>p.id===holeTarget.value);const piece=target?{...target,holes:[...(target.holes??[]),draft.value]}:createPiece(draft.value,draftClosed.value);cancel();await put(piece);tool.value='node';}
+async function finish(){
+ if(store.busy||draft.value.length<(draftClosed.value?3:2))return;
+ const target=project.value?.pieces.find(p=>p.id===holeTarget.value);
+ if(holeTarget.value&&!target){store.error='STALE_EDIT';return;}
+ const nodes=draft.value,piece=target?{...target,holes:[...(target.holes??[]),nodes]}:createPiece(nodes,draftClosed.value);
+ // A rejected save must leave the drawing available for correction and retry.
+ if(await put(piece)&&draft.value===nodes&&tool.value==='polygon'){cancel();tool.value='node';}
+}
 function down(event:PointerEvent,piece?:Piece,node?:Point){
  if(event.button===1||event.button===0&&tool.value==='pan'){event.preventDefault();const screenMatrix=svg.value?.getScreenCTM();if(!screenMatrix)return;const matrix=screenMatrix.inverse();pan={pointerId:event.pointerId,start:new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix),matrix,view:{...view.value}};svg.value!.setPointerCapture(event.pointerId);return;}
  if(store.busy||!project.value||event.button!==0)return;if(stage.value!=='pattern'){if(piece)selectPiece(piece.id,false);return;}const point=world(event);if(!point)return;

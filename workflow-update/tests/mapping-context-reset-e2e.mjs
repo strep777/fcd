@@ -1,0 +1,32 @@
+import {build} from 'esbuild';
+import {parse,compileScript} from '@vue/compiler-sfc';
+import {_electron as electron} from 'playwright';
+import {mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
+import {resolve,dirname} from 'node:path';
+import assert from 'node:assert/strict';
+import {desktopArgs} from './desktop-launch.mjs';
+import {hiddenWindowId} from './desktop-window.mjs';
+await mkdir('.local/tests',{recursive:true});await mkdir('test-results/current-functional',{recursive:true});
+const directory=resolve(await mkdtemp('.local/tests/mapping-context-reset-'));
+const entry=`import {createApp,h} from 'vue';import {createPinia} from 'pinia';import {useSession} from './apps/desktop/src/store';import MarkingRecords from './apps/desktop/src/MarkingRecords.vue';import InferenceTools from './apps/desktop/src/InferenceTools.vue';
+const pinia=createPinia(),store=useSession(pinia);let n=0;
+const state=(surfaceId)=>({id:'project-a',name:'Context fixture',revision:++n,pieces:[],surface:{id:surfaceId},markings:[1,2].map(i=>({id:surfaceId+'-'+i,surfaceId,name:surfaceId+' marking '+i,fragments:[],paths:[]}))});
+store.data={project:state('A'),geometry:[],canUndo:false,canRedo:false,recovery:[],recent:[],history:[],jobs:[]};window.calls=[];
+window.swap=()=>store.data={...store.data,project:state('B')};window.dropSource=()=>store.data={...store.data,project:{...store.data.project,markings:store.data.project.markings.slice(1)}};
+window.fpcad={apply:async(id,revision,command)=>{window.calls.push(command);return {ok:true,data:store.data};},inferMarking:async(id,revision,markingId)=>{window.calls.push({type:'infer',markingId});return {ok:true,data:store.data};}};
+createApp({render:()=>h('div',[h(MarkingRecords,{language:'zh'}),h(InferenceTools,{language:'zh'})])}).use(pinia).mount('#app');`;
+await build({stdin:{contents:entry,resolveDir:resolve('.'),loader:'ts'},bundle:true,format:'iife',platform:'browser',outfile:resolve(directory,'fixture.js'),plugins:[{name:'production-vue',setup(build){build.onLoad({filter:/\.vue$/},async({path})=>{const {descriptor}=parse(await readFile(path,'utf8'));return {contents:compileScript(descriptor,{id:'mapping-context',inlineTemplate:true}).content,loader:'ts',resolveDir:dirname(path)};});}}]});
+await writeFile(resolve(directory,'index.html'),'<html><style>body{font:13px sans-serif;width:600px}button,input,select{font:inherit}button{padding:6px}details{margin:15px}</style><div id="app"></div><script src="fixture.js"></script></html>');
+await writeFile(resolve(directory,'main.cjs'),`const {app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(resolve(directory,'profile'))});app.whenReady().then(()=>new BrowserWindow({width:900,height:800,show:false,webPreferences:{contextIsolation:true,backgroundThrottling:false}}).loadFile(${JSON.stringify(resolve(directory,'index.html'))}));app.on('window-all-closed',()=>app.quit());`);
+const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
+const app=await electron.launch({args:[...desktopArgs.filter(arg=>arg.startsWith('--')),resolve(directory,'main.cjs')],env}),page=await app.firstWindow(),checks=[],errors=[];page.on('pageerror',error=>errors.push(error.message));
+try{
+ await hiddenWindowId(app,page);await page.getByRole('button',{name:'清空模型贴附花纹',exact:true}).click();assert.equal(await page.getByRole('button',{name:'确认清空贴附花纹',exact:true}).count(),1);
+ await page.locator('.inference-panel summary').click();const source=page.getByLabel('Inference source',{exact:true}),infer=page.getByRole('button',{name:'生成待审核补全',exact:true});await source.selectOption('A-1');assert(await infer.isEnabled());
+ await page.evaluate(()=>window.swap());await page.getByText('B marking 1',{exact:true}).first().waitFor();
+ assert.equal(await page.getByRole('button',{name:'确认清空贴附花纹',exact:true}).count(),0,'A clear confirmation must not authorize clearing model B');checks.push('clear confirmation resets when the active model changes');
+ assert.equal(await source.inputValue(),'');assert(await infer.isDisabled(),'A source cannot enable inference on model B');checks.push('inference source resets when the active model changes');
+ await source.selectOption('B-1');assert(await infer.isEnabled());await page.evaluate(()=>window.dropSource());assert.equal(await source.inputValue(),'');assert(await infer.isDisabled());checks.push('removing the selected source disables inference while other sources remain');
+ await source.selectOption('B-2');await infer.click();assert.deepEqual(await page.evaluate(()=>window.calls),[{type:'infer',markingId:'B-2'}]);checks.push('selecting a current source still submits inference successfully');
+ assert.deepEqual(errors,[]);await hiddenWindowId(app,page);
+}finally{await writeFile('test-results/current-functional/mapping-context-reset.json',JSON.stringify({passed:checks.length===4&&!errors.length,directory,backgroundWindow:true,source:'production Vue components with isolated API adapter',checks,errors},null,2));await app.close();}

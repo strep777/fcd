@@ -6,11 +6,11 @@ import {usePatternEditor} from '../../apps/desktop/src/modules/usePatternEditor'
 import type {Stage} from '../../apps/desktop/src/modules/workflow-tabs';
 import {project} from '../fixtures';
 import {stubAnimationFrames} from '../animation-frames';
-import type {Piece} from '../../packages/schema/index';
+import type {Piece,Response} from '../../packages/schema/index';
 let frames:ReturnType<typeof stubAnimationFrames>;
 beforeEach(()=>{setActivePinia(createPinia());frames=stubAnimationFrames();});afterEach(()=>vi.unstubAllGlobals());
 function setup(){
- const store=useSession(),p=project();store.data.project=p;const stage=ref<Stage>('pattern'),editor=usePatternEditor(ref('zh'),stage,()=>{}),apply=vi.fn(async(_id:string,_revision:number,_command:{type:'piece.put';piece:Piece})=>({ok:true,data:store.data}));vi.stubGlobal('window',{fpcad:{apply}});
+ const store=useSession(),p=project();store.data.project=p;const stage=ref<Stage>('pattern'),editor=usePatternEditor(ref('zh'),stage,()=>{}),apply=vi.fn(async(_id:string,_revision:number,_command:{type:'piece.put';piece:Piece})=>({ok:true,data:store.data}));vi.stubGlobal('window',{fpcad:{apply},dispatchEvent:()=>true});
  editor.svg.value=markRaw({clientWidth:800,clientHeight:600,getScreenCTM:()=>({inverse:()=>({})}),createSVGPoint:()=>({x:0,y:0,matrixTransform(){return {x:this.x,y:this.y};}}),setPointerCapture:()=>{}}) as unknown as SVGSVGElement;
  const event=(x:number)=>({button:0,clientX:x,clientY:0,pointerId:1}) as PointerEvent;
  expect(editor.tool.value).toBe('select');editor.changeTool('select');
@@ -38,4 +38,27 @@ it('pattern zoom keeps the cursor location fixed and cannot change geometry or a
  const u=(event.clientX-editor.view.value.x)/editor.view.value.w,v=(event.clientY-editor.view.value.y)/editor.view.value.h;editor.zoom(event);
  expect((event.clientX-editor.view.value.x)/editor.view.value.w).toBeCloseTo(u,12);expect((event.clientY-editor.view.value.y)/editor.view.value.h).toBeCloseTo(v,12);expect(p).toEqual(before);
  const view={...editor.view.value};editor.zoom({...event,deltaY:NaN} as WheelEvent);expect(editor.view.value).toEqual(view);
+});
+
+it.each(['polygon','open','hole'] as const)('retains a rejected %s drawing so it can be corrected and saved again',async kind=>{
+ const {editor,p,store}=setup();editor.cancel();editor.selectedId.value=p.pieces[0].id;
+ if(kind==='hole')editor.startHole();else if(kind==='open')editor.startOpenPath();
+ editor.tool.value='polygon';const nodes=[{id:'new-a',xMm:10,yMm:10},{id:'new-b',xMm:20,yMm:10},{id:'new-c',xMm:20,yMm:20}];editor.draft.value=nodes;
+ const apply=vi.fn<(...args:unknown[])=>Promise<Response>>().mockResolvedValueOnce({ok:false,error:{code:'INVALID_GEOMETRY',messageKey:'INVALID_GEOMETRY'}}).mockImplementationOnce(async(...args)=>{const command=args[2] as {piece:Piece};return {ok:true,data:{...store.data,project:{...p,revision:p.revision+1,pieces:[command.piece]}}};});
+ vi.stubGlobal('window',{fpcad:{apply},dispatchEvent:()=>true});await editor.finish();
+ expect(editor.draft.value).toEqual(nodes);expect(editor.tool.value).toBe('polygon');expect(editor.draftClosed.value).toBe(kind!=='open');expect(editor.holeTarget.value).toBe(kind==='hole'?p.pieces[0].id:'');
+ editor.draft.value[2].xMm=18;await editor.finish();expect(apply).toHaveBeenCalledTimes(2);expect(editor.draft.value).toEqual([]);expect(editor.tool.value).toBe('node');
+ const saved=(apply.mock.calls[1][2] as {piece:Piece}).piece;expect(kind==='hole'?saved.holes?.at(-1)?.[2].xMm:saved.nodes[2].xMm).toBe(18);expect(saved.closed).toBe(kind!=='open');
+});
+
+it('does not turn a hole whose parent was removed into a new standalone pattern',async()=>{
+ const {editor,p,store,apply}=setup();editor.cancel();editor.selectedId.value=p.pieces[0].id;editor.startHole();editor.tool.value='polygon';editor.draft.value=[{id:'a',xMm:1,yMm:1},{id:'b',xMm:2,yMm:1},{id:'c',xMm:2,yMm:2}];
+ store.data.project={...p,revision:p.revision+1,pieces:[]};await editor.finish();expect(apply).not.toHaveBeenCalled();expect(editor.draft.value).toHaveLength(3);expect(store.error).toBe('STALE_EDIT');
+});
+
+it('a completed save does not erase a replacement draft started while it was pending',async()=>{
+ const {editor,store}=setup();editor.cancel();editor.tool.value='polygon';editor.draft.value=[{id:'a',xMm:1,yMm:1},{id:'b',xMm:2,yMm:1},{id:'c',xMm:2,yMm:2}];
+ let complete!:(response:Response)=>void;const apply=vi.fn(()=>new Promise<Response>(resolve=>{complete=resolve;}));vi.stubGlobal('window',{fpcad:{apply},dispatchEvent:()=>true});
+ const saving=editor.finish();await editor.finish();expect(apply).toHaveBeenCalledTimes(1);editor.cancel();editor.changeTool('polygon');editor.draft.value=[{id:'replacement',xMm:30,yMm:40}];
+ complete({ok:true,data:store.data});await saving;expect(editor.draft.value).toEqual([{id:'replacement',xMm:30,yMm:40}]);expect(editor.tool.value).toBe('polygon');
 });

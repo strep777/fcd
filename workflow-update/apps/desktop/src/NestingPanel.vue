@@ -1,25 +1,3 @@
-<script setup lang="ts">
-import {localize} from './localization';
-
-import ZoomViewport from './ZoomViewport.vue';
-import {computed,inject,ref,watch} from 'vue';
-import {useSession} from './store';
-import type {NestingOptions,Nesting} from '../../../packages/schema/index';
-const advanced=inject('advancedMode',ref(false));
-const props=defineProps<{language:'zh'|'en'}>();const emit=defineEmits<{select:[id:string]}>(),store=useSession(),zh=computed(()=>props.language==='zh'),options=ref<NestingOptions>({widthMm:1500,lengthLimitMm:10000,marginMm:10,gapMm:5,alignGrain:true,preserveLocks:true,mode:'contour',rotationsRad:[0,Math.PI/2,Math.PI,3*Math.PI/2],candidateBudget:2000});
-const nesting=computed(()=>store.data.project?.nesting),stale=computed(()=>store.data.history.some(h=>h.revision===store.data.project?.revision&&h.type!=='nesting.set'&&!['undo','redo'].includes(h.type)));
-const chosen=ref(''),manual=ref({xMm:0,yMm:0,angleDeg:0,locked:false});
-const placement=computed(()=>nesting.value?.sheets.flatMap(s=>s.placements).find(p=>`${p.pieceId}:${p.instance}`===chosen.value));
-watch(placement,p=>{if(p)manual.value={xMm:p.xMm,yMm:p.yMm,angleDeg:p.angleRad*180/Math.PI,locked:!!p.locked};},{immediate:true});
-function choose(p:NonNullable<typeof placement.value>){chosen.value=`${p.pieceId}:${p.instance}`;emit('select',p.pieceId);}
-async function saveManual(){const p=store.data.project;if(!p?.nesting||!placement.value)return;const result:Nesting=JSON.parse(JSON.stringify(p.nesting)),target=result.sheets.flatMap(s=>s.placements).find(v=>`${v.pieceId}:${v.instance}`===chosen.value)!;Object.assign(target,{xMm:manual.value.xMm,yMm:manual.value.yMm,angleRad:manual.value.angleDeg*Math.PI/180,locked:manual.value.locked});await store.run(()=>window.fpcad.apply(p.id,p.revision,{type:'nesting.set',nesting:result}));}
-async function run(){const p=store.data.project;if(p)await store.run(()=>window.fpcad.nest(p.id,p.revision,JSON.parse(JSON.stringify(options.value))));}
-function outline(placement:NonNullable<typeof nesting.value>['sheets'][number]['placements'][number]){
- const p=store.data.project?.pieces.find(p=>p.id===placement.pieceId),g=store.data.geometry.find(g=>g.id===placement.pieceId);if(!p||!g)return '';
- const c=Math.cos(placement.angleRad),s=Math.sin(placement.angleRad),rotate=(n:{xMm:number;yMm:number})=>{const x=placement.mirror?-n.xMm:n.xMm;return {xMm:x*c-n.yMm*s,yMm:x*s+n.yMm*c};},ring=g.cut.map(rotate),minX=Math.min(...ring.map(n=>n.xMm)),minY=Math.min(...ring.map(n=>n.yMm));
- return [g.cut,...(g.cutHoles??[])].map(r=>r.map((n,i)=>{const p=rotate(n);return `${i?'L':'M'}${p.xMm-minX+placement.xMm},${p.yMm-minY+placement.yMm}`;}).join(' ')+' Z').join(' ');
-}
-</script>
 <template>
  <div class="nesting-panel"><p v-if="advanced">{{zh?'按材料独立排料；轮廓优化检查真实裁剪边界间距，保留更好的保守基线；不利用孔洞嵌套。':localize('Separate sheets by material; contour optimization verifies cut boundary clearance and retains a better conservative baseline; holes are not used.')}}</p>
   <div class="options"><label v-if="advanced">{{zh?'算法':localize('Algorithm')}}<select v-model="options.mode"><option value="contour">{{zh?'轮廓底左优化':localize('Contour bottom-left')}}</option><option value="shelf">{{zh?'保守包围框':localize('Bounding rectangles')}}</option></select></label><label>{{zh?'幅宽 mm':localize('Width mm')}}<input v-model.number="options.widthMm" type="number" min="1"></label><label v-if="advanced">{{zh?'长度上限 mm':localize('Length limit mm')}}<input v-model.number="options.lengthLimitMm" type="number" min="1"></label><label v-if="advanced">{{zh?'边距 mm':localize('Margin mm')}}<input v-model.number="options.marginMm" type="number" min="0"></label><label>{{zh?'片间距 mm':localize('Gap mm')}}<input v-model.number="options.gapMm" type="number" min="0"></label><label><input v-model="options.alignGrain" type="checkbox">{{zh?'将全部毛向对齐布长方向':localize('Align all fur vectors along fabric length')}}</label><label v-if="advanced"><input v-model="options.preserveLocks" type="checkbox">{{zh?'保留已有锁定':localize('Preserve existing locks')}}</label><button :disabled="store.busy||!store.data.project?.pieces.length" @click="run">{{zh?'计算并保存排料':localize('Compute and save layout')}}</button></div>
@@ -33,4 +11,28 @@ function outline(placement:NonNullable<typeof nesting.value>['sheets'][number]['
   </template>
  </div>
 </template>
+<script setup lang="ts">
+import {localize} from './localization';
+
+import ZoomViewport from './ZoomViewport.vue';
+import {computed,inject,ref,watch} from 'vue';
+import {useSession} from './store';
+import type {NestingOptions,Nesting} from '../../../packages/schema/index';
+const advanced=inject('advancedMode',ref(false));
+const defaultOptions=():NestingOptions=>({widthMm:1500,lengthLimitMm:10000,marginMm:10,gapMm:5,alignGrain:true,preserveLocks:true,mode:'contour',rotationsRad:[0,Math.PI/2,Math.PI,3*Math.PI/2],candidateBudget:2000});
+const props=defineProps<{language:'zh'|'en'}>();const emit=defineEmits<{select:[id:string]}>(),store=useSession(),zh=computed(()=>props.language==='zh'),options=ref<NestingOptions>(defaultOptions());
+const nesting=computed(()=>store.data.project?.nesting),stale=computed(()=>store.data.history.some(h=>h.revision===store.data.project?.revision&&h.type!=='nesting.set'&&!['undo','redo'].includes(h.type)));
+watch(()=>JSON.stringify([store.data.project?.id,nesting.value?.options]),()=>{options.value=nesting.value?JSON.parse(JSON.stringify(nesting.value.options)):defaultOptions();},{immediate:true});
+const chosen=ref(''),manual=ref({xMm:0,yMm:0,angleDeg:0,locked:false});
+const placement=computed(()=>nesting.value?.sheets.flatMap(s=>s.placements).find(p=>`${p.pieceId}:${p.instance}`===chosen.value));
+watch(()=>JSON.stringify([chosen.value,placement.value]),()=>{const p=placement.value;if(p)manual.value={xMm:p.xMm,yMm:p.yMm,angleDeg:p.angleRad*180/Math.PI,locked:!!p.locked};},{immediate:true});
+function choose(p:NonNullable<typeof placement.value>){chosen.value=`${p.pieceId}:${p.instance}`;emit('select',p.pieceId);}
+async function saveManual(){const p=store.data.project;if(!p?.nesting||!placement.value)return;const result:Nesting=JSON.parse(JSON.stringify(p.nesting)),target=result.sheets.flatMap(s=>s.placements).find(v=>`${v.pieceId}:${v.instance}`===chosen.value)!;Object.assign(target,{xMm:manual.value.xMm,yMm:manual.value.yMm,angleRad:manual.value.angleDeg*Math.PI/180,locked:manual.value.locked});await store.run(()=>window.fpcad.apply(p.id,p.revision,{type:'nesting.set',nesting:result}));}
+async function run(){const p=store.data.project;if(p)await store.run(()=>window.fpcad.nest(p.id,p.revision,JSON.parse(JSON.stringify(options.value))));}
+function outline(placement:NonNullable<typeof nesting.value>['sheets'][number]['placements'][number]){
+ const p=store.data.project?.pieces.find(p=>p.id===placement.pieceId),g=store.data.geometry.find(g=>g.id===placement.pieceId);if(!p||!g)return '';
+ const c=Math.cos(placement.angleRad),s=Math.sin(placement.angleRad),rotate=(n:{xMm:number;yMm:number})=>{const x=placement.mirror?-n.xMm:n.xMm;return {xMm:x*c-n.yMm*s,yMm:x*s+n.yMm*c};},ring=g.cut.map(rotate),minX=Math.min(...ring.map(n=>n.xMm)),minY=Math.min(...ring.map(n=>n.yMm));
+ return [g.cut,...(g.cutHoles??[])].map(r=>r.map((n,i)=>{const p=rotate(n);return `${i?'L':'M'}${p.xMm-minX+placement.xMm},${p.yMm-minY+placement.yMm}`;}).join(' ')+' Z').join(' ');
+}
+</script>
 <style scoped>.nesting-panel{padding:12px}.options{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.options label{font-size:11px}.options input[type=number]{width:110px;display:block}.sheet{margin:16px 0}.sheet svg{display:block;width:100%;height:420px;max-height:420px;margin-top:8px;border:1px solid var(--border)}.sheet path{cursor:pointer}.nesting-panel p{font-size:12px;line-height:1.5}</style>

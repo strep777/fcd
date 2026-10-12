@@ -28,6 +28,31 @@ export class AssistantSettings{
   const latest=this.read(),current=latest.providers.find(item=>item.id===p.id&&item.enabled&&item.baseUrl===p.baseUrl&&(item.kind??'openai-compatible')===kind);
   if(!current)throw Error('PROVIDER_CHANGED');current.models=models.slice(0,200);if(latest.selectedProvider===p.id&&latest.selectedModel&&!current.models.includes(latest.selectedModel))delete latest.selectedModel;this.save(latest);return current.models;
  }
- async mcpTest(serverId:string){const server=this.read().mcp.find(s=>s.id===serverId&&s.enabled);if(!server)throw Error('MCP 服务不存在或未启用');let session='',protocol='2025-03-26';const post=async(method:string,params?:unknown)=>{const res=await fetch(server.url,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream',...(session?{'Mcp-Session-Id':session}:{}),'MCP-Protocol-Version':protocol},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params}),redirect:'error',signal:AbortSignal.timeout(10000)});if(!res.ok)throw Error('MCP 连接失败 HTTP '+res.status);session=res.headers.get('mcp-session-id')??session;const data=await boundedJson(res);if(data?.jsonrpc!=='2.0'||data.id!==1)throw Error('MCP_RESPONSE_INVALID');if(data.error)throw Error('MCP 请求失败');return data.result;};try{const init=await post('initialize',{protocolVersion:protocol,capabilities:{},clientInfo:{name:'FurryPattern CAD',version:'0.8.0'}});if(typeof init?.protocolVersion!=='string'||!['2024-11-05','2025-03-26','2025-06-18'].includes(init.protocolVersion))throw Error('不支持的 MCP 协议版本');protocol=init.protocolVersion;const res=await fetch(server.url,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream',...(session?{'Mcp-Session-Id':session}:{}),'MCP-Protocol-Version':protocol},body:JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'}),signal:AbortSignal.timeout(10000),redirect:'error'});if(!res.ok)throw Error('MCP 初始化失败');const result=await post('tools/list');if(!Array.isArray(result?.tools)||result.tools.some((t:any)=>!t||typeof t.name!=='string'||!t.name.trim()))throw Error('MCP_TOOLS_INVALID');return result.tools.map((t:any)=>t.name).slice(0,200);}finally{if(session)await fetch(server.url,{method:'DELETE',headers:{'Mcp-Session-Id':session,'MCP-Protocol-Version':protocol},signal:AbortSignal.timeout(3000),redirect:'error'}).catch(()=>{});}}
+ async mcpTest(serverId:string){
+  const server=this.read().mcp.find(s=>s.id===serverId&&s.enabled);if(!server)throw Error('MCP 服务不存在或未启用');
+  let session='',protocol='2025-03-26',sequence=0;
+  const headers=()=>({'Content-Type':'application/json',Accept:'application/json, text/event-stream',...(session?{'Mcp-Session-Id':session}:{}),'MCP-Protocol-Version':protocol});
+  const post=async(method:string,params?:unknown)=>{
+   const id=++sequence,res=await fetch(server.url,{method:'POST',headers:headers(),body:JSON.stringify({jsonrpc:'2.0',id,method,params}),redirect:'error',signal:AbortSignal.timeout(10000)});
+   if(!res.ok)throw Error('MCP 连接失败 HTTP '+res.status);session=res.headers.get('mcp-session-id')??session;
+   const data=await boundedJson(res,id);if(data?.jsonrpc!=='2.0'||data.id!==id)throw Error('MCP_RESPONSE_INVALID');if(data.error)throw Error('MCP 请求失败');return data.result;
+  };
+  try{
+   const init=await post('initialize',{protocolVersion:protocol,capabilities:{},clientInfo:{name:'FurryPattern CAD',version:'0.8.0'}});
+   if(typeof init?.protocolVersion!=='string'||!['2024-11-05','2025-03-26','2025-06-18'].includes(init.protocolVersion))throw Error('不支持的 MCP 协议版本');protocol=init.protocolVersion;
+   const res=await fetch(server.url,{method:'POST',headers:headers(),body:JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'}),signal:AbortSignal.timeout(10000),redirect:'error'});if(!res.ok)throw Error('MCP 初始化失败');
+   const tools:string[]=[],seenPages=new Set<string>();let cursor:string|undefined;
+   for(let page=0;page<20;page++){
+    const result=await post('tools/list',cursor!==undefined?{cursor}:undefined);
+    if(!Array.isArray(result?.tools)||result.tools.some((t:any)=>!t||typeof t.name!=='string'||!t.name.trim()))throw Error('MCP_TOOLS_INVALID');
+    for(const tool of result.tools)if(!tools.includes(tool.name)&&tools.length<200)tools.push(tool.name);
+    const next=result.nextCursor;if(next===undefined||next===null)return tools;
+    if(typeof next!=='string'||seenPages.has(next)||page===19)throw Error('MCP_PAGINATION_INVALID');
+    if(tools.length>=200)return tools;seenPages.add(next);cursor=next;
+   }
+   return tools;
+  }finally{if(session)await fetch(server.url,{method:'DELETE',headers:{'Mcp-Session-Id':session,'MCP-Protocol-Version':protocol},signal:AbortSignal.timeout(3000),redirect:'error'}).catch(()=>{});}
+ }
+
 }
-async function boundedJson(res:Response){const reader=res.body?.getReader();if(!reader)throw Error('空响应');let text='',bytes=0;const decoder=new TextDecoder();try{for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>2*1024*1024)throw Error('响应过大');text+=decoder.decode(value,{stream:true});if(res.headers.get('content-type')?.includes('text/event-stream')){for(const block of text.split(/\r?\n\r?\n/).slice(0,-1)){const data=block.split(/\r?\n/).filter(s=>s.startsWith('data:')).map(s=>s.slice(5).trim()).join('\n');if(data){const parsed=JSON.parse(data);if(parsed.id===1)return parsed;}}}}return JSON.parse(text+decoder.decode());}finally{await reader.cancel().catch(()=>{});}}
+async function boundedJson(res:Response,expectedId=1){const reader=res.body?.getReader();if(!reader)throw Error('空响应');let text='',bytes=0;const decoder=new TextDecoder();try{for(;;){const {done,value}=await reader.read();if(done)break;bytes+=value.length;if(bytes>2*1024*1024)throw Error('响应过大');text+=decoder.decode(value,{stream:true});if(res.headers.get('content-type')?.includes('text/event-stream')){for(const block of text.split(/\r?\n\r?\n/).slice(0,-1)){const data=block.split(/\r?\n/).filter(s=>s.startsWith('data:')).map(s=>s.slice(5).trim()).join('\n');if(data){const parsed=JSON.parse(data);if(parsed.id===expectedId)return parsed;}}}}return JSON.parse(text+decoder.decode());}finally{await reader.cancel().catch(()=>{});}}

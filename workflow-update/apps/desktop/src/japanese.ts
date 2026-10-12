@@ -1,5 +1,8 @@
 /** Japanese UI copy. Keys are the original English phrases; user data is never translated. */
 export const japanese:Record<string,string>={
+  "Materials": "素材",
+  "Seams": "接ぎ目",
+  "Nesting": "配置",
   "Cut assembly": "組み立てプレビュー",
   "Inspect actual cut bindings and seams before pattern making. This reconstructs saved positions; it does not predict fabric tension or sewn deformation.": "実際の裁断パーツと接ぎ目を確認してから型紙作成に進みます。保存した位置を再構成するプレビューで、布の張力や縫製後の変形は再現しません。",
   "Pattern making →": "型紙作成へ →",
@@ -1259,6 +1262,7 @@ export const japanese:Record<string,string>={
   "thicknessMm": "厚み mm",
   "Invalid MCP response. Check the server address.": "MCPの応答が無効です。サーバーのアドレスを確認してください。",
   "Invalid MCP tool list.": "MCPのツール一覧が無効です。",
+  "Invalid MCP tool list pagination.": "MCPのツール一覧のページ情報が無効です。サービスの応答を確認してください。",
   "Color separation exceeds 500 pieces. Disable color separation and use custom cut lines, or simplify marking boundaries.": "色分割が500パーツを超えています。色分割を無効にして独自の裁断線を使用するか、模様の境界を簡略化してください。",
   "A color boundary could not be mapped safely. Adjust the marking or use cut-line patterns. The original project is retained.": "色の境界を安全にマッピングできませんでした。模様を調整するか、裁断線による型紙を使用してください。元のプロジェクトは保持されています。",
   "Cut brush": "裁断線ブラシ",
