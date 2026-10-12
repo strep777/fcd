@@ -8,9 +8,10 @@ import { DomainError } from './repository';
 import {derivedName} from '../../../packages/schema/names';
 const geometrySchema=z.object({notchSegments:z.array(z.object({id:z.uuid(),start:pointSchema,end:pointSchema,label:z.string()})).optional(),id:z.uuid(),cut:z.array(pointSchema),seam:z.array(pointSchema).optional(),seamHoles:z.array(z.array(pointSchema)).optional(),cutHoles:z.array(z.array(pointSchema)).optional(),edgeLengths:z.array(z.object({nodeId:z.uuid(),endNodeId:z.uuid(),lengthMm:z.number().nonnegative().finite()})).optional(),areaMm2:z.number().finite(),perimeterMm:z.number().finite(),issues:z.array(z.object({ruleId:z.string(),severity:z.enum(['error','warning']),entityId:z.uuid(),messageKey:z.string()}))});
 export function request(workerPath:string,input:unknown,signal?:AbortSignal,limits={timeoutMs:10000,bytes:8*1024*1024}):Promise<unknown>{return new Promise((resolve,reject)=>{
+ if(signal?.aborted){reject(new DomainError('CANCELLED'));return;}
  const encoded=JSON.stringify(input);if(Buffer.byteLength(encoded)>limits.bytes){reject(new DomainError('RESOURCE_LIMIT'));return;}
  const proc=spawn(workerPath,[],{windowsHide:true,stdio:['pipe','pipe','pipe']});const chunks:Buffer[]=[];let bytes=0,done=false;parentPort?.postMessage({kind:'child',pid:proc.pid});proc.on('exit',()=>parentPort?.postMessage({kind:'childExit',pid:proc.pid}));
- const finish=(error?:Error,value?:unknown)=>{if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener('abort',cancel);proc.kill();if(error)reject(error);else resolve(value);};
+ const finish=(error?:Error,value?:unknown)=>{if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener('abort',cancel);if(proc.pid!==undefined){try{proc.kill();}catch{/* A cleanup race must not replace the request's result. */}}if(error)reject(error);else resolve(value);};
  const cancel=()=>finish(new DomainError('CANCELLED'));
  const timer=setTimeout(()=>finish(new DomainError('TIMEOUT')),limits.timeoutMs);
  signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel();

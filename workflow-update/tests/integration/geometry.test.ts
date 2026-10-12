@@ -7,6 +7,17 @@ import { project,rectangle } from '../fixtures';
 import { pngExport } from '../../apps/desktop/main/png';
 import { PDFDocument } from 'pdf-lib';
 const worker=resolve('target/release/fpcad-worker'+(process.platform==='win32'?'.exe':''));
+it('pre-cancelled geometry never starts even an unavailable worker',async()=>{
+ const controller=new AbortController();controller.abort();
+ await expect(analyze(resolve('missing-worker.exe'),project(),controller.signal)).rejects.toThrow('CANCELLED');
+});
+it('cancelling while worker creation fails preserves the cancellation result',async()=>{
+ const controller=new AbortController(),pending=analyze(resolve('missing-worker.exe'),project(),controller.signal);
+ controller.abort();await expect(pending).rejects.toThrow('CANCELLED');
+});
+it.each(['missing-worker.exe','tests'])('worker creation failure for %s returns the domain error',async(path)=>{
+ await expect(analyze(resolve(path),project())).rejects.toThrow('WORKER_CRASH');
+});
 describe('real Rust worker and manufacturing',()=>{
  it('TC-008-a computes analytical rectangular miter allowance',async()=>{const p=project(),g=await analyze(worker,p);expect(g[0].areaMm2).toBe(20000);expect(g[0].perimeterMm).toBe(600);expect(g[0].cut.map(n=>[n.xMm,n.yMm])).toEqual([[-10,-10],[110,-10],[110,210],[-10,210]]);});
  it('TC-008-b offsets a concave L shape with analytical coordinates',async()=>{const p=project();p.pieces[0].nodes=[[0,0],[100,0],[100,40],[40,40],[40,100],[0,100]].map(([xMm,yMm])=>({id:randomUUID(),xMm,yMm}));const g=await analyze(worker,p);expect(g[0].issues).toEqual([]);expect(g[0].areaMm2).toBe(6400);expect(g[0].cut.map(n=>[n.xMm,n.yMm])).toEqual([[-10,-10],[110,-10],[110,50],[50,50],[50,110],[-10,110]]);});
