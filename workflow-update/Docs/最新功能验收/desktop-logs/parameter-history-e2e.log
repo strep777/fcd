@@ -1,0 +1,20 @@
+{
+  passed: true,
+  checks: [
+    'pending model dimensions support local undo/redo without a project commit',
+    'pending anatomical model type supports local undo/redo',
+    'pending species measurements support undo/redo',
+    'one species selection restores its species and every previous measurement in one undo step',
+    'pending constrained body measurements support local undo/redo',
+    'pending custom Morph measurement supports local undo/redo',
+    'pending explicit Morph weights support local undo/redo',
+    'design is the default; color, mesh compatibility mode, and composite mesh presets undo/redo locally',
+    'cut color preset, partition strategy and iterations undo/redo locally without changing project revision',
+    'cut Restore follows draft C, commit B, draft A and redo restores A/B/C',
+    'assistant model add/delete and redo are local and reversible',
+    'default selection and new provider connection support local undo/redo',
+    'provider type changes undo atomically and password retains native text undo',
+    'assistant skill and MCP drafts share local undo/redo',
+    'saving settings clears its local history without changing the CAD document'
+  ]
+}

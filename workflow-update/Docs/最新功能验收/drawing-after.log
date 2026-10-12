@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 F:/公司/fcd/workflow-update
+
+
+ Test Files  3 passed (3)
+      Tests  25 passed (25)
+   Start at  17:39:31
+   Duration  2.64s (transform 1.28s, setup 0ms, import 1.96s, tests 241ms, environment 1ms)
+

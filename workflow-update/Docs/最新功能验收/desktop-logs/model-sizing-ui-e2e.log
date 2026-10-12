@@ -1,0 +1,5 @@
+[
+  'built-in defaults to anatomical constraints, hides free axes and retains internal target precision',
+  'body target edits limit new input to two decimals and invoke anatomical fit rather than affine resize',
+  'only unlocked mode permits free bounding-box resize and resized mesh loses its incompatible body recipe'
+]

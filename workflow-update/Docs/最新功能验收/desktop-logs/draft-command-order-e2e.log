@@ -1,0 +1,9 @@
+{
+  passed: true,
+  checks: [
+    'keyboard undo follows draft C, committed B, draft A',
+    'keyboard redo follows draft A, committed B, draft C',
+    'a new draft after undo invalidates both draft and committed redo',
+    'switching sessions clears both undo scopes'
+  ]
+}

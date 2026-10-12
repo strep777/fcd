@@ -1,0 +1,414 @@
+{
+  "date": "2026-10-12T10:50:41.964Z",
+  "scope": "花纹提取页之外的功能检查与修复；现有花纹算法另作回归，未改算法。",
+  "status": "passed",
+  "codeCommit": "37e8974e7310e673ab09ca26e8c1b5f475561e89",
+  "release": {
+    "directory": "F:\\公司\\fcd\\workflow-update\\release\\FurryPatternCAD-0.8.0-win-x64-b6b86572",
+    "executable": "F:\\公司\\fcd\\workflow-update\\release\\FurryPatternCAD-0.8.0-win-x64-b6b86572\\FurryPatternCAD.exe",
+    "buildHash": "b6b86572f66f22acccdddf11e88ef4d21a343c7c429e35d91332b430867b096b"
+  },
+  "verification": {
+    "unit": {
+      "files": 166,
+      "tests": 998,
+      "failed": 0
+    },
+    "desktop": {
+      "suites": 68,
+      "passed": true,
+      "packageSuites": 65,
+      "productionComponentSuites": 3
+    },
+    "rustTests": 31,
+    "typecheck": "passed",
+    "rustfmt": "passed",
+    "clippy": "passed",
+    "repeatPackage": "passed",
+    "packagedDistMatchesWorkingDist": true,
+    "nativeWorkerSha256": "e89a6cf25679b39b20187cb93ed318ca9231f5de39fdaf0abc1630d5375a4557"
+  },
+  "functionalCoverage": {
+    "项目与数据": [
+      "clean-start",
+      "e2e",
+      "offline",
+      "recovery",
+      "resources",
+      "session-deletion",
+      "corrupt-session",
+      "session-drafts",
+      "global-navigation"
+    ],
+    "模型管理": [
+      "model-connections",
+      "template",
+      "large-mesh",
+      "picking",
+      "model-entry",
+      "model-surface-workflow",
+      "surface-rendering",
+      "model-sizing-ui"
+    ],
+    "花纹映射": [
+      "large-auto-mapping",
+      "complex-source-drop",
+      "large-preview",
+      "mapping-revision",
+      "completion",
+      "inference",
+      "mapping-usability",
+      "attached-editing",
+      "real-mapping-preview",
+      "library-registration",
+      "mapping-context-reset",
+      "visual-path-editing"
+    ],
+    "裁切与拼接": [
+      "assembly-preview",
+      "assembly-closed-model",
+      "assembly-archive-integrity",
+      "cutting-library",
+      "advanced",
+      "cut-tools",
+      "cut-workspace",
+      "lifecycle"
+    ],
+    "制版与输出": [
+      "manufacturing",
+      "print-pages",
+      "workflow-audit",
+      "manufacturing-preview"
+    ],
+    "撤销与操作边界": [
+      "operation-guards",
+      "late-cancel",
+      "mapping-edit-history",
+      "draft-command-order",
+      "parameter-history"
+    ],
+    "指南、助手、语言与布局": [
+      "provider-ui",
+      "japanese-ui",
+      "control-spacing",
+      "assistant-settings",
+      "workspace-interactions",
+      "ui-workflow",
+      "audit",
+      "workflow-pages",
+      "page-layout",
+      "studio-ui"
+    ]
+  },
+  "fixes": [
+    {
+      "files": [
+        "apps/desktop/main/repository.ts",
+        "tests/integration/mapping-review-dependencies.test.ts"
+      ],
+      "defect": "Placement review changed parent fingerprints without rebasing previously valid inferred descendants. Withdrawing review incorrectly produced STALE_MARKING and blocked final lock.",
+      "reproduction": "Actual unwrap + automatic head placement + exact-symmetry inference; pre-fix test observed stale set size 1 when geometry unchanged.",
+      "change": "Capture previously non-stale inference dependents before mutation; update only their parent fingerprints atomically after review. Already stale dependencies remain stale.",
+      "verified": [
+        "Withdrawal reports AUTOMATIC_PLACEMENT_REVIEW without geometry staleness",
+        "Final lock approves parent and inferred markings",
+        "Undo/redo restores review and fingerprints",
+        "Previously stale source fingerprints are not blessed"
+      ],
+      "preFix": {
+        "passed": 1,
+        "failed": 1
+      }
+    },
+    {
+      "files": [
+        "apps/desktop/src/MarkingRecords.vue",
+        "tests/mapping-context-reset-e2e.mjs"
+      ],
+      "defect": "A clear confirmation opened on model A persisted through retained MappingPage when activating B, permitting the previous confirmation to clear B.",
+      "change": "Reset confirmation when project/model context changes.",
+      "reproduction": "Production Vue component fixture pre-fix failed expected confirmation count 0 vs actual 1 after swapping A to B."
+    },
+    {
+      "files": [
+        "apps/desktop/src/InferenceTools.vue",
+        "tests/mapping-context-reset-e2e.mjs"
+      ],
+      "defect": "A selected inference source survived model switch/source deletion, enabling submission with an unavailable marking ID.",
+      "change": "Derive current-model inference sources, clear invalid/context-switched selection, and refuse unavailable IDs before submitting.",
+      "verified": [
+        "Switching model resets selected source",
+        "Deleting selected source disables inference while other sources remain",
+        "Selecting current source submits successfully"
+      ]
+    },
+    {
+      "code": "NESTING_OPTIONS_NOT_RESTORED",
+      "files": [
+        "apps/desktop/src/NestingPanel.vue"
+      ],
+      "reproduction": [
+        "已有500 mm幅宽和9 mm片间距的保存排料",
+        "重新打开项目/制版排料页",
+        "旧实现表单固定1500 mm/5 mm，重算改变保存约束"
+      ],
+      "resolution": "按项目ID和保存参数内容载入独立表单副本；无保存布局恢复默认。无关Session刷新不覆盖未提交草稿。",
+      "assertions": [
+        "保存约束精确恢复",
+        "API提交预期500/640等毫米参数",
+        "表单编辑不修改保存options",
+        "实际方案变化及撤销/重做重新载入",
+        "无排料和切换项目恢复默认"
+      ]
+    },
+    {
+      "code": "MANUAL_NESTING_DRAFT_RESET_BY_REFRESH",
+      "files": [
+        "apps/desktop/src/NestingPanel.vue"
+      ],
+      "reproduction": [
+        "选中排料实例",
+        "未提交地修改X/Y/角度/锁定",
+        "同内容Session替换使旧watch(placement)按对象身份触发，清掉草稿"
+      ],
+      "resolution": "按所选实例和placement实际内容变化同步，保留相同保存位置对应的草稿。",
+      "assertions": [
+        "X70/Y80/180°/锁定草稿跨无关revision刷新保留",
+        "保存位置X40载入",
+        "撤销到X20载入"
+      ]
+    },
+    {
+      "code": "JAPANESE_PRODUCTION_TABS_ENGLISH",
+      "files": [
+        "apps/desktop/src/PatternPage.vue",
+        "apps/desktop/src/japanese.ts"
+      ],
+      "reproduction": [
+        "切换日语",
+        "进入制版",
+        "旧实现五个子页标签直接返回英文"
+      ],
+      "resolution": "五个标签统一走localize；补素材/接ぎ目/配置词条。",
+      "assertions": [
+        "日语五标签精确匹配",
+        "切回英语五标签精确匹配"
+      ]
+    },
+    {
+      "id": "G1",
+      "trigger": "Create/open/activate project while assistant is open",
+      "before": "Assistant remained visible after successful project activation",
+      "fix": "Success exits assistant and shows editor; cancelling open preserves assistant"
+    },
+    {
+      "id": "G2",
+      "trigger": "Cancel project-file opening or fail local activation with active uncommitted draft",
+      "before": "cancel() cleared the current draft before success was known",
+      "fix": "Cancel editor interactions only after successful response"
+    },
+    {
+      "id": "G3",
+      "trigger": "Failed project creation or Enter on empty name",
+      "before": "Workflow moved to extraction before success; Enter could dispatch blank create",
+      "fix": "Guard empty/busy create and update workflow only on success"
+    },
+    {
+      "id": "G4",
+      "trigger": "Open recovery tab after initial revision 0 has left the ten-point retention window",
+      "before": "Revision model stayed 0 and Restore button disabled despite displayed options",
+      "fix": "Choose latest available point, retaining a valid selected revision"
+    },
+    {
+      "id": "G5",
+      "trigger": "Click a diagnostic while viewing guide/model/other page",
+      "before": "Only selectedId changed; user stayed on unrelated page",
+      "fix": "Navigate/focus piece, seam or mapped marking according to issue rule ID and actual affected piece"
+    },
+    {
+      "id": "G6",
+      "trigger": "Navigate workflow to a seam/material subtab with entity ID",
+      "before": "Non-piece entity ID replaced selectedId",
+      "fix": "Update selectedId from navigation target only for piece subtab"
+    },
+    {
+      "id": "G7",
+      "trigger": "Click completed/background task's piece name from another page",
+      "before": "Only selectedId changed",
+      "fix": "Navigate to the piece editor"
+    },
+    {
+      "id": "G8",
+      "trigger": "Project opens from assistant/home with storage notice followed by background refresh",
+      "before": "Page scope transitions hid notice and subsequent quiet refresh could clear it; repeated notice could resurrect after dismissal",
+      "fix": "Session-wide notice fallback with per-session dismissal and clearing on project switch"
+    },
+    {
+      "id": "G9",
+      "trigger": "MCP tools/list returns nextCursor",
+      "before": "Only first page displayed; all RPCs reused ID 1",
+      "fix": "Follow opaque cursors (including empty string), match unique request IDs in SSE, deduplicate tool names, reject repeating/non-string cursors, preserve protocol/session cleanup"
+    },
+    {
+      "id": "G10",
+      "trigger": "Open a native file dialog or switch to another application while drawing a polygon",
+      "before": "window blur cancelled all accumulated draft nodes",
+      "fix": "Blur now stops the active pointer gesture while retaining already drawn nodes; explicit cancel and Escape still clear drafts"
+    },
+    {
+      "defect": "制版多边形、开放路径、孔洞保存失败后草稿丢失",
+      "resolution": "仅在成功提交后清除原草稿，拒绝误建已删除父裁片的孔洞，保留保存期间新开始的草稿。",
+      "tests": "tests/integration/editor-races.test.ts"
+    },
+    {
+      "defect": "制造预览中的裁片名称与布纹方向箭头重叠，深色区域文字难读",
+      "resolution": "分开自动名称与箭头的位置，为标注加入浅色描边；裁片几何、手动标注坐标与导出尺寸不变。",
+      "tests": "tests/manufacturing-preview-e2e.mjs",
+      "verified": "最终发布包通过7项预览验证，含文字边界不重叠、描边、缩放、分页和实际尺寸。"
+    }
+  ],
+  "methods": [
+    "按功能清单分工审查界面、状态管理与持久化调用链。",
+    "用保存失败、失效父对象、切换模型和取消对话框等反例验证修复前后的行为。",
+    "通过单元测试覆盖状态边界，通过隐藏桌面测试验证实际点击、重启、撤销重做、导入导出与页面布局。",
+    "复核模型、裁切、拼接及制造截图；检查物理尺寸、标注边界与发布包内容一致性。"
+  ],
+  "finalDisplayChangeValidation": {
+    "note": "完整998项单元测试后仅调整预览标注显示；随后重新通过相关19项单元测试、类型检查、重复打包，以及最终发布包的全部68套桌面测试。",
+    "targetedUnitTests": 19,
+    "manufacturingPreviewChecks": 7
+  },
+  "agents": {
+    "codingAndTesting": "gpt-6.1-sol high",
+    "roles": [
+      "global_audit",
+      "models_audit",
+      "production_audit"
+    ],
+    "integration": "主代理审核、补修、最终发布包回归与合并"
+  },
+  "additionalVisualChecks": {
+    "modelViews": {
+      "passed": true,
+      "directory": "F:\\公司\\fcd\\workflow-update\\.local\\tests\\model-render-8t8Onr",
+      "backgroundWindow": true,
+      "osSandboxDisabledForTest": false,
+      "source": "current source geometry and production SurfaceGpu.vue",
+      "checks": [
+        {
+          "species": "canine",
+          "view": "front",
+          "visiblePixels": 36770
+        },
+        {
+          "species": "canine",
+          "view": "side",
+          "visiblePixels": 20016
+        },
+        {
+          "species": "feline",
+          "view": "front",
+          "visiblePixels": 35264
+        },
+        {
+          "species": "feline",
+          "view": "side",
+          "visiblePixels": 18695
+        },
+        {
+          "species": "rabbit",
+          "view": "front",
+          "visiblePixels": 35610
+        },
+        {
+          "species": "rabbit",
+          "view": "side",
+          "visiblePixels": 16705
+        },
+        {
+          "species": "bear",
+          "view": "front",
+          "visiblePixels": 40920
+        },
+        {
+          "species": "bear",
+          "view": "side",
+          "visiblePixels": 21227
+        },
+        {
+          "species": "deer",
+          "view": "front",
+          "visiblePixels": 35831
+        },
+        {
+          "species": "deer",
+          "view": "side",
+          "visiblePixels": 18776
+        },
+        {
+          "species": "dragon",
+          "view": "front",
+          "visiblePixels": 42260
+        },
+        {
+          "species": "dragon",
+          "view": "side",
+          "visiblePixels": 22926
+        }
+      ],
+      "errors": []
+    },
+    "modelWireframe": {
+      "directory": "F:\\公司\\fcd\\workflow-update\\.local\\tests\\wireframe-kbVse6",
+      "backgroundWindow": true,
+      "timingNote": "Wall times include throttled animation-frame waits in the hidden host; GPU buffer build and paint CPU times are reported separately, not interaction FPS.",
+      "checks": [
+        {
+          "name": "real builtin",
+          "faces": 8534,
+          "firstMs": 2003.5,
+          "firstUploads": [
+            307224
+          ],
+          "orbitMs": 2004.1100000023841,
+          "orbitUploads": 0,
+          "repeatMs": 2005.5999999940395,
+          "repeatUploads": 0,
+          "paintMs": 0.09999999403953552,
+          "wireBuildMs": 7.800000011920929,
+          "geometryBuildMs": 83.40000000596046
+        },
+        {
+          "name": "200000 imported faces",
+          "faces": 200000,
+          "firstMs": 2001.9000000059605,
+          "firstUploads": [
+            7215600
+          ],
+          "orbitMs": 2004.3299999982119,
+          "orbitUploads": 0,
+          "repeatMs": 2005.300000011921,
+          "repeatUploads": 0,
+          "paintMs": 0.20000001788139343,
+          "wireBuildMs": 188.90000000596046,
+          "geometryBuildMs": 1041.0999999940395
+        }
+      ],
+      "errors": []
+    }
+  },
+  "limits": [
+    "AI提供商与MCP使用本地模拟服务验收，未消耗真实外部服务额度。",
+    "打印参数、分页和PDF尺寸已测，未向实体打印机发送作业。",
+    "全部桌面测试隐藏运行；组件测试使用真实生产Vue组件和隔离接口适配器，不冒充发布包端到端测试。",
+    "有限测试覆盖约定功能和已识别边界，不代表任意输入绝无缺陷。",
+    "花纹提取边缘算法不属本轮修复范围。"
+  ],
+  "references": [
+    "https://learn.chatgpt.com/docs/agent-configuration/agents-md",
+    "https://learn.chatgpt.com/docs/agent-configuration/subagents?surface=app",
+    "https://learn.chatgpt.com/docs/agent-configuration/speed",
+    "https://learn.chatgpt.com/docs/agent-configuration/rules",
+    "https://modelcontextprotocol.io/specification/2025-06-18/server/utilities/pagination"
+  ]
+}

@@ -1,0 +1,40 @@
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\Docs\软件工程文档\68-final-audit.json
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\Docs\软件工程文档\68-preflight-cleanup.log
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\Docs\软件工程文档\68-verification
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\Docs\软件工程文档\68-visual-checks
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\Docs\软件工程文档\68-花纹裁切拼接修复验收.md
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\source-ink-negative
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\algorithm-ink-markers.ts
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\final-production-audit-notes.mjs
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\final-production-native-revalidate.mjs
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\final-production-native-revalidate.ts
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\final-validation-manifest.mjs
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\independent-paw-source-oracle.ts
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\refresh-final-audit-tools.mjs
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\source-graph-copy.ts
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\steger-research-build.mjs
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\steger-research.mjs
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\steger-research.ts
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\steger-source.ts
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\summarize-ink-research.mjs
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\whole-image-capture.ts
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\whole-image-final-production-audit.mjs
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\.local\whole-image-final-production-audit.ts
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\release\FurryPatternCAD-0.8.0-win-x64-11a39ec3
+Removed generated/archive artifact: F:\公司\fcd\workflow-update\release\FurryPatternCAD-0.8.0-win-x64-7eab3633
+Explicitly excluded: F:\公司\fcd\workflow-update\target\debug
+
+Path                                                           Files         Bytes
+----                                                           -----         -----
+F:\公司\fcd\workflow-update\.local\tests                        7715 6993498324.00
+F:\公司\fcd\workflow-update\.local\auto-reference-fixture.json     1    3892448.00
+F:\公司\fcd\workflow-update\test-results                         268   15496405.00
+F:\公司\fcd\workflow-update\Docs\软件工程文档\evidence            12     853898.00
+
+Cleared: F:\公司\fcd\workflow-update\.local\tests
+Cleared: F:\公司\fcd\workflow-update\.local\auto-reference-fixture.json
+Cleared: F:\公司\fcd\workflow-update\test-results
+Cleared: F:\公司\fcd\workflow-update\Docs\软件工程文档\evidence
+Source code, test programs, fixed regression fixtures, production assets, release builds and final audit records are retained.
+Latest application retained: F:\公司\fcd\workflow-update\release\FurryPatternCAD-0.8.0-win-x64-b6b86572\FurryPatternCAD.exe
+User workspaces, source, regression fixtures and dependencies preserved. Previous tracked audit artifacts remain in Git history.

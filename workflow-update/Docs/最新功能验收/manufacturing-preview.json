@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "checks": [
+    "simple cutting keeps saved-line tools and compute; advanced exposes manual points and solver settings",
+    "piece name stays clear of the grain arrow and annotations have a contrasting halo on dark fabric",
+    "arbitrary percentage zoom leaves geometry, revision, physical dimensions unchanged and ruler matches rendered mm",
+    "middle pan works with default select and never edits patterns",
+    "advanced piece tools restore fully and returning to simple exits node editing",
+    "PDF at 37% preview remains six real A4 pages with a 100 mm calibration ruler on each page",
+    "simple preview and output actions switch to the checked batch while retaining true 1:1 tiling"
+  ],
+  "errors": [],
+  "directory": "F:\\公司\\fcd\\workflow-update\\.local\\tests\\manufacturing-preview-hpGDIB"
+}

@@ -1,0 +1,107 @@
+{
+  "checks": [
+    "closed six-panel cube has substantive nonblank 3D pixels, exact materials, 12 triangles, 100% coverage, and hidden back-panel occlusion",
+    "removing the front panel exposes the opposite actual cut and removes exactly 40000 mm² / one sixth of coverage",
+    "explosion changes visible geometry while retaining all real triangles; resetting explosion restores exact canvas pixels",
+    "orbit reveals different actual panel colors and leaves project geometry/revision untouched",
+    "clearing preview empties every rendered material pixel instead of showing the source mesh",
+    "design marking fallback preserves exact holes and front/back occlusion on a closed model"
+  ],
+  "evidence": {
+    "complete": {
+      "count": 223430,
+      "colors": {
+        "808000": 104,
+        "808080": 397,
+        "ff0000": 149377,
+        "00ffff": 54415,
+        "00ff00": 18856,
+        "bf4000": 86,
+        "40bf00": 83,
+        "00ff40": 56
+      },
+      "bounds": {
+        "width": 513,
+        "height": 458
+      },
+      "renderer": "webgl",
+      "triangles": "12"
+    },
+    "missing": {
+      "count": 223430,
+      "colors": {
+        "9900ff": 82394,
+        "00ffff": 54415,
+        "ffff00": 50931,
+        "00ff00": 18856,
+        "0000ff": 15422,
+        "cc8080": 346,
+        "4d80ff": 346,
+        "4d8080": 64
+      },
+      "bounds": {
+        "width": 513,
+        "height": 458
+      },
+      "renderer": "webgl",
+      "triangles": "10"
+    },
+    "exploded": {
+      "count": 125724,
+      "colors": {
+        "ff0000": 51574,
+        "9900ff": 29828,
+        "00ffff": 18662,
+        "ffff00": 12280,
+        "00ff00": 6431,
+        "0000ff": 6431,
+        "ff8000": 216,
+        "7340ff": 206
+      },
+      "bounds": {
+        "width": 455,
+        "height": 432
+      },
+      "renderer": "webgl",
+      "triangles": "12"
+    },
+    "rotated": {
+      "count": 233756,
+      "colors": {
+        "00ffff": 141035,
+        "9900ff": 73085,
+        "00ff00": 18833,
+        "4d80ff": 397,
+        "00ff80": 107,
+        "00ffbf": 76,
+        "00ff40": 74,
+        "26bf40": 69
+      },
+      "bounds": {
+        "width": 539,
+        "height": 460
+      },
+      "renderer": "webgl",
+      "triangles": "12"
+    },
+    "holedOverlay": {
+      "count": 223590,
+      "colors": {
+        "ff0000": 97682,
+        "00ffff": 53500,
+        "ff00ff": 49706,
+        "00ff00": 18237,
+        "06f9f9": 393,
+        "c82d45": 342,
+        "ff00b5": 238,
+        "ff003f": 237
+      },
+      "bounds": {
+        "width": 513,
+        "height": 458
+      },
+      "renderer": "canvas",
+      "triangles": "12"
+    }
+  }
+}

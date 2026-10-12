@@ -1,0 +1,16 @@
+PASS front original image and two-point calibration
+PASS front blue real JPEG connected region
+PASS front yellow real JPEG connected region
+PASS back original image and two-point calibration
+PASS candidate from other view is not offered as current image
+PASS back blue real JPEG connected region
+PASS back yellow real JPEG connected region
+PASS front/back calibrated overlay matrices and mirror
+PASS invalid coincident calibration is atomic
+PASS canine 3D model and real-picture source projection to unfolded pieces
+PASS full-body cut pattern overview is visible, and selecting a mapped panel gives readable geometry
+PASS save/restart and real-image resources exact retention
+PASS real-image mapped markings lock, inverse-domain rejection and undo
+PASS SVG and DXF manufacturing exports contain actual mapped markings
+PASS real-image Lab and HSV candidate generation preserve accepted manual sources
+PASS real-image editable mask subtraction preserves accepted sources

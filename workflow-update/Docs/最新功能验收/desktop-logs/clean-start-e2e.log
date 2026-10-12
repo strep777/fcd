@@ -1,0 +1,1 @@
+{"passed":true,"directory":"F:\\公司\\fcd\\workflow-update\\.local\\tests\\clean-start-2POxBX","build":{"executable":"F:\\公司\\fcd\\workflow-update\\release\\FurryPatternCAD-0.8.0-win-x64-b6b86572\\FurryPatternCAD.exe","source":"package"},"checks":["empty project","empty recent projects","empty jobs","new-project entry available","no renderer errors"]}

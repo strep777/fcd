@@ -1,0 +1,120 @@
+
+ RUN  v4.1.11 F:/公司/fcd/workflow-update
+
+stderr | tests/integration/editor-races.test.ts > retains a rejected polygon drawing so it can be corrected and saved again
+[Vue warn]: onMounted is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+[Vue warn]: onBeforeUnmount is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+[Vue warn]: onBeforeUnmount is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+
+stderr | tests/integration/editor-races.test.ts > retains a rejected open drawing so it can be corrected and saved again
+[Vue warn]: onMounted is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+[Vue warn]: onBeforeUnmount is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+[Vue warn]: onBeforeUnmount is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+
+stderr | tests/integration/editor-races.test.ts > retains a rejected hole drawing so it can be corrected and saved again
+[Vue warn]: onMounted is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+[Vue warn]: onBeforeUnmount is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+[Vue warn]: onBeforeUnmount is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+
+stderr | tests/integration/editor-races.test.ts > does not turn a hole whose parent was removed into a new standalone pattern
+[Vue warn]: onMounted is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+[Vue warn]: onBeforeUnmount is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+[Vue warn]: onBeforeUnmount is called when there is no active component instance to be associated with. Lifecycle injection APIs can only be used during execution of setup(). If you are using async setup(), make sure to register lifecycle hooks before the first await statement.
+
+ ❯ tests/integration/editor-races.test.ts (9 tests | 4 failed) 31ms
+   × retains a rejected polygon drawing so it can be corrected and saved again 7ms
+   × retains a rejected open drawing so it can be corrected and saved again 2ms
+   × retains a rejected hole drawing so it can be corrected and saved again 2ms
+   × does not turn a hole whose parent was removed into a new standalone pattern 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/editor-races.test.ts > retains a rejected polygon drawing so it can be corrected and saved again
+ FAIL  tests/integration/editor-races.test.ts > retains a rejected open drawing so it can be corrected and saved again
+ FAIL  tests/integration/editor-races.test.ts > retains a rejected hole drawing so it can be corrected and saved again
+AssertionError: expected [] to deeply equal [ …(3) ]
+
+- Expected
++ Received
+
+- [
+-   {
+-     "id": "new-a",
+-     "xMm": 10,
+-     "yMm": 10,
+-   },
+-   {
+-     "id": "new-b",
+-     "xMm": 20,
+-     "yMm": 10,
+-   },
+-   {
+-     "id": "new-c",
+-     "xMm": 20,
+-     "yMm": 20,
+-   },
+- ]
++ []
+
+ ❯ tests/integration/editor-races.test.ts:50:29
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 5 passed (9)
+   Start at  17:37:11
+   Duration  461ms (transform 175ms, setup 0ms, import 275ms, tests 31ms, environment 0ms)
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/integration/editor-races.test.ts > does not turn a hole whose parent was removed into a new standalone pattern
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "a5b6d022-315c-4fe0-8558-52b86604774e",
+      1,
+      Object {
+        "piece": Object {
+          "allowanceMm": 10,
+          "closed": true,
+          "color": "#73c9b6",
+          "cutQty": 1,
+          "furRad": 1.5707963267948966,
+          "id": "b0aebd2b-6e3b-494a-8d0b-73958c55a41e",
+          "material": "毛皮",
+          "mirror": false,
+          "name": "Pattern 1",
+          "nodes": Array [
+            Object {
+              "id": "a",
+              "xMm": 1,
+              "yMm": 1,
+            },
+            Object {
+              "id": "b",
+              "xMm": 2,
+              "yMm": 1,
+            },
+            Object {
+              "id": "c",
+              "xMm": 2,
+              "yMm": 2,
+            },
+          ],
+        },
+        "type": "piece.put",
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ tests/integration/editor-races.test.ts:57:100
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
