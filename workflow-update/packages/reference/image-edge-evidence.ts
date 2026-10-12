@@ -130,14 +130,19 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
                     return false;
             }
         }
+        // Short profiles certify both inner plateau pixels. Include the
+        // intervals adjoining them; a two-pixel reach is not limited to the
+        // central pair. Gradient support remains inside the wider outer pair.
+        const searchStart = reach === 6 ? -reach + 2 : -reach + 1;
+        const searchEnd = reach === 6 ? reach - 1 : reach;
         const crossings: number[] = [];
-        for (let t = -reach+2; t < reach-1; t++) {
+        for (let t = searchStart; t < searchEnd; t++) {
             const left = value(t), right = value(t + 1);
             if (left >= level && right < level)
                 crossings.push(t + .5 + (left - level) / (left - right));
         }
         let recrosses = false;
-        for (let t = -reach+2; t < reach-1; t++)
+        for (let t = searchStart; t < searchEnd; t++)
             if (value(t) < level && value(t + 1) >= level)
                 recrosses = true;
         if (crossings.length !== 1 || !darkPair && recrosses)
@@ -173,7 +178,7 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
         if (reach < 6) {
             const envelope = (sign: number, threshold: number) => {
                 const xs: number[] = []; let reverse = 0;
-                for (let t = -reach + 2; t < reach - 1; t++) {
+                for (let t = searchStart; t < searchEnd; t++) {
                     const l = value(t) + sign * quantization(t), r = value(t + 1) + sign * quantization(t + 1);
                     if (l >= threshold && r < threshold) xs.push(t + .5 + (l - threshold) / (l - r));
                     if (l < threshold && r >= threshold) reverse++;
@@ -187,7 +192,7 @@ export function refineImageEdgeOwnership(width: number, height: number, rgba: Ui
         }
 
         supportedEdges++;
-        for (let t = -reach+2; t <= reach-1; t++) {
+        for (let t = searchStart; t <= searchEnd; t++) {
             const p = i + t * stride, target = t + .5 < edge ? a : b;
             // Exterior correction is removal-only. Independent source pixels
             // can disprove a pale claw halo without inventing foreground.
