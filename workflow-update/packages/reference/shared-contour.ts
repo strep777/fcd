@@ -47,14 +47,22 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
  }
  const reverse=(c:Chain)=>({nodes:[...c.nodes].reverse(),curves:c.curves.map(v=>({...v,startNodeId:v.endNodeId,endNodeId:v.startNodeId,c1:v.c2,c2:v.c1}))});
  const signed=(r:Point[])=>r.reduce((s,p,i)=>{const q=r[(i+1)%r.length],o=r[0];return s+(p.xMm-o.xMm)*(q.yMm-o.yMm)-(q.xMm-o.xMm)*(p.yMm-o.yMm);},0);
- const assemble=()=>originals.map((original,owner)=>{let outerCurves:Curve[]=[];const rings=paths[owner].map((path,ri)=>{const chainIds=path.edges.map(k=>graph.get(k)!.chain!);let start=chainIds.findIndex((id,i)=>id!==chainIds[(i+chainIds.length-1)%chainIds.length]);if(start<0)start=Math.max(0,path.keys.indexOf(key(chains[chainIds[0]].raw[0])));
+ // Fits replace node/control arrays; they never mutate their contents. Reuse
+ // an owner's assembled geometry until one of its incident chains changes.
+ // This also lets repeated validation reuse the exact same checked object.
+ const ownedChains=originals.map((_,owner)=>chains.filter(c=>c.owners.has(owner)));
+ const assembled:({state:{nodes:Point[];curves:Curve[]}[];piece:Piece}|undefined)[]=[];
+ const assemble=()=>originals.map((original,owner)=>{
+  const previous=assembled[owner],owned=ownedChains[owner];
+  if(previous&&owned.every((c,i)=>c.nodes===previous.state[i].nodes&&c.curves===previous.state[i].curves))return previous.piece;
+  let outerCurves:Curve[]=[];const rings=paths[owner].map((path,ri)=>{const chainIds=path.edges.map(k=>graph.get(k)!.chain!);let start=chainIds.findIndex((id,i)=>id!==chainIds[(i+chainIds.length-1)%chainIds.length]);if(start<0)start=Math.max(0,path.keys.indexOf(key(chains[chainIds[0]].raw[0])));
    const nodes:Point[]=[],pending:Curve[]=[];let consumed=0;
    while(consumed<chainIds.length){const index=(start+consumed)%chainIds.length,id=chainIds[index],c=chains[id];let count=1;while(consumed+count<chainIds.length&&chainIds[(index+count)%chainIds.length]===id)count++;
     const directed=c.closed?Math.sign(signed(c.raw))===Math.sign(signed(rawRings[owner][ri]))?c:reverse(c):path.keys[index]===key(c.raw[0])&&path.keys[(index+1)%path.keys.length]===key(c.raw[1])?c:reverse(c);
     const list=c.closed?directed.nodes:directed.nodes.slice(0,-1);nodes.push(...list);if(!ri)pending.push(...directed.curves);consumed+=count;
    }
    const fresh=nodes.map(p=>({...p,id:createId()})),byCoordinate=new Map(fresh.map(p=>[key(p),p.id]));if(!ri)outerCurves=pending.map(c=>{const startPoint=nodes.find(p=>p.id===c.startNodeId)!,endPoint=nodes.find(p=>p.id===c.endNodeId)!;return {...c,id:createId(),startNodeId:byCoordinate.get(key(startPoint))!,endNodeId:byCoordinate.get(key(endPoint))!,c1:{...c.c1,id:createId()},c2:{...c.c2,id:createId()}};});return fresh;
-  });return {...original,nodes:rings[0],holes:rings.slice(1),curves:outerCurves};});
+  });const piece={...original,nodes:rings[0],holes:rings.slice(1),curves:outerCurves};assembled[owner]={state:owned.map(c=>({nodes:c.nodes,curves:c.curves})),piece};return piece;});
  const crossingChains=()=>{
   const segments:{a:Point;b:Point;chain:number}[]=[],boxes:Box[]=[],epsilon=g*1e-8;
   for(const [chain,c]of chains.entries()){const ring=contourPolyline(c.nodes,c.curves,c.closed,Math.min(.001,g*.005),createId);for(let i=0;i<ring.length-(c.closed?0:1);i++){const a=ring[i],b=ring[(i+1)%ring.length];segments.push({a,b,chain});boxes.push([Math.min(a.xMm,b.xMm)-epsilon,Math.min(a.yMm,b.yMm)-epsilon,Math.max(a.xMm,b.xMm)+epsilon,Math.max(a.yMm,b.yMm)+epsilon]);}}
@@ -67,7 +75,8 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
   }
   return bad;
  };
- let pieces=assemble();const valid=(piece:Piece,i:number)=>piece.nodes.length>=3&&piece.nodes.length<=2000&&piece.holes?.every(r=>r.length>=3&&r.length<=2000)!==false&&safeContour(piece,originals[i],pixelMm)&&contourBoundaryError(piece,originals[i],g*.1,g*1.05)<=g*1.05;
+ let pieces=assemble();const checked=new WeakMap<Piece,boolean>();
+ const valid=(piece:Piece,i:number)=>{const cached=checked.get(piece);if(cached!==undefined)return cached;const result=piece.nodes.length>=3&&piece.nodes.length<=2000&&piece.holes?.every(r=>r.length>=3&&r.length<=2000)!==false&&safeContour(piece,originals[i],pixelMm)&&contourBoundaryError(piece,originals[i],g*.1,g*1.05)<=g*1.05;checked.set(piece,result);return result;};
  // A coarse arc may satisfy the distance envelope but miss a small owner's
  // area budget. Increase the fit's resolution before discarding its geometry.
  // Subdivision uses original measured vertices; both material owners still

@@ -22,7 +22,9 @@ it('mirroring the real character retains navy and both shoulder/hip candidates w
  const width=803,height=1024,rgba=new Uint8Array(await sharp('tests/fixtures/character-blue-white-front-back.png').extract({left:0,top:0,width,height}).ensureAlpha().raw().toBuffer()),before=rgba.slice(),original=illustrationRegions(width,height,rgba),mirrored=new Uint8Array(rgba.length);
  for(let y=0;y<height;y++)for(let x=0;x<width;x++)mirrored.set(rgba.subarray((y*width+x)*4,(y*width+x)*4+4),(y*width+width-1-x)*4);
  const r=illustrationRegions(width,height,mirrored),owner=(x:number,y:number)=>r.regions.find(s=>s.indices.includes(y*width+width-1-x))!;
- expect(rgba).toEqual(before);expect(r.foregroundPixels).toBe(original.foregroundPixels);const all=r.regions.flatMap(s=>s.indices);expect(new Set(all).size).toBe(all.length);expect(all.length).toBe(r.foregroundPixels-r.discardedPixels);
+ // Compare every source byte directly; generic deep equality enumerates
+ // millions of typed-array properties and dominates this image regression.
+ expect(Buffer.compare(rgba,before)).toBe(0);expect(r.foregroundPixels).toBe(original.foregroundPixels);const all=r.regions.flatMap(s=>s.indices);expect(new Set(all).size).toBe(all.length);expect(all.length).toBe(r.foregroundPixels-r.discardedPixels);
  for(const [x,y,side]of[[345,330,'right'],[510,330,'left']]as const)expect(owner(x,y).contexts?.map(c=>c.part+':'+c.side).sort()).toEqual(['arm:'+side,'body:center']);
  for(const [x,y,side]of[[367,455,'right'],[486,455,'left']]as const)expect(owner(x,y).contexts?.map(c=>c.part+':'+c.side).sort()).toEqual(['body:center','leg:'+side]);
  for(const [x,y]of[[332,603],[521,603]]){const navy=owner(x,y),brightness=Math.max(...[1,3,5].map(i=>parseInt(navy.color.slice(i,i+2),16)))/255;expect(brightness).toBeLessThan(.55);expect(navy.indices.length).toBeGreaterThan(1400);}
