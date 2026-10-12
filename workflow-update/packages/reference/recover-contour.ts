@@ -28,7 +28,8 @@ type Grid = ReturnType<typeof grid>;
  * the permitted Euclidean strip is at most 1.8 native pixels wide (0.9 on
  * each side), independent of calibration or raster rotation. This is a
  * recognition bound, not the final geometric error contract. */
-function straight(points: Point[], g: Grid) {
+function straight(points: Point[], g: Grid, strictRasterStrip = false) {
+    if (points.length < 2) return undefined;
     const origin = points[0], p = points.map(p => ({ x: (p.xMm - origin.xMm) * g.ux + (p.yMm - origin.yMm) * g.uy, y: -(p.xMm - origin.xMm) * g.uy + (p.yMm - origin.yMm) * g.ux })), end = p.at(-1)!, swap = Math.abs(end.y) > Math.abs(end.x), sx = Math.sign(swap ? end.y : end.x) || 1, sy = Math.sign(swap ? end.x : end.y) || 1;
     const coordinates = p.map(p => ({ x: sx * (swap ? p.y : p.x), y: sy * (swap ? p.x : p.y) }));
     let previous = -Infinity;
@@ -53,7 +54,7 @@ function straight(points: Point[], g: Grid) {
             lo = a;
     }
     const best = [0, .5, (lo + hi) / 2].map(t => ({ t, ...strip(t) })).sort((a, b) => a.width / Math.hypot(a.t, 1 - a.t) - b.width / Math.hypot(b.t, 1 - b.t))[0];
-    if (best.width > Math.max(g.size, 1.8 * g.size * Math.hypot(best.t, 1 - best.t)) + g.size * 1e-6)
+    if (best.width > (strictRasterStrip ? g.size : Math.max(g.size, 1.8 * g.size * Math.hypot(best.t, 1 - best.t))) + g.size * 1e-6)
         return undefined;
     let nx = -best.t * sx, ny = (1 - best.t) * sy;
     if (swap)
@@ -533,6 +534,48 @@ function narrowMeasuredStrip(candidate: Piece, original: Piece, g: Grid, pixel: 
     const result = at(shift);
     return safeContour(result, original, pixel) && contourBoundaryError(result, original, g.size * .1, g.size * 1.05) <= g.size * 1.05 ? result : undefined;
 }
+/** Additional model-choice evidence, separate from the wider line fitter.
+ * The existing curve core excludes two terminal pixels at each end. Require
+ * at least eight further pixels for a long straight core (12 total). A cap
+ * spanning no more than those terminal cells plus two connecting cells (6
+ * total) must pass the strict strip in full. Intermediate spans provide
+ * neither a long core nor a short cap; conservatively retain the curve.
+ * These recognition guards are not additional positional-error allowances. */
+function strictPolygonEvidence(polygon: Piece, original: Piece, g: Grid) {
+    const source = new Map(original.nodes.map((p, i) => [p.id, i]));
+    let perimeter = 0, supportedLength = 0, sides = 0, complete = true;
+    for (const [i, a] of polygon.nodes.entries()) {
+        const b = polygon.nodes[(i + 1) % polygon.nodes.length], from = source.get(a.id), to = source.get(b.id);
+        if (from === undefined || to === undefined) return undefined;
+        const span = to > from ? original.nodes.slice(from, to + 1) : [...original.nodes.slice(from), ...original.nodes.slice(0, to + 1)];
+        const arc = [0];
+        for (let j = 1; j < span.length; j++) arc.push(arc.at(-1)! + length(span[j - 1], span[j]));
+        const measured = arc.at(-1)!; perimeter += measured;
+        if (span.every(p => distance(p, span[0], span.at(-1)!) <= g.size * 1e-6)) {
+            if (!straight(span, g, true)) { complete = false; continue; }
+            if (measured >= g.size * (12 - 1e-6)) { supportedLength += measured; sides++; }
+            continue;
+        }
+        if (measured <= g.size * (6 + 1e-6)) { if (!straight(span, g, true)) complete = false; continue; }
+        if (measured < g.size * (12 - 1e-6)) { complete = false; continue; }
+        const fromArc = g.size * 2, toArc = arc.at(-1)! - g.size * 2;
+        const atArc = (position: number): Point => {
+            const j = arc.findIndex((v, j) => j > 0 && v >= position), a = span[j - 1], b = span[j], t = (position - arc[j - 1]) / (arc[j] - arc[j - 1]);
+            return { id: '', xMm: a.xMm + (b.xMm - a.xMm) * t, yMm: a.yMm + (b.yMm - a.yMm) * t };
+        };
+        // Tracing coalesces collinear raster edges. Clip those measured edges
+        // rather than dropping vertices, which could erase an 18-pixel side
+        // from this evidence check merely because it has two stored endpoints.
+        const core = [atArc(fromArc), ...span.filter((_, j) => arc[j] > fromArc + g.size * 1e-6 && arc[j] < toArc - g.size * 1e-6), atArc(toArc)];
+        if (!straight(core, g, true)) { complete = false; continue; }
+        supportedLength += measured; sides++;
+    }
+    // Limit the total contribution of caps. They cannot collectively supply
+    // the polygon evidence for a small painted ellipse. At least three quarters
+    // of the measured perimeter must belong to long digital straight spans.
+    const accepted = complete && sides >= 3 && supportedLength >= perimeter * .75;
+    return { sides, accepted, phaseSupport: accepted || !complete && sides >= 3 && supportedLength >= perimeter * .5 };
+}
 /** Recover raster geometry: straight sides first, data-fitted arcs only where
  * the boundary cannot be explained by a digital straight segment. Every fit
  * must pass topology, <=3% per-ring area error, and a conservative global
@@ -571,11 +614,22 @@ function recoverLocal(piece: Piece, pixelMm: number, createId: () => string): Pi
     };
     candidate = compactLines(candidate);
     if (candidate.curves?.length && candidate.nodes.length <= 32 && piece.nodes.length <= 512) {
-        const lines = ring(piece.nodes, pixelMm, createId, false), compact = compactLines({ ...candidate, nodes: lines.nodes, curves: [] }), polygon = narrowMeasuredStrip(compact, piece, outer.g, pixelMm) ?? compact;
-        // Prefer a smaller source-supported straight representation whenever it
-        // meets the same complete error and topology contract. A few irregular
-        // tip pixels must not turn the painted side of a diamond into an arc.
-        if (polygon.nodes.length < candidate.nodes.length && safeContour(polygon, piece, pixelMm) && contourBoundaryError(polygon, piece, pixelMm * .1, outer.g.size * 1.05) <= outer.g.size * 1.05) candidate = polygon;
+        // A de Casteljau split adds schema anchors and controls but no new
+        // independent parameters. Count the actual fitted segments instead.
+        const fittedParameters = outer.segments.length + 2 * outer.segments.filter(s => s.curve).length;
+        // Count both anchors and independent cubic controls. Two broad arcs
+        // can have fewer anchors than four source-supported lines while using
+        // more geometric parameters. Strict side evidence keeps this choice
+        // from replacing genuine painted arcs with a short polygon.
+        for (const start of [0, Math.floor(piece.nodes.length / 4), Math.floor(piece.nodes.length / 2), Math.floor(piece.nodes.length * 3 / 4)]) {
+            const rotated = [...piece.nodes.slice(start), ...piece.nodes.slice(0, start)], lines = ring(rotated, pixelMm, createId, false), compact = compactLines({ ...candidate, nodes: lines.nodes, curves: [] }), polygon = narrowMeasuredStrip(compact, piece, outer.g, pixelMm) ?? compact;
+            const evidence = strictPolygonEvidence(polygon, piece, outer.g);
+            const simpler = start === 0 && polygon.nodes.length < candidate.nodes.length || evidence?.accepted && evidence.sides <= fittedParameters;
+            if (simpler && safeContour(polygon, piece, pixelMm) && contourBoundaryError(polygon, piece, pixelMm * .1, outer.g.size * 1.05) <= outer.g.size * 1.05) { candidate = polygon; break; }
+            // Partial evidence only permits a search at equivalent starts;
+            // every accepted result still needs the full 75% evidence guard.
+            if (start === 0 && !evidence?.phaseSupport) break;
+        }
     }
     if (safeContour(candidate, piece, pixelMm) && contourBoundaryError(candidate, piece, pixelMm * .1, outer.g.size * 1.05) <= outer.g.size * 1.05)
         return candidate;
@@ -593,6 +647,18 @@ function recoverLocal(piece: Piece, pixelMm: number, createId: () => string): Pi
     const polygon = ring(piece.nodes, pixelMm, createId, false), fallback = { ...piece, nodes: polygon.nodes, curves: [], holes: piece.holes };
     if (safeContour(fallback, piece, pixelMm) && contourBoundaryError(fallback, piece, pixelMm * .1, outer.g.size * 1.05) <= outer.g.size * 1.05)
         return fallback;
+    if (piece.nodes.length <= 512 && fallback.nodes.length <= 32) {
+        // The existing local-corner mode and equivalent traversal phases can
+        // provide a valid straight candidate when the first line intercepts
+        // narrowly miss the measured-area bound. No lines are moved to impose
+        // a target area; each alternative still passes the complete contract.
+        const boundaryLines = ring(piece.nodes, pixelMm, createId, false, true), boundaryPolygon = compactLines({ ...piece, nodes: boundaryLines.nodes, curves: [], holes: piece.holes });
+        if (strictPolygonEvidence(boundaryPolygon, piece, outer.g)?.accepted && safeContour(boundaryPolygon, piece, pixelMm) && contourBoundaryError(boundaryPolygon, piece, pixelMm * .1, outer.g.size * 1.05) <= outer.g.size * 1.05) return boundaryPolygon;
+        for (const start of [Math.floor(piece.nodes.length / 4), Math.floor(piece.nodes.length / 2), Math.floor(piece.nodes.length * 3 / 4)]) {
+            const rotated = [...piece.nodes.slice(start), ...piece.nodes.slice(0, start)], alternative = ring(rotated, pixelMm, createId, false), p = compactLines({ ...piece, nodes: alternative.nodes, curves: [], holes: piece.holes });
+            if (strictPolygonEvidence(p, piece, outer.g)?.accepted && safeContour(p, piece, pixelMm) && contourBoundaryError(p, piece, pixelMm * .1, outer.g.size * 1.05) <= outer.g.size * 1.05) return p;
+        }
+    }
     // A physically complex or irreducible invalid contour must be explicit,
     // never silently returned above the editable-node contract.
     for (const option of [originalHoles, anchoredPiece, repaired, fallback]) {

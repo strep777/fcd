@@ -5,7 +5,7 @@ import {boxIndex,type Box} from '../surface/spatial';
 type Curve=NonNullable<Piece['curves']>[number];
 type Edge={a:string;b:string;owners:Set<number>;rings:Set<string>;pair:string;chain?:number};
 type Path={keys:string[];edges:string[]};
-type Chain={raw:Point[];closed:boolean;anchors:string[];edges:string[];owners:Set<number>;hole:boolean;nodes:Point[];curves:Curve[];restored:boolean};
+type Chain={raw:Point[];closed:boolean;anchors:string[];edges:string[];owners:Set<number>;hole:boolean;nodes:Point[];curves:Curve[];holeFit?:{nodes:Point[];curves:Curve[]};restored:boolean};
 /** Joint source-network recovery. Shared edges are fitted once and traversed
  * in reverse by their other owner. This neither expands materials nor fills
  * gaps after the fact: adjacency and junctions come from the traced pixel graph.
@@ -42,8 +42,8 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
   // Polygon-only holes and their other owner share these exact samples. The
   // finer curve fit need not turn flattening samples into excessive editable
   // nodes; the assembled polygon still passes the full 1.05-pixel bound below.
-  let nodes=fitted.nodes,curves=fitted.curves??[];if(hole){nodes=contourPolyline(nodes,curves,closed,g*.06,createId);curves=[];}
-  chains.push({raw,closed,anchors,edges:edgeIds,owners,hole,nodes,curves,restored:false});
+  let nodes=fitted.nodes,curves=fitted.curves??[];const holeFit=hole&&curves.length?{nodes,curves}:undefined;if(hole){nodes=contourPolyline(nodes,curves,closed,g*.06,createId);curves=[];}
+  chains.push({raw,closed,anchors,edges:edgeIds,owners,hole,nodes,curves,holeFit,restored:false});
  }
  const reverse=(c:Chain)=>({nodes:[...c.nodes].reverse(),curves:c.curves.map(v=>({...v,startNodeId:v.endNodeId,endNodeId:v.startNodeId,c1:v.c2,c2:v.c1}))});
  const signed=(r:Point[])=>r.reduce((s,p,i)=>{const q=r[(i+1)%r.length],o=r[0];return s+(p.xMm-o.xMm)*(q.yMm-o.yMm)-(q.xMm-o.xMm)*(p.yMm-o.yMm);},0);
@@ -82,7 +82,6 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
    return {nodes:[...a.nodes.slice(0,-1),...b.nodes],curves:[...a.curves,...b.curves]};
   };
   const result=fit(source,depth);if(chain.closed)result.nodes.pop();
-  if(chain.hole)return {nodes:contourPolyline(result.nodes,result.curves,chain.closed,g*.06,createId),curves:[]};
   return result;
  };
  // Restore shared chains coherently. Prefer the smallest one-chain repair that
@@ -97,10 +96,24 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
   const incident=chains.filter(c=>c.owners.has(failed)&&!c.restored).sort((a,b)=>a.raw.length-a.nodes.length-(b.raw.length-b.nodes.length));let fixed=false;
   for(const c of incident){
    const before={nodes:c.nodes,curves:c.curves};
-   for(const depth of [1,2]){
-    Object.assign(c,refine(c,depth));const candidate=assemble();
+   // The curve fit already includes its own flattening margin. Polygon-only
+   // holes need an extra sampling pass; coarse samples can exceed the final
+   // envelope and spuriously discard a valid arc. Refine these samples before
+   // changing the fitted geometry, with exactly the same nodes for both owners.
+   if(c.holeFit)for(const tolerance of [.02,.005]){
+    c.nodes=contourPolyline(c.holeFit.nodes,c.holeFit.curves,c.closed,g*tolerance,createId);const candidate=assemble();
     if(valid(candidate[failed],failed)&&[...c.owners].every(owner=>!valid(pieces[owner],owner)||valid(candidate[owner],owner))){pieces=candidate;fixed=true;break;}
     Object.assign(c,before);
+   }
+   if(fixed)break;
+   for(const depth of [1,2]){
+    const result=refine(c,depth);
+    for(const tolerance of c.hole&&result.curves.length?[.06,.02,.005]:[.06]){
+     Object.assign(c,c.hole?{nodes:contourPolyline(result.nodes,result.curves,c.closed,g*tolerance,createId),curves:[]}:result);const candidate=assemble();
+     if(valid(candidate[failed],failed)&&[...c.owners].every(owner=>!valid(pieces[owner],owner)||valid(candidate[owner],owner))){c.holeFit=c.hole&&result.curves.length?result:undefined;pieces=candidate;fixed=true;break;}
+     Object.assign(c,before);
+    }
+    if(fixed)break;
    }
    if(fixed)break;
   }
