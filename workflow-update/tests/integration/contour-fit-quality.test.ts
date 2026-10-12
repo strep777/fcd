@@ -55,7 +55,7 @@ it('rejects a same-area translation and an erased indentation against the origin
 it('preserves native bevels where a hole almost touches the exterior',()=>{
  const raw=trace(30,30,(x,y)=>x>=2&&x<28&&y>=2&&y<28&&!(x>=12&&x<27&&y>=12&&y<27)&&!(x>=27&&y>=27)),result=smoothContour(raw,.8,()=>crypto.randomUUID());
  expect(safeContour(result,raw,.8)).toBe(true);expect(result.holes?.length).toBe(raw.holes?.length);
- const contacts=raw.nodes.filter((p,i)=>Math.hypot(p.xMm-raw.nodes[(i+1)%raw.nodes.length].xMm,p.yMm-raw.nodes[(i+1)%raw.nodes.length].yMm)<.04);for(const p of contacts)expect(result.nodes.find(n=>n.id===p.id)).toEqual(p);
+ const contacts=raw.nodes.filter((p,i)=>Math.hypot(p.xMm-raw.nodes[(i+1)%raw.nodes.length].xMm,p.yMm-raw.nodes[(i+1)%raw.nodes.length].yMm)<.04);expect(contacts.length).toBeGreaterThan(0);for(const p of contacts)expect(result.nodes.find(n=>n.id===p.id)).toEqual(p);
 });
 
 it('fits the real front-view yellow ear stripe with curves rather than keeping its JPEG staircase',()=>{
