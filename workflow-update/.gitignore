@@ -1,6 +1,7 @@
 node_modules/
 .tools/
 target/
+target-*/
 dist/
 release/
 .local/
