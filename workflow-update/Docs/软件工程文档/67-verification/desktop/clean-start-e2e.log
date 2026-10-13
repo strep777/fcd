@@ -1,1 +1,0 @@
-{"passed":true,"directory":"D:\\Codex\\furrycad\\workflow-update\\.local\\tests\\clean-start-xUYZXa","build":{"executable":"D:\\Codex\\furrycad\\workflow-update\\release\\FurryPatternCAD-0.8.0-win-x64-0f7b14a0\\FurryPatternCAD.exe","source":"package"},"checks":["empty project","empty recent projects","empty jobs","new-project entry available","no renderer errors"]}

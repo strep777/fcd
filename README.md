@@ -36,27 +36,27 @@
 
 如果已有完整发布目录，直接运行其中的 `FurryPatternCAD.exe`。分发时需要复制整个发布目录，不能只复制 EXE。
 
-在当前项目工作目录中，也可以双击根目录的 **`启动新版FurryCAD.cmd`**。它读取 `workflow-update/release/latest.json`，启动该文件指向的程序，并使用 `workflow-update/.local/workspace` 作为工作库。
+在当前项目工作目录中，也可以双击根目录的 **`启动新版FurryCAD.cmd`**。它读取 `release/latest.json`，启动该文件指向的程序，并使用 `.local/workspace` 作为工作库。
 
 若提示发布包缺失，请按下方步骤从源码构建，或执行 `npm run package` 生成发布包。`release/` 是本地生成目录，不随源码提交；复制发布目录后可以直接运行其中的 EXE。
 
 ### 从源码运行
 
-当前维护源码位于 `workflow-update/`，根目录的 npm 命令负责转发。以下命令均在仓库根目录执行。
+应用源码和构建配置直接位于仓库根目录。以下命令均在仓库根目录执行。
 
 准备环境：
 
 - Windows x64。
 - Node.js，建议使用本地开发环境采用的 Node.js 24；项目指定 npm `11.13.0`。
-- Rust `1.90.0`，以及 `rustfmt`、`clippy` 组件，版本由 `workflow-update/rust-toolchain.toml` 固定。
+- Rust `1.90.0`，以及 `rustfmt`、`clippy` 组件，版本由 `rust-toolchain.toml` 固定。
 - Windows Rust 编译所需的 MSVC C++ 构建工具与 Windows SDK。
 
 ```powershell
 # 进入仓库根目录，按实际位置调整
 cd D:\Codex\furrycad
 
-# 安装实际应用的依赖；只在根目录执行 npm ci 不会安装子目录依赖
-npm --prefix workflow-update ci
+# 安装应用依赖
+npm ci
 
 # 先编译 Rust 几何工作进程，再构建桌面应用
 npm run build:rust
@@ -66,9 +66,9 @@ npm run build
 npm start
 ```
 
-`npm start` 运行 `workflow-update/dist` 中已经构建的应用，不会自动构建，也不会读取发布包。修改前端或 TypeScript 代码后，可运行 `npm run dev` 重新构建并启动；修改 Rust 代码后需先执行 `npm run build:rust`。这里的 `dev` 是构建后启动，不是热更新服务。
+`npm start` 运行 `dist` 中已经构建的应用，不会自动构建，也不会读取发布包。修改前端或 TypeScript 代码后，可运行 `npm run dev` 重新构建并启动；修改 Rust 代码后需先执行 `npm run build:rust`。这里的 `dev` 是构建后启动，不是热更新服务。
 
-构建脚本优先使用 `workflow-update/.tools` 或根目录 `.tools` 中已有的 Rust 工具链与离线依赖；没有这些本地资源时使用系统中的 Cargo。首次安装依赖通常需要网络。
+构建脚本优先使用根目录 `.tools` 中已有的 Rust 工具链与离线依赖；没有这些本地资源时使用系统中的 Cargo。首次安装依赖通常需要网络。
 
 ## 使用流程
 
@@ -137,12 +137,12 @@ npm start
 
 ## 文件与数据
 
-- **开发运行与根目录启动脚本**：默认工作库位于 `workflow-update/.local/workspace`。
+- **开发运行与根目录启动脚本**：默认工作库位于 `.local/workspace`。
 - **直接运行发布包**：默认使用应用用户数据目录，Windows 下通常为 `%APPDATA%\FurryPatternCAD`。
 - **自定义数据目录**：可以通过环境变量 `FPCAD_DATA_DIR` 指定；根目录 `.cmd` 启动脚本会自行设置为上述开发工作库。
 - **保存与迁移**：已提交操作自动保存到本地工作库；使用保存功能生成 `.fpcad` 文件，便于备份、迁移和交换。重新打开项目会清除未提交的交互草稿。
 
-不要将 `.local/workspace` 当作测试缓存删除；根目录若已有 `.local/workspace`，同样可能包含用户数据。`.tools` 用于本地工具链和离线依赖，也不应作为旧软件残留清理。
+不要将 `.local/workspace` 当作测试缓存删除。`.tools` 用于本地工具链和离线依赖，也不应作为旧软件残留清理。
 
 ### 可选：配置 AI 助手
 
@@ -174,31 +174,35 @@ npm start
 
 ```powershell
 npm run package
-$env:FPCAD_TEST_EXECUTABLE = (Get-Content workflow-update/release/latest.json -Raw | ConvertFrom-Json).executable
+$env:FPCAD_TEST_EXECUTABLE = (Get-Content release/latest.json -Raw | ConvertFrom-Json).executable
 npm run test:desktop
 ```
 
-更多专项测试见 [应用 package.json](workflow-update/package.json)。提交问题时建议附上复现步骤、版本、输入文件类型、预期与实际结果；提交改动前运行与改动范围相符的检查。
+更多专项测试见 [应用 package.json](package.json)。提交问题时建议附上复现步骤、版本、输入文件类型、预期与实际结果；提交改动前运行与改动范围相符的检查。
 
 ## 项目结构
 
+开发协作规则见 [AGENTS.md](AGENTS.md)，详细目录职责见 [项目结构与开发入口](Docs/guides/project-structure.md)。[文档索引](Docs/README.md)、[测试索引](tests/README.md)和[脚本索引](scripts/README.md)提供按任务定位的入口。
+
 ```text
 furrycad/
+├── AGENTS.md                    # 开发协作规则与自动发现入口
 ├── README.md                    # 项目介绍与入门流程
-├── package.json                 # 根目录命令入口
+├── package.json                 # 应用依赖和开发命令
 ├── 启动新版FurryCAD.cmd          # 启动本地最新发布包
-└── workflow-update/             # 当前维护的应用
-    ├── apps/desktop/            # Electron 主进程与 Vue 界面
-    ├── packages/                # 花纹、曲面、制版、排料与工作流模块
-    ├── crates/geometry-core/    # Rust 几何核心
-    ├── crates/worker/           # Rust 工作进程
-    ├── assets/                 # 字体、资源与第三方声明
-    ├── scripts/                # 构建、打包与验证脚本
-    ├── tests/                  # 单元、集成与桌面工作流测试
-    ├── Docs/                   # 工程文档与验收记录
-    ├── dist/                   # 应用构建产物（生成）
-    ├── release/                # Windows 发布包（生成）
-    └── .local/workspace/       # 本地用户工作库（运行时生成）
+├── apps/desktop/                # Electron 主进程与 Vue 界面
+├── packages/                    # 花纹、曲面、制版、排料与工作流模块
+├── crates/geometry-core/        # Rust 几何核心
+├── crates/worker/               # Rust 工作进程
+├── assets/                     # 字体、资源与第三方声明
+├── scripts/                    # 构建、打包与验证脚本
+├── tests/                      # 单元、集成与桌面工作流测试
+├── Docs/                       # 当前开发、架构与算法说明
+├── Cargo.toml                  # Rust 工作区
+├── rust-toolchain.toml         # 固定 Rust 工具链
+├── dist/                       # 应用构建产物（生成）
+├── release/                    # Windows 发布包（生成）
+└── .local/workspace/           # 本地用户工作库（运行时生成）
 ```
 
 ## 使用限制
@@ -208,4 +212,4 @@ furrycad/
 - 旧项目中的花纹不会随升级自动重算；需要应用新的提取算法时，可使用“按当前标定重新拆分”，随后复核结果。
 - 当前发布脚本仅实现 Windows 打包，其他平台尚无对应发布流程。
 
-更多维护说明见 [应用 README](workflow-update/README.md)，功能验收记录见 [花纹、裁切与拼接预览验收](workflow-update/Docs/软件工程文档/68-花纹裁切拼接修复验收.md)。第三方资源声明随发布包保存在 `THIRD_PARTY_NOTICES` 中。
+开发说明见 [项目结构](Docs/guides/project-structure.md)、[桌面架构](Docs/design/architecture.md)和[项目数据与契约](Docs/design/data-contracts.md)。第三方资源声明随发布包保存在 `THIRD_PARTY_NOTICES` 中。

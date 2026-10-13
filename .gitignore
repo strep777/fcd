@@ -1,7 +1,12 @@
 node_modules/
 .tools/
 target/
+target-*/
 dist/
 release/
 .local/
 test-results/
+__pycache__/
+*.py[cod]
+/.idea
+/.codex

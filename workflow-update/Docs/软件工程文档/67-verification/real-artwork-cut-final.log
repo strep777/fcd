@@ -1,8 +1,0 @@
-Original artwork imports, classifies and projects through the public desktop API
-Color cut produces a reviewable bounded candidate without prematurely changing production pieces
-Acceptance validates manufacturing geometry and saves the exact candidate to the cutting library
-Accepted real-artwork cuts undo and redo without changing archive geometry
-The real result saves as a project and exports a complete editable cut bundle
-Acknowledged manufacturing warnings allow the complete real-size SVG output
-Opening the saved project preserves the complete real-artwork cutting archive
-Real artwork cut workflow passed: 7 checks; 478 pieces

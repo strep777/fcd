@@ -1,9 +1,0 @@
-{
-  "checks": [
-    "checksum-valid saved project opens with matching archive IDs/topology and a deliberately stale piece geometry hash",
-    "historical archive with stale geometry is refused with an explicit explanation and no displayed model or accepted assembly status",
-    "returning to intact current cuts restores the actual assembly independently of the damaged historical snapshot",
-    "leaving and reactivating assembly preserves the rejection, releases its canvas, and never mutates document or saved package",
-    "the unmodified checksum-valid archive remains inspectable after reopening"
-  ]
-}

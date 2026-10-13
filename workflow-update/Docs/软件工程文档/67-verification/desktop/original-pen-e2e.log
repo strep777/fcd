@@ -1,1 +1,0 @@
-{"passed":true,"regions":102,"checks":["原图联合预览、连续色区与独立教程页","selection node drag undo and Ctrl+Y redo restore the local draft without touching the project","绘制与拖动无计算；确认后原始分辨率 mask 候选","套索完成后仍保留编辑节点","跨视图候选匹配与刚性对齐生成可编辑推断；未经复核不能提交","删除推断路径节点后必须重新核对","重载保留联合原图和已接受花纹","取消后台 mask 后原项目保持不变","保存并重新打开项目包完整保留联合原图与花纹"]}

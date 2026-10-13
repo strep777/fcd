@@ -1,7 +1,0 @@
-node_modules/
-.tools/
-target/
-dist/
-release/
-.local/
-test-results/

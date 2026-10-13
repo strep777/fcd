@@ -1,1 +1,0 @@
-{"passed":true,"checks":["corrupt active session starts safely and displays a recovery notice","another local project remains available through the normal interface","damaged records and recovery points are retained; healthy project edits still persist"]}
