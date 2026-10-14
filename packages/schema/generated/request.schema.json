@@ -24702,6 +24702,13 @@
                     "erase"
                   ]
                 },
+                "brushShape": {
+                  "type": "string",
+                  "enum": [
+                    "round",
+                    "square"
+                  ]
+                },
                 "shape": {
                   "type": "object",
                   "properties": {
@@ -24943,6 +24950,118 @@
                     "axes"
                   ],
                   "additionalProperties": false
+                },
+                "paint": {
+                  "type": "object",
+                  "properties": {
+                    "frame": {
+                      "type": "object",
+                      "properties": {
+                        "origin": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "number",
+                              "minimum": -1000000,
+                              "maximum": 1000000
+                            },
+                            {
+                              "type": "number",
+                              "minimum": -1000000,
+                              "maximum": 1000000
+                            },
+                            {
+                              "type": "number",
+                              "minimum": -1000000,
+                              "maximum": 1000000
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 3,
+                          "maxItems": 3
+                        },
+                        "axes": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "array",
+                              "prefixItems": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ],
+                              "items": false,
+                              "minItems": 3,
+                              "maxItems": 3
+                            },
+                            {
+                              "type": "array",
+                              "prefixItems": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ],
+                              "items": false,
+                              "minItems": 3,
+                              "maxItems": 3
+                            },
+                            {
+                              "type": "array",
+                              "prefixItems": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ],
+                              "items": false,
+                              "minItems": 3,
+                              "maxItems": 3
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 3,
+                          "maxItems": 3
+                        }
+                      },
+                      "required": [
+                        "origin",
+                        "axes"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "color": {
+                      "type": "string",
+                      "pattern": "^#[0-9a-fA-F]{6}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    }
+                  },
+                  "required": [
+                    "frame",
+                    "color",
+                    "name"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
@@ -24954,7 +25073,6 @@
             }
           },
           "required": [
-            "markingId",
             "stroke"
           ],
           "additionalProperties": false

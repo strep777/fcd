@@ -1,5 +1,5 @@
 import {archiveCut,activateCut,archivedPlacementMatches} from './cutting-library';
-import {resizeProject} from './resize-project';
+import {resizeProject,transformProject} from './resize-project';
 import {mapPiece} from '../../../packages/pattern/edit';
 import {placementMatchesModel} from '../../../packages/reference/placement-review';
 import {cutColorHash} from './surface';
@@ -181,6 +181,7 @@ export class Repository {
       else if(command.type==='reference.delete'){if(!after.references?.some(r=>r.id===command.referenceId))throw new DomainError('ENTITY_MISSING');after.references=after.references.filter(r=>r.id!==command.referenceId);}
       else if(command.type==='reference.masks.clean')after.maskSources=after.maskSources?.filter(s=>[...after.pieces,...(after.patternLibrary??[]).map(r=>r.piece),...(after.modelLibrary??[]).flatMap(m=>m.pieces??[])].some(p=>p.sourceMaskId===s.id));
       else if(command.type==='reference.candidate'||command.type==='reference.accept'){if(command.type==='reference.candidate')after.referenceRun=command.run;if(command.type==='reference.accept'||command.library!==undefined){const run=after.referenceRun,ref=after.references?.find(r=>r.id===run?.referenceId);if(!run||run.accepted||!ref||run.sourceHash!==hash(referenceKey(ref)))throw new DomainError('STALE_RESULT');const pieces=run.pieces??[run.piece];if(run.mask){if((after.maskSources?.length??0)>=20)throw new DomainError('MASK_SOURCE_LIMIT');const id=randomUUID();after.maskSources=[...(after.maskSources??[]),{id,referenceId:ref.id,sourceHash:run.sourceHash,mask:run.mask,algorithm:run.algorithm??'color-flood-1',...(run.clustering?{clustering:run.clustering}:{}),...(run.curveFit?{curveFit:run.curveFit}:{}),...(run.contourRepair?{contourRepair:run.contourRepair}:{}),...(run.discardedPixels?{discardedPixels:run.discardedPixels}:{}),calibration:ref.calibration!,originalWidth:ref.width,originalHeight:ref.height}];for(const piece of pieces)piece.sourceMaskId=id;}if(command.library)after.patternLibrary=[...(after.patternLibrary??[]),...pieces.map(piece=>({piece,referenceId:ref.id,view:ref.view,category:piece.color}))];else after.pieces.push(...pieces);run.accepted=true;}}
+      else if(command.type==='surface.transform')transformProject(after,command);
       else if(command.type==='surface.resize')resizeProject(after,command);
       else if(command.type==='surface.set'){
         const previous=after.surface,next=surfaceSchema.parse(command.surface);

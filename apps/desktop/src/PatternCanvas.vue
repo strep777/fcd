@@ -4,6 +4,7 @@ import {localize} from './localization';
 import {inject,onMounted,onUnmounted,ref,watch} from 'vue';
 import ToolIcon from './ToolIcon.vue';
 import PreviewPiecePicker from './PreviewPiecePicker.vue';
+import PatternDirection from './PatternDirection.vue';
 import {usePatternContext} from './modules/patternEditorContext';
 const advanced=inject('advancedMode',ref(false));
 const {measureMm,language,t,stage,selectedId,choiceIds,draftClosed,tool,draft,preview,svg,view,viewportSize,zoomPercent,scaleRuler,previewBounds,snap,holeTarget,paper,measurement,mappedPoint,candidateMode,shownMarkings,shownPieces,previewPaper,paperSize,fmt,label,cutPath,cachedPiecePath,cachedAnchor,poly,allNodes,cancel,changeTool,changePreviewTool,rectangle,circle,finish,down,move,up,zoom,zoomBy,setZoomPercent,fit,focusSelection,transform}=usePatternContext();
@@ -21,8 +22,8 @@ watch([advanced,tool],([value,current])=>{if(!value&&current==='node'){cancel();
       <path v-if="!preview||preview.id!==p.id" :d="cutPath(p.id)" fill-rule="evenodd" :fill="p.color" fill-opacity=".8" stroke="var(--studio-teal)" stroke-width=".6"/>
       <path :d="cachedPiecePath(p)" fill-rule="evenodd" :fill="p.closed?p.color:'none'" :fill-opacity="p.id===selectedId||choiceIds.includes(p.id)?.24:.12" :stroke="p.id===selectedId||choiceIds.includes(p.id)?'var(--studio-teal)':'var(--studio-navy)'" :stroke-width="p.id===selectedId||choiceIds.includes(p.id)?1:.5" stroke-dasharray="3 1.5"/>
       <template v-for="m in shownMarkings" :key="m.id"><path v-for="path in m.paths.filter(path=>path.pieceId===p.id)" :key="path.pieceId" :d="path.rings.map(r=>r.map((n,i)=>(i?'L':'M')+n.xMm+','+(-n.yMm)).join(' ')+' Z').join(' ')" :fill="m.color" fill-opacity=".95" fill-rule="evenodd" stroke="var(--warning)" stroke-width=".25"><title>{{m.name}}</title></path></template>
-      <text :x="cachedAnchor(p).xMm" :y="-cachedAnchor(p).yMm" text-anchor="middle" font-size="5" fill="var(--ink)">{{p.name}}</text>
-      <g class="piece-direction" :transform="`translate(${cachedAnchor(p).xMm},${-cachedAnchor(p).yMm}) rotate(${90-(p.furRad||0)*180/Math.PI}) scale(${Math.min(1,cachedAnchor(p).clearanceMm/15)})`" pointer-events="none"><path d="M 0 10 L 0 -8 M -3 -3 L 0 -8 L 3 -3" fill="none" stroke="var(--ink)" stroke-width="1"/></g><text v-for="l in p.labels??[]" :key="l.id" :x="l.xMm" :y="-l.yMm" font-size="4" fill="var(--ink)">{{l.text}}</text>
+      <text :x="cachedAnchor(p).xMm" :y="-cachedAnchor(p).yMm-Math.min(15,cachedAnchor(p).clearanceMm*.75)-5" text-anchor="middle" font-size="5" fill="var(--ink)">{{p.name}}</text>
+      <PatternDirection :fur-rad="p.furRad" :grain-rad="p.grainRad" :anchor="cachedAnchor(p)" :language="language"/><text v-for="l in p.labels??[]" :key="l.id" :x="l.xMm" :y="-l.yMm" font-size="4" fill="var(--ink)">{{l.text}}</text>
       <template v-if="stage==='pattern'&&p.id===selectedId&&tool==='node'"><g v-for="c in p.curves??[]" :key="c.id"><circle :cx="c.c1.xMm" :cy="-c.c1.yMm" r="1.5" fill="var(--warning)"/><circle :cx="c.c2.xMm" :cy="-c.c2.yMm" r="1.5" fill="var(--warning)"/></g></template>
       <g v-if="stage==='pattern'&&p.id===selectedId&&tool==='node'"><circle v-for="n in allNodes(p)" :key="n.id" :cx="n.xMm" :cy="-n.yMm" :r="view.w/180" fill="var(--studio-white)" stroke="var(--studio-teal)" :stroke-width="view.w/650" @pointerdown.stop="down($event,p,n)"/></g>
      </g>

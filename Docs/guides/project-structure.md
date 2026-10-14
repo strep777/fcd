@@ -7,7 +7,7 @@ fcd/
 ├── AGENTS.md                   # 开发协作规则与自动发现入口
 ├── README.md                   # 使用与开发入门
 ├── package.json                # 应用依赖与开发命令
-├── 启动新版FurryCAD.cmd         # 启动最新本地发布包
+├── 启动新版FurryCAD.bat         # 准备依赖、构建并启动当前源码
 ├── apps/desktop/
 │   ├── main/                   # Electron 服务、持久化、工作线程
 │   └── src/                    # Vue 界面与编辑交互

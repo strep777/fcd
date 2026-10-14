@@ -7,6 +7,7 @@
 | Rust 编译、测试与工具链选择 | `cargo.mjs`，对应 `build:rust` / `test:rust` |
 | Electron、工作线程和 Vue 构建 | `build.mjs`，对应 `build` |
 | 启动已构建应用 | `start.mjs`，对应 `start` |
+| 双击构建并启动源码 | 根目录 `启动新版FurryCAD.bat` |
 | Windows 发布包与最新版本指针 | `package.mjs`，对应 `package` |
 | TypeScript、Rust、格式与构建验证 | `verify.mjs`，对应 `verify` |
 | Vitest 单元与集成测试 | `test-unit.mjs`，对应 `test` |

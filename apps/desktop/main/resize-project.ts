@@ -1,3 +1,4 @@
+import {transformSurface,type ModelTransform} from '../../../packages/surface/transform';
 import {validateSurface} from './surface';
 import type {Project,Surface,Marking} from '../../../packages/schema/index';
 import {resizeSurface} from '../../../packages/surface/resize';
@@ -26,6 +27,17 @@ export function resizeProject(project:Project,input:Parameters<typeof resizeSurf
  if(project.markings?.some(m=>m.locked))throw new DomainError('MARKING_LOCKED');
  if(staleMarkingIds(project,false).size)throw new DomainError('STALE_MARKING');
  let next:Surface;try{next=resizeSurface(previous,input);validateSurface(next);}catch{throw new DomainError('MODEL_SIZE_INVALID');}
+ replaceModel(project,previous,next,shape=>resizeShape(shape,previous,next));
+}
+export function transformProject(project:Project,input:ModelTransform){
+ const previous=project.surface;if(!previous)throw new DomainError('SURFACE_MISSING');
+ if(project.markings?.some(m=>m.locked))throw new DomainError('MARKING_LOCKED');
+ let result:ReturnType<typeof transformSurface>;
+ try{result=transformSurface(previous,input);validateSurface(result.surface);}catch(error){if(error instanceof DomainError)throw error;throw new DomainError(error instanceof Error&&['MODEL_SELECTION_EMPTY','MODEL_TRANSFORM_INVALID','TEMPLATE_INVERSION'].includes(error.message)?error.message:'MODEL_TRANSFORM_INVALID');}
+ if(result.all&&staleMarkingIds(project,false).size)throw new DomainError('STALE_MARKING');
+ replaceModel(project,previous,result.surface,result.all?result.shape:undefined);
+}
+function replaceModel(project:Project,previous:Surface,next:Surface,shapeTransform?: (shape:NonNullable<Marking['surfaceShape']>)=>NonNullable<Marking['surfaceShape']>){
  const removed=new Set(project.bindings?.filter(b=>b.surfaceId===previous.id).map(b=>b.pieceId));assertModelDetach(project,removed);
  // A projected marking may explicitly use a bound cut as its source. Removing
  // that cut would orphan the source hash even though its 3D fragments survive.
@@ -33,7 +45,7 @@ export function resizeProject(project:Project,input:Parameters<typeof resizeSurf
  if(project.seams?.some(s=>s.locked&&(removed.has(s.a.pieceId)||removed.has(s.b.pieceId))))throw new DomainError('SEAM_LOCKED');
  project.pieces=project.pieces.filter(p=>!removed.has(p.id));project.seams=project.seams?.filter(s=>!removed.has(s.a.pieceId)&&!removed.has(s.b.pieceId));project.bindings=[];
  project.surface=next;const surfaceHash=hash(JSON.stringify(next));
- project.markings=project.markings?.map(m=>{const shape=m.surfaceShape?resizeShape(m.surfaceShape,previous,next):undefined;return {...m,surfaceHash,topologyVersion:next.topologyVersion,paths:[],...(shape?{surfaceShape:shape,sourceHash:hash(JSON.stringify(shape))}:{}),...(m.placement?{placement:{...m.placement,reviewed:false}}:{})};});
- for(const m of project.markings??[])if(m.inference){const parent=project.markings?.find(p=>p.id===m.inference!.sourceMarkingId);if(!parent)throw new DomainError('STALE_MARKING');m.inference={...m.inference,sourceFingerprint:markingFingerprint(parent),reviewed:false};}
+ if(shapeTransform)project.markings=project.markings?.map(m=>{const shape=m.surfaceShape?shapeTransform(m.surfaceShape):undefined;return {...m,surfaceHash,topologyVersion:next.topologyVersion,paths:[],...(shape?{surfaceShape:shape,sourceHash:hash(JSON.stringify(shape))}:{}),...(m.placement?{placement:{...m.placement,reviewed:false}}:{})};});
+ for(const m of project.markings??[])if(shapeTransform&&m.inference){const parent=project.markings?.find(p=>p.id===m.inference!.sourceMarkingId);if(!parent)throw new DomainError('STALE_MARKING');m.inference={...m.inference,sourceFingerprint:markingFingerprint(parent),reviewed:false};}
  project.surfaceRun=undefined;project.previewMarkings=undefined;project.nesting=undefined;project.activeCutId=undefined;
 }

@@ -451,6 +451,27 @@ function ring(points: Point[], pixel: number, createId: () => string, allowCurve
             }
             if (worst <= g.size * .95)
                 continue;
+            // A measured straight span may end at an exact acute tip or a
+            // clipped pixel corner off its supporting line. Subdivision alone
+            // repeatedly turns that intercept error into alternating raster
+            // steps. Keep the endpoints and recover the supported interior,
+            // with short source-bounded caps, as for shared open chains.
+            // A line-only alternative must retain its previous recognition
+            // behavior when it competes with an observed, data-fitted arc.
+            if (allowCurves && !segments.some(segment=>segment.curve) && s.line && length(s.a,s.b) > g.size * 12) {
+                let first=1,last=span.length-2;
+                while(first+1<last&&length(span[0],span[first+1])<=g.size*3)first++;
+                while(last-1>first&&length(span.at(-1)!,span[last-1])<=g.size*3)last--;
+                if(first<last){
+                    const support=s.line,project=(p:Point)=>{const t=(support.offset-support.nx*p.xMm-support.ny*p.yMm)/(support.nx**2+support.ny**2);return {...p,xMm:p.xMm+support.nx*t,yMm:p.yMm+support.ny*t};};
+                    const a=project(span[first]),b=project(span[last]),chord=[nodes[i],a,b,nodes[(i+1)%nodes.length]];
+                    if(Math.max(spanError(span,chord,g.size,g.size*.1),spanError(chord,span,g.size,g.size*.1))+g.size*.05<=g.size*1.05){
+                        recoveredAnchors.set(a.id,a);recoveredAnchors.set(b.id,b);
+                        segments.splice(i,1,{a:s.a,b:span[first]},{a:span[first],b:span[last],line:support},{a:span[last],b:s.b});
+                        changed=true;continue;
+                    }
+                }
+            }
             const p = span[index];
             segments.splice(i, 1, { a: s.a, b: p, line: straight(span.slice(0, index + 1), g) }, { a: p, b: s.b, line: straight(span.slice(index), g) });
             changed = true;

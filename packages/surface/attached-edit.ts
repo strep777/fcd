@@ -26,19 +26,23 @@ export function transformShape(shape:Shape,scaleX=1,scaleY=scaleX,angle=0):Shape
 }
 /** Parallel-transport the editing frame onto a new surface tangent. The grabbed
  * contour point stays exactly under the cursor, including after orbiting the model. */
-export function surfaceDragShape(shape:Shape,grab:Point,position:World,normal:[number,number,number],targetRegion?:string):Shape{
+export function surfaceDragShape(shape:Shape,grab:Point,position:World,normal:[number,number,number],targetRegion?:string,targetFaceId?:string):Shape{
  const length=Math.hypot(...normal);if(length<1e-12)throw Error('MARKING_EDIT_FRAME');
  const target=normal.map(v=>v/length),from=shape.axes[2],cross=(a:number[],b:number[])=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],axis=cross(from,target),cos=Math.max(-1,Math.min(1,dot(from,target)));
  // The antipodal case needs a stable 180-degree axis instead of dividing by zero.
  const rotate=(v:number[])=>{if(cos<-1+1e-8){const a=shape.axes[0],d=dot(a,v);return a.map((n,i)=>2*n*d-v[i]);}const a=cross(axis,v),b=cross(axis,a);return v.map((n,i)=>n+a[i]+b[i]/(1+cos));};
  const rotatedX=rotate(shape.axes[0]),parallel=dot(rotatedX,target),x=rotatedX.map((n,i)=>n-target[i]*parallel),xLength=Math.hypot(...x),unitX=x.map(v=>v/xLength),y=cross(target,unitX),axes=[unitX,y,target] as CutProjection['axes'],p=[position.xMm,position.yMm,position.zMm];
- return {...shape,...(shape.regions&&targetRegion&&!shape.regions.includes(targetRegion)?{regions:[targetRegion]}:{}),axes,origin:p.map((n,i)=>n-axes[0][i]*grab.xMm-axes[1][i]*grab.yMm) as CutProjection['origin']};
+ return {...shape,...(targetFaceId?{anchorFaceId:targetFaceId}:{}),...(shape.regions&&targetRegion&&!shape.regions.includes(targetRegion)?{regions:[targetRegion]}:{}),axes,origin:p.map((n,i)=>n-axes[0][i]*grab.xMm-axes[1][i]*grab.yMm) as CutProjection['origin']};
 }
 export function insideRings(rings:Point[][],p:Point){let inside=false;for(const ring of rings)for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a.yMm>p.yMm)!==(b.yMm>p.yMm)&&p.xMm<(b.xMm-a.xMm)*(p.yMm-a.yMm)/(b.yMm-a.yMm)+a.xMm)inside=!inside;}return inside;}
 export function markingContains(marking:Marking,faceId:string,w:[number,number,number]){return marking.fragments.some(f=>f.faceId===faceId&&insideRings(f.rings.map(r=>r.map(p=>({xMm:p[1],yMm:p[2]}))),{xMm:w[1],yMm:w[2]}));}
 /** Recover exact shared fragment boundaries for old projected records. Never fill missing islands. */
 export function editableShape(surface:Surface,marking:Marking,frame:CutProjection,project?:Project):Shape{
- if(marking.surfaceShape)return JSON.parse(JSON.stringify(marking.surfaceShape)) as Shape;
+ if(marking.surfaceShape){const shape=JSON.parse(JSON.stringify(marking.surfaceShape)) as Shape;
+  // Legacy unscoped decals acquire their actual painted sheet on first edit.
+  if(!shape.anchorFaceId&&marking.fragments.length){shape.anchorFaceId=marking.fragments[0].faceId;shape.regions??=[...new Set(surface.faces.filter(f=>marking.fragments.some(g=>g.faceId===f.id)).map(f=>f.region))];}
+  return shape;
+ }
  // Reference paint was projected in its front/back frame. Reconstructing its
  // triangles in the current camera loses the contour when viewed edge-on, and
  // clipped islands (nails, fur tips) need not describe the original source loop.

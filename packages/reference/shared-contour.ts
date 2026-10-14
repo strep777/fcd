@@ -1,3 +1,4 @@
+import type {BoundaryFit} from './image-contour';
 import type {Piece,Point} from '../schema/index';
 import {recoverContour,recoverBoundaryChain,recoverBoundaryLoop,contourPolyline} from './recover-contour';
 import {safeContour,contourBoundaryError} from './contour-topology';
@@ -5,15 +6,26 @@ import {boxIndex,type Box} from '../surface/spatial';
 type Curve=NonNullable<Piece['curves']>[number];
 type Edge={a:string;b:string;owners:Set<number>;rings:Set<string>;pair:string;chain?:number};
 type Path={keys:string[];edges:string[]};
-type Chain={raw:Point[];closed:boolean;anchors:string[];edges:string[];owners:Set<number>;hole:boolean;nodes:Point[];curves:Curve[];restored:boolean};
+type Chain={raw:Point[];closed:boolean;anchors:string[];edges:string[];owners:Set<number>;hole:boolean;nodes:Point[];curves:Curve[];restored:boolean;raster?:{nodes:Point[];curves:Curve[]}};
 /** Joint source-network recovery. Shared edges are fitted once and traversed
  * in reverse by their other owner. This neither expands materials nor fills
  * gaps after the fact: adjacency and junctions come from the traced pixel graph.
- * Failed geometry reverts the whole affected chain, including both owners. */
-export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:()=>string){
+ * Contact repairs retain only the affected raster spans for both owners. */
+export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:()=>string,imageFit?:BoundaryFit){
+ if(!Number.isFinite(pixelMm)||pixelMm<=0)throw Error('INVALID_CALIBRATION');
+ const size=pixelMm/.8,origin=originals[0]?.nodes[0]??{xMm:0,yMm:0};
+ const local=(p:Point)=>({...p,xMm:(p.xMm-origin.xMm)/size,yMm:(p.yMm-origin.yMm)/size}),world=(p:Point)=>({...p,xMm:p.xMm*size+origin.xMm,yMm:p.yMm*size+origin.yMm});
+ // Source-pixel coordinates make all contact, flattening and work budgets
+ // independent of the user's millimetre calibration and world translation.
+ const input=originals.map(p=>({...p,nodes:p.nodes.map(local),holes:p.holes?.map(r=>r.map(local)),curves:p.curves?.map(c=>({...c,c1:local(c.c1),c2:local(c.c2)}))}));
+ const localFit:BoundaryFit|undefined=imageFit?((points,closed,colors,id)=>{const fit=imageFit(points.map(world),closed,colors,id);return fit?{nodes:fit.nodes.map(local),curves:fit.curves.map(c=>({...c,c1:local(c.c1),c2:local(c.c2)}))}:undefined;}):undefined;
+ const result=recoverNetwork(input,.8,createId,localFit);
+ return {...result,pieces:result.pieces.map(p=>({...p,nodes:p.nodes.map(world),holes:p.holes?.map(r=>r.map(world)),curves:p.curves?.map(c=>({...c,c1:world(c.c1),c2:world(c.c2)}))}))};
+}
+function recoverNetwork(originals:Piece[],pixelMm:number,createId:()=>string,imageFit?:BoundaryFit){
  const g=pixelMm/.8,origin=originals[0]?.nodes[0]??{xMm:0,yMm:0},key=(p:Point)=>`${Math.round((p.xMm-origin.xMm)/g*1e8)}:${Math.round((p.yMm-origin.yMm)/g*1e8)}`,edgeKey=(a:string,b:string)=>a<b?a+'|'+b:b+'|'+a;
  const vertices=new Map<string,Point>(),rawRings=originals.map(p=>[p.nodes,...p.holes??[]]),first=rawRings.flat().find(r=>r.some((p,i)=>Math.hypot(p.xMm-r[(i+1)%r.length].xMm,p.yMm-r[(i+1)%r.length].yMm)>g*.5));
- if(!first)return {pieces:originals.map(p=>recoverContour(p,pixelMm,createId)),report:{chains:0,sharedChains:0,closedSharedChains:0,restoredChains:0}};
+ if(!first)return {pieces:originals.map(p=>recoverContour(p,pixelMm,createId)),report:{chains:0,sharedChains:0,closedSharedChains:0,restoredChains:0,imageSupportedChains:0}};
  const ia=first.findIndex((p,i)=>Math.hypot(p.xMm-first[(i+1)%first.length].xMm,p.yMm-first[(i+1)%first.length].yMm)>g*.5),a=first[ia],b=first[(ia+1)%first.length],d=Math.hypot(b.xMm-a.xMm,b.yMm-a.yMm),ux=(b.xMm-a.xMm)/d,uy=(b.yMm-a.yMm)/d;
  const project=(p:Point)=>({u:(p.xMm-a.xMm)*ux+(p.yMm-a.yMm)*uy,v:-(p.xMm-a.xMm)*uy+(p.yMm-a.yMm)*ux}),line=(p:Point,q:Point)=>{const x=project(p),y=project(q);return Math.abs(x.v-y.v)<g*1e-6?'u:'+Math.round(x.v/g*1e8):Math.abs(x.u-y.u)<g*1e-6?'v:'+Math.round(x.u/g*1e8):undefined;},coordinate=(p:Point,l:string)=>l.startsWith('u:')?project(p).u:project(p).v;
  const buckets=new Map<string,Map<string,Point>>();for(const rings of rawRings)for(const r of rings)for(let i=0;i<r.length;i++){const p=r[i],q=r[(i+1)%r.length];vertices.set(key(p),vertices.get(key(p))??p);vertices.set(key(q),vertices.get(key(q))??q);const l=line(p,q);if(l){const bucket=buckets.get(l)??new Map();bucket.set(key(p),vertices.get(key(p))!);bucket.set(key(q),vertices.get(key(q))!);buckets.set(l,bucket);}}
@@ -38,12 +50,14 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
   const anchors=raw.filter(p=>junction(key(p),e.pair)).map(key);
   // A closed contact loop has a real junction, unlike an isolated island.
   // Retain its raster anchors; moving it would detach the neighbouring chain.
-  const fitted=closed?anchors.length?recoverBoundaryLoop(raw,pixelMm,createId,new Set(raw.filter(p=>anchors.includes(key(p))).map(p=>p.id))):recoverContour({...originals[[...owners][0]],nodes:raw,holes:[],curves:[]},pixelMm,createId):recoverBoundaryChain(raw,pixelMm,createId);
+  const rasterFit=closed?anchors.length?recoverBoundaryLoop(raw,pixelMm,createId,new Set(raw.filter(p=>anchors.includes(key(p))).map(p=>p.id))):recoverContour({...originals[[...owners][0]],nodes:raw,holes:[],curves:[]},pixelMm,createId):recoverBoundaryChain(raw,pixelMm,createId);
+  const measured=closed&&anchors.length?undefined:imageFit?.(raw,closed,[...owners].map(owner=>originals[owner].color),createId);
+  const fitted=measured??rasterFit;
   // Polygon-only holes and their other owner share these exact samples. The
   // finer curve fit need not turn flattening samples into excessive editable
   // nodes; the assembled polygon still passes the full 1.05-pixel bound below.
   let nodes=fitted.nodes,curves=fitted.curves??[];if(hole){nodes=contourPolyline(nodes,curves,closed,g*.06,createId);curves=[];}
-  chains.push({raw,closed,anchors,edges:edgeIds,owners,hole,nodes,curves,restored:false});
+  chains.push({raw,closed,anchors,edges:edgeIds,owners,hole,nodes,curves,restored:false,...(fitted===measured?{raster:{nodes:hole?contourPolyline(rasterFit.nodes,rasterFit.curves??[],closed,g*.06,createId):rasterFit.nodes,curves:hole?[]:rasterFit.curves??[]}}:{})});
  }
  const reverse=(c:Chain)=>({nodes:[...c.nodes].reverse(),curves:c.curves.map(v=>({...v,startNodeId:v.endNodeId,endNodeId:v.startNodeId,c1:v.c2,c2:v.c1}))});
  const signed=(r:Point[])=>r.reduce((s,p,i)=>{const q=r[(i+1)%r.length],o=r[0];return s+(p.xMm-o.xMm)*(q.yMm-o.yMm)-(q.xMm-o.xMm)*(p.yMm-o.yMm);},0);
@@ -56,14 +70,14 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
    const fresh=nodes.map(p=>({...p,id:createId()})),byCoordinate=new Map(fresh.map(p=>[key(p),p.id]));if(!ri)outerCurves=pending.map(c=>{const startPoint=nodes.find(p=>p.id===c.startNodeId)!,endPoint=nodes.find(p=>p.id===c.endNodeId)!;return {...c,id:createId(),startNodeId:byCoordinate.get(key(startPoint))!,endNodeId:byCoordinate.get(key(endPoint))!,c1:{...c.c1,id:createId()},c2:{...c.c2,id:createId()}};});return fresh;
   });return {...original,nodes:rings[0],holes:rings.slice(1),curves:outerCurves};});
  const crossingChains=()=>{
-  const segments:{a:Point;b:Point;chain:number}[]=[],boxes:Box[]=[],epsilon=g*1e-8;
-  for(const [chain,c]of chains.entries()){const ring=contourPolyline(c.nodes,c.curves,c.closed,Math.min(.001,g*.005),createId);for(let i=0;i<ring.length-(c.closed?0:1);i++){const a=ring[i],b=ring[(i+1)%ring.length];segments.push({a,b,chain});boxes.push([Math.min(a.xMm,b.xMm)-epsilon,Math.min(a.yMm,b.yMm)-epsilon,Math.max(a.xMm,b.xMm)+epsilon,Math.max(a.yMm,b.yMm)+epsilon]);}}
-  const index=boxIndex(boxes),bad=new Set<number>(),distance=(p:Point,a:Point,b:Point)=>{const x=b.xMm-a.xMm,y=b.yMm-a.yMm,l=x*x+y*y,t=l?Math.max(0,Math.min(1,((p.xMm-a.xMm)*x+(p.yMm-a.yMm)*y)/l)):0;return Math.hypot(p.xMm-a.xMm-t*x,p.yMm-a.yMm-t*y);},cross=(a:Point,b:Point,p:Point)=>(b.xMm-a.xMm)*(p.yMm-a.yMm)-(b.yMm-a.yMm)*(p.xMm-a.xMm);
-  for(const [i,s]of segments.entries())for(const j of index.query(boxes[i])){if(j>=i)continue;const t=segments[j];if(s.chain===t.chain)continue;
+  const segments:{a:Point;b:Point;chain:number;index:number;count:number}[]=[],boxes:Box[]=[],epsilon=g*1e-8;
+  for(const [chain,c]of chains.entries()){const ring=contourPolyline(c.nodes,c.curves,c.closed,Math.min(.001,g*.005),createId),count=ring.length-(c.closed?0:1);for(let i=0;i<count;i++){const a=ring[i],b=ring[(i+1)%ring.length];segments.push({a,b,chain,index:i,count});boxes.push([Math.min(a.xMm,b.xMm)-epsilon,Math.min(a.yMm,b.yMm)-epsilon,Math.max(a.xMm,b.xMm)+epsilon,Math.max(a.yMm,b.yMm)+epsilon]);}}
+  const index=boxIndex(boxes),bad=new Map<number,Point[]>(),distance=(p:Point,a:Point,b:Point)=>{const x=b.xMm-a.xMm,y=b.yMm-a.yMm,l=x*x+y*y,t=l?Math.max(0,Math.min(1,((p.xMm-a.xMm)*x+(p.yMm-a.yMm)*y)/l)):0;return Math.hypot(p.xMm-a.xMm-t*x,p.yMm-a.yMm-t*y);},cross=(a:Point,b:Point,p:Point)=>(b.xMm-a.xMm)*(p.yMm-a.yMm)-(b.yMm-a.yMm)*(p.xMm-a.xMm);
+  for(const [i,s]of segments.entries())for(const j of index.query(boxes[i])){if(j>=i)continue;const t=segments[j];if(s.chain===t.chain&&(Math.abs(s.index-t.index)===1||chains[s.chain].closed&&Math.abs(s.index-t.index)===s.count-1))continue;
    const a=cross(s.a,s.b,t.a),b=cross(s.a,s.b,t.b),c=cross(t.a,t.b,s.a),d=cross(t.a,t.b,s.b),sl=Math.hypot(s.b.xMm-s.a.xMm,s.b.yMm-s.a.yMm),tl=Math.hypot(t.b.xMm-t.a.xMm,t.b.yMm-t.a.yMm),proper=a*b<0&&c*d<0&&Math.min(Math.abs(a),Math.abs(b))>epsilon*sl&&Math.min(Math.abs(c),Math.abs(d))>epsilon*tl;
    const ca=chains[s.chain],cb=chains[t.chain],ends=(v:Chain)=>v.anchors,common=new Set(ends(ca).filter(k=>ends(cb).includes(k)));
    const contact=[[s.a,t.a,t.b],[s.b,t.a,t.b],[t.a,s.a,s.b],[t.b,s.a,s.b]].some(([p,a,b])=>distance(p,a,b)<=epsilon&&!common.has(key(p)));
-   if(proper||contact){bad.add(s.chain);bad.add(t.chain);}
+   if(proper||contact){const points=proper?[{...t.a,xMm:t.a.xMm+(t.b.xMm-t.a.xMm)*a/(a-b),yMm:t.a.yMm+(t.b.yMm-t.a.yMm)*a/(a-b)}]:[[s.a,t.a,t.b],[s.b,t.a,t.b],[t.a,s.a,s.b],[t.b,s.a,s.b]].filter(([p,a,b])=>distance(p,a,b)<=epsilon&&!common.has(key(p))).map(([p])=>p);for(const edge of [s,t])bad.set(edge.chain,[...(bad.get(edge.chain)??[]),...points]);}
   }
   return bad;
  };
@@ -91,9 +105,28 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
  // makes at least one additional owner valid without invalidating another.
  // Include both kinds of progress in the bound (a refit consumes no chain).
  const maxPasses=(chains.length+1)*(originals.length+1);
+ const protectedEdges=new Map<Chain,Set<number>>();
+ // A subpixel collision at a narrow gap must not turn the rest of a long
+ // shared contour back into stairs. Retain measured edges only at that gap;
+ // refit the remaining intervals with these exact contact endpoints fixed.
+ const protectContact=(chain:Chain,contacts:Point[])=>{
+  const raw=chain.raw,n=raw.length-(chain.closed?0:1),protectedSet=protectedEdges.get(chain)??new Set<number>();
+  for(const p of contacts){let nearest=0,best=Infinity;for(let i=0;i<n;i++){const a=raw[i],b=raw[(i+1)%raw.length],dx=b.xMm-a.xMm,dy=b.yMm-a.yMm,t=Math.max(0,Math.min(1,((p.xMm-a.xMm)*dx+(p.yMm-a.yMm)*dy)/(dx*dx+dy*dy||1))),d=Math.hypot(p.xMm-a.xMm-t*dx,p.yMm-a.yMm-t*dy);if(d<best){best=d;nearest=i;}}
+   const before=protectedSet.size;for(let radius=2;radius<=n;radius++){for(let k=nearest-radius;k<=nearest+radius;k++){if(chain.closed)protectedSet.add((k%n+n)%n);else if(k>=0&&k<n)protectedSet.add(k);}if(protectedSet.size>before||protectedSet.size===n)break;}
+  }
+  if(chain.closed)for(let i=0;i<raw.length;i++)if(chain.anchors.includes(key(raw[i]))){protectedSet.add(i);protectedSet.add((i+n-1)%n);}
+  protectedEdges.set(chain,protectedSet);if(protectedSet.size===n){chain.nodes=raw;chain.curves=[];chain.restored=true;return;}
+  const start=chain.closed?[...protectedSet][0]:0,nodes:Point[]=[],curves:Curve[]=[];let consumed=0;
+  while(consumed<n){const index=(start+consumed)%raw.length,keep=protectedSet.has(index);let count=1;while(consumed+count<n&&protectedSet.has((start+consumed+count)%raw.length)===keep)count++;
+   const span=Array.from({length:count+1},(_,k)=>raw[(start+consumed+k)%raw.length]),fit=keep?{nodes:span,curves:[]}:recoverBoundaryChain(span,pixelMm,createId);nodes.push(...fit.nodes.slice(0,-1));curves.push(...fit.curves);consumed+=count;
+  }
+  if(!chain.closed)nodes.push(raw.at(-1)!);
+  chain.nodes=chain.hole?contourPolyline(nodes,curves,chain.closed,g*.06,createId):nodes;chain.curves=chain.hole?[]:curves;
+ };
  for(let pass=0;pass<maxPasses;pass++){
-  const crossing=crossingChains();if(crossing.size){const active=[...crossing].filter(i=>!chains[i].restored);if(!active.length)throw Error('RESOURCE_LIMIT');for(const i of active){const c=chains[i];c.nodes=c.raw;c.curves=[];c.restored=true;}pieces=assemble();continue;}
+  const crossing=crossingChains();if(crossing.size){const active=[...crossing].filter(([i])=>!chains[i].restored);if(!active.length)throw Error('RESOURCE_LIMIT');for(const [i,contacts] of active){const c=chains[i];if(c.raster){Object.assign(c,c.raster);c.raster=undefined;}else protectContact(c,contacts);}pieces=assemble();continue;}
   const failed=pieces.findIndex((p,i)=>!valid(p,i));if(failed<0)break;
+  const measured=chains.filter(c=>c.owners.has(failed)&&c.raster);if(measured.length){for(const c of measured){Object.assign(c,c.raster);c.raster=undefined;}pieces=assemble();continue;}
   const incident=chains.filter(c=>c.owners.has(failed)&&!c.restored).sort((a,b)=>a.raw.length-a.nodes.length-(b.raw.length-b.nodes.length));let fixed=false;
   for(const c of incident){
    const before={nodes:c.nodes,curves:c.curves};
@@ -109,5 +142,5 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
   if(!fixed){if(!incident.length)throw Error('RESOURCE_LIMIT');for(const c of incident){c.nodes=c.raw;c.curves=[];c.restored=true;}pieces=assemble();}
  }
  if(pieces.some((p,i)=>!valid(p,i)))throw Error('RESOURCE_LIMIT');
- return {pieces,report:{chains:chains.length,sharedChains:chains.filter(c=>c.owners.size>1).length,closedSharedChains:chains.filter(c=>c.closed&&c.owners.size>1).length,restoredChains:chains.filter(c=>c.restored).length}};
+ return {pieces,report:{imageSupportedChains:chains.filter(c=>!!c.raster).length,chains:chains.length,sharedChains:chains.filter(c=>c.owners.size>1).length,closedSharedChains:chains.filter(c=>c.closed&&c.owners.size>1).length,restoredChains:chains.filter(c=>c.restored).length}};
 }
