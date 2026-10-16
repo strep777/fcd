@@ -1,0 +1,43 @@
+import {desktopScreenshot} from './desktop-screenshot.mjs';
+import {_electron as electron} from 'playwright';
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {desktopArgs,executablePath} from './desktop-launch.mjs';
+import {hiddenWindowId} from './desktop-window.mjs';
+import {workflow,surfaceCoordinates} from './ui-navigation.mjs';
+import {waitForState} from './wait-state.mjs';
+const directory=await mkdtemp(resolve('.local/tests/cut-workspace-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
+const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];
+page.on('pageerror',e=>errors.push(e.message));
+const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data.project;};
+const apply=async command=>{const p=await read(),r=await page.evaluate(({p,command})=>window.fpcad.apply(p.id,p.revision,command),{p,command});assert(r.ok,JSON.stringify(r));};
+const rail=()=>page.locator('.surface-tool-rail'),tools=()=>page.locator('.surface-cut-panel'),draft=()=>page.locator('.curve-cut-draft'),handles=()=>page.locator('.surface-view .curve-handles circle');
+const settled=()=>page.waitForFunction(()=>!(/处理中|Working/.test(document.querySelector('.app-shell footer')?.textContent??'')));
+const point=(x,y)=>surfaceCoordinates(page,x*2.25,-(y-100)*2.25),click=async(x,y)=>{const p=await point(x,y);await page.mouse.click(p.x,p.y);};
+const center=async index=>{const b=await handles().nth(index).boundingBox();assert(b);return {x:b.x+b.width/2,y:b.y+b.height/2};};
+const countLines=async count=>{await waitForState(page,async count=>{const r=await window.fpcad.read();return r.ok&&(r.data.project.surface.cutLines?.length??0)===count;},count);await settled();};
+try{
+ await page.waitForFunction(()=>!!window.fpcad);await hiddenWindowId(app,page);await page.setViewportSize({width:1440,height:960});await page.getByRole('button',{name:'＋ 新建项目',exact:true}).first().click();await page.getByRole('dialog').locator('input').fill('Workspace cut controls');await page.getByRole('button',{name:'创建 →',exact:true}).click();
+ const vertices=[[-100,0,0],[100,0,0],[100,200,0],[-100,200,0]].map(([xMm,yMm,zMm])=>({id:randomUUID(),xMm,yMm,zMm})),faces=[[0,1,2],[0,2,3]].map(indices=>({id:randomUUID(),region:'panel',vertices:indices.map(i=>vertices[i].id)}));
+ await apply({type:'surface.set',surface:{id:randomUUID(),topologyVersion:1,source:'obj',vertices,faces}});await page.reload();await workflow(page,'cutting');await page.locator('.surface-controls').getByRole('button',{name:'正面',exact:true}).click();
+ assert.equal(await page.getByRole('button',{name:'截面环线',exact:true}).count(),0);assert.equal(await page.locator('.legacy-section-generator').count(),0);
+ await rail().getByRole('button',{name:'曲面钢笔',exact:true}).click();await draft().waitFor();const initial=await read();
+ for(const xy of [[-40,20],[10,100],[-40,180]])await click(...xy);assert.equal(await handles().count(),3);assert.equal((await read()).revision,initial.revision);
+ await page.keyboard.press('Control+z');assert.equal(await handles().count(),2);await page.keyboard.press('Control+y');assert.equal(await handles().count(),3);
+ const originalHandle=await center(1);await page.mouse.move(originalHandle.x,originalHandle.y);await page.mouse.down();await page.mouse.move(originalHandle.x+12,originalHandle.y+6,{steps:4});await page.mouse.up();assert.equal((await read()).revision,initial.revision);
+ await page.keyboard.press('Control+z');const restoredHandle=await center(1);assert(Math.hypot(restoredHandle.x-originalHandle.x,restoredHandle.y-originalHandle.y)<1);await page.keyboard.press('Control+y');
+ await desktopScreenshot(app,page,{path:'test-results/cut-workspace-pen.png'});await draft().getByRole('button',{name:'保存裁剪线',exact:true}).click();await countLines(1);await draft().waitFor({state:'hidden'});
+ const saved=structuredClone((await read()).surface.cutLines[0]);assert.equal(saved.kind,'pen');assert.equal(saved.controlPoints.length,3);assert(saved.edges.length>0);assert.equal((await read()).pieces.length,0);checks.push('Pen points and node drags stay drafts; local undo/redo works and save creates only a real mesh cut');
+ await page.keyboard.press('Control+z');await countLines(0);await page.keyboard.press('Control+y');await countLines(1);assert.deepEqual((await read()).surface.cutLines[0],saved);
+ await tools().locator('.select-cut').first().click();await tools().getByRole('button',{name:'编辑路径节点',exact:true}).click();const beforeCancel=await read(),node=await center(1);await page.mouse.move(node.x,node.y);await page.mouse.down();await page.mouse.move(node.x-10,node.y+5,{steps:4});await page.mouse.up();await draft().getByRole('button',{name:'取消路径修改',exact:true}).click();assert.deepEqual(await read(),beforeCancel);
+ await tools().getByRole('button',{name:'编辑路径节点',exact:true}).click();const firstNode=await center(0);await page.mouse.click(firstNode.x,firstNode.y);await draft().getByRole('button',{name:'选中点后插入',exact:true}).click();assert.equal(await handles().count(),4);assert.equal((await read()).revision,beforeCancel.revision);await draft().getByRole('button',{name:'保存裁剪线',exact:true}).click();await waitForState(page,async()=>{const r=await window.fpcad.read();return r.ok&&r.data.project.surface.cutLines[0].controlPoints.length===4;});await settled();assert.equal((await read()).surface.cutLines[0].id,saved.id);checks.push('Saved pen cut undo/redo restores exact geometry; editing preserves its ID and cancel preserves the whole project');
+ // Reopening resets saved-line camera focus before drawing a new whole-model stroke.
+ await page.reload();await workflow(page,'cutting');await page.locator('.surface-controls').getByRole('button',{name:'正面',exact:true}).click();await rail().getByRole('button',{name:'裁切画笔',exact:true}).click();const first=await point(40,20);await page.mouse.move(first.x,first.y);await page.mouse.down();for(const xy of [[50,40],[60,60],[75,90]]){const p=await point(...xy);await page.mouse.move(p.x,p.y,{steps:3});}await page.mouse.up();
+ assert(await draft().getByRole('button',{name:'保存裁剪线',exact:true}).isEnabled());await page.keyboard.press('Control+z');assert(await draft().getByRole('button',{name:'保存裁剪线',exact:true}).isDisabled());await page.keyboard.press('Control+y');assert(await draft().getByRole('button',{name:'保存裁剪线',exact:true}).isEnabled());await desktopScreenshot(app,page,{path:'test-results/cut-workspace-brush.png'});await draft().getByRole('button',{name:'保存裁剪线',exact:true}).click();await countLines(2);await draft().waitFor({state:'hidden'});
+ const brush=structuredClone((await read()).surface.cutLines[1]);assert.equal(brush.kind,'freehand');assert(brush.controlPoints.length>3);assert(brush.edges.length>0);await page.keyboard.press('Control+z');await countLines(1);await page.keyboard.press('Control+y');await countLines(2);assert.deepEqual((await read()).surface.cutLines[1],brush);checks.push('Discoverable brush stroke supports local undo/redo and exact committed undo/redo');
+ const orbit=await point(0,100);await page.mouse.move(orbit.x,orbit.y);await page.mouse.down({button:'middle'});await page.mouse.move(orbit.x+30,orbit.y+20,{steps:3});await page.mouse.up({button:'middle'});const rotatedRevision=(await read()).revision;await rail().getByRole('button',{name:'曲面钢笔',exact:true}).click();await click(-20,60);await click(20,130);assert.equal(await handles().count(),2);await draft().getByRole('button',{name:'取消路径修改',exact:true}).click();assert.equal((await read()).revision,rotatedRevision);checks.push('Pen can start against the visible rotated model and cancelling retains saved cuts');
+ const settingsRevision=(await read()).revision,colorCuts=page.getByLabel('按花纹颜色拆分裁片',{exact:true});assert.equal(await colorCuts.isChecked(),true);assert.equal(await page.getByLabel('自动分片策略',{exact:true}).count(),0);await colorCuts.uncheck();assert.equal((await read()).revision,settingsRevision);assert.deepEqual(errors,[]);checks.push('Simple partition settings remain drafts and section creation controls are absent');
+ await writeFile('test-results/cut-workspace-e2e.json',JSON.stringify({passed:true,directory,checks,errors,backgroundWindow:true},null,2));console.log('Pen and brush cut workspace passed:',checks.length);
+}finally{await app.close();}

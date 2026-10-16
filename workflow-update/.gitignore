@@ -1,9 +1,0 @@
-node_modules/
-.tools/
-target/
-target-*/
-dist/
-release/
-.local/
-test-results/
-Docs/软件工程文档/evidence/

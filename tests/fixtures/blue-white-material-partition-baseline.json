@@ -1,0 +1,1478 @@
+{
+  "source": "character-blue-white-front-back.png",
+  "sourceSha256": "274a203ba64db2fe3c949d585f949396d030ed27902826eee781174b43dcd11b",
+  "review": "Git HEAD and tested runtime have identical component pixel sets, 87 front and 45 back. Fixed pixel-mask identities retain all reviewed components and detect both omissions and replacements, in addition to independent original material landmarks and geometry audits.",
+  "references": [
+    {
+      "view": "front",
+      "width": 803,
+      "height": 1024,
+      "rgbaSha256": "0a95a338dabd7fd1186e6f7f0e097bce7a48a58342803b5cae95d19174bc3f2d",
+      "components": [
+        {
+          "color": "#fac36c",
+          "pixels": 1820,
+          "bounds": {
+            "left": 448,
+            "top": 99,
+            "right": 488,
+            "bottom": 167
+          },
+          "maskSha256": "02c5e682b80b4cec8d68e67a8947aabf6962403e01e561400c54cb5518772f38"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 21,
+          "bounds": {
+            "left": 450,
+            "top": 118,
+            "right": 456,
+            "bottom": 132
+          },
+          "maskSha256": "08687f405229ce8c5e28609a52aa56cbc75f53f32c82cb16d19456b20450f5d1"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 306,
+          "bounds": {
+            "left": 575,
+            "top": 575,
+            "right": 596,
+            "bottom": 594
+          },
+          "maskSha256": "08c0a42df4fffb97da60846e4e9e474d6b96c0f65d95a5f4cb606f7e20e89df0"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 66,
+          "bounds": {
+            "left": 633,
+            "top": 588,
+            "right": 640,
+            "bottom": 600
+          },
+          "maskSha256": "0a01a07bb978b4faa91f6c27878105d55dba0d18660d6a193147632251a91b9f"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 109,
+          "bounds": {
+            "left": 640,
+            "top": 542,
+            "right": 649,
+            "bottom": 558
+          },
+          "maskSha256": "0aa19bd8e22303a0c6eddc5900137dca84bcc6e761fe2ed29a627ce565a89f15"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 4100,
+          "bounds": {
+            "left": 472,
+            "top": 386,
+            "right": 521,
+            "bottom": 722
+          },
+          "maskSha256": "0b7973081afe0374814941efadf7af92aa586f8e196af034e6601536f9c5f757"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 2078,
+          "bounds": {
+            "left": 660,
+            "top": 776,
+            "right": 749,
+            "bottom": 858
+          },
+          "maskSha256": "0d8f64d52d09f080c77d8ca3a0f4840ed11d1522c5a83ed9bfa9c49b223452c1"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 76,
+          "bounds": {
+            "left": 481,
+            "top": 200,
+            "right": 495,
+            "bottom": 211
+          },
+          "maskSha256": "1158a9bd930868bc425e7985f396ff001f2c081e96fc06f7dd58ead82b14834e"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 7625,
+          "bounds": {
+            "left": 359,
+            "top": 57,
+            "right": 466,
+            "bottom": 200
+          },
+          "maskSha256": "119476d69924491a34f3d8b053e820d62ef43e0f50471246d914fed571eb071f"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 514,
+          "bounds": {
+            "left": 414,
+            "top": 508,
+            "right": 441,
+            "bottom": 547
+          },
+          "maskSha256": "14e4f58ac828f7182ec7afa2a9e7594d52ea384ae10a33d2e78b88f5ff435c79"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 6983,
+          "bounds": {
+            "left": 394,
+            "top": 138,
+            "right": 529,
+            "bottom": 262
+          },
+          "maskSha256": "21800057a4b63fe5075087f765d70ba73d27fbf9ba1c185c38d076054e519eda"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 74,
+          "bounds": {
+            "left": 471,
+            "top": 204,
+            "right": 478,
+            "bottom": 224
+          },
+          "maskSha256": "21adb39a56bbfa7b0e1114e67924c73b6cc32cdbc4198f4d1d9370eb384b986e"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 44,
+          "bounds": {
+            "left": 278,
+            "top": 951,
+            "right": 283,
+            "bottom": 967
+          },
+          "maskSha256": "2a6ffc8f7011c2f44addaf11c303dc058dec1dd12eb77a38ce888028f583a24c"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 250,
+          "bounds": {
+            "left": 378,
+            "top": 951,
+            "right": 389,
+            "bottom": 978
+          },
+          "maskSha256": "2c0ee69c75bb54e5f99c6aeb17175e0c88019ac114b9bca813ad9096e2d860fc"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 288,
+          "bounds": {
+            "left": 260,
+            "top": 575,
+            "right": 279,
+            "bottom": 593
+          },
+          "maskSha256": "2cfc68db7b27380103f30ff33b5de21e00c25295947e8ff8dd70b75132bec54c"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 64,
+          "bounds": {
+            "left": 361,
+            "top": 221,
+            "right": 376,
+            "bottom": 233
+          },
+          "maskSha256": "31db5e11d1fe846b45f810784242b39069695913476d06476ab880a4694df522"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 360,
+          "bounds": {
+            "left": 236,
+            "top": 581,
+            "right": 256,
+            "bottom": 602
+          },
+          "maskSha256": "382f2afe81052757f151d38879018e73490905199da0e099f2693a61491f3b64"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 50,
+          "bounds": {
+            "left": 230,
+            "top": 588,
+            "right": 236,
+            "bottom": 600
+          },
+          "maskSha256": "3a9d220a4aa5fcee06c3a402b62267c2e9d8696f2cc086ead6258e549a350242"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 78,
+          "bounds": {
+            "left": 204,
+            "top": 540,
+            "right": 216,
+            "bottom": 559
+          },
+          "maskSha256": "3de45f83330f31f74d11db22e4a8b4ba78823c5b5846152a674262b72420ce46"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 647,
+          "bounds": {
+            "left": 357,
+            "top": 193,
+            "right": 404,
+            "bottom": 226
+          },
+          "maskSha256": "3dfc5f449a63ee957d74f81469aaea1042b1ca60683b69e3f7e77541a673ca7b"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 36,
+          "bounds": {
+            "left": 582,
+            "top": 593,
+            "right": 594,
+            "bottom": 602
+          },
+          "maskSha256": "3e89bb0c7b860f8ec17a6e4b2c2cc5c6d185411d8b52bbb6e6d2be329fd91afe"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 132,
+          "bounds": {
+            "left": 458,
+            "top": 211,
+            "right": 468,
+            "bottom": 226
+          },
+          "maskSha256": "3ecfd0ada967b7d0f3b84fe560412fea33cacfe2ec5be222e1289bd7ae462ba2"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 711,
+          "bounds": {
+            "left": 574,
+            "top": 539,
+            "right": 613,
+            "bottom": 564
+          },
+          "maskSha256": "4239433948c7ea0aab74e650b4840d5b6200b97805aead5d42d6feb5018b74e4"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 2353,
+          "bounds": {
+            "left": 571,
+            "top": 517,
+            "right": 646,
+            "bottom": 590
+          },
+          "maskSha256": "42d9f3babc7d4255d33d82eb15630e12e40d789afb51a312baf14daca912c879"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 9374,
+          "bounds": {
+            "left": 349,
+            "top": 203,
+            "right": 508,
+            "bottom": 343
+          },
+          "maskSha256": "49c378ff408206987bf189307f333f10f05a8eb02a7c7d7945e6cf79402199dd"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 6193,
+          "bounds": {
+            "left": 679,
+            "top": 791,
+            "right": 759,
+            "bottom": 903
+          },
+          "maskSha256": "4ce7ae943d250a1028cb0461d8b0e115d25bb5e56f61eb33ff137ade6bbaf055"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 333,
+          "bounds": {
+            "left": 381,
+            "top": 204,
+            "right": 404,
+            "bottom": 232
+          },
+          "maskSha256": "4f1d885fdb9301e1a974c3c28e3996ce67d68c347dc02380d328b46a456d22c5"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 28,
+          "bounds": {
+            "left": 451,
+            "top": 222,
+            "right": 459,
+            "bottom": 234
+          },
+          "maskSha256": "50c066bbd2b8b557b028a7b40e27d93949447a522337b5d95ef46cb2538973bd"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 7467,
+          "bounds": {
+            "left": 304,
+            "top": 479,
+            "right": 366,
+            "bottom": 707
+          },
+          "maskSha256": "510816ad276c4a1b36d6f57ffdebfb80306c04fd934c1e7c226fdb6fb6e5c3ab"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 22,
+          "bounds": {
+            "left": 296,
+            "top": 951,
+            "right": 303,
+            "bottom": 959
+          },
+          "maskSha256": "52e43d442fa35e88366c32a3b1e0a6ae8b5a7ab74d486122a8fe22346d285603"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 213,
+          "bounds": {
+            "left": 296,
+            "top": 953,
+            "right": 306,
+            "bottom": 980
+          },
+          "maskSha256": "58f53ac7cdae556a04693d830c59646f565ca4812861c44e826267c0fe85d7d2"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 79,
+          "bounds": {
+            "left": 455,
+            "top": 220,
+            "right": 476,
+            "bottom": 234
+          },
+          "maskSha256": "5e45c6fc4580a822d4b96db780cb0ed71e75c0665a6e7b7a6ee7a11c0083a397"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 101,
+          "bounds": {
+            "left": 609,
+            "top": 599,
+            "right": 621,
+            "bottom": 611
+          },
+          "maskSha256": "61d20648c4cd8eb9bb52092d005c6e98fdcbb75223d23c1f0b0eb4a2880b10c9"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 329,
+          "bounds": {
+            "left": 212,
+            "top": 575,
+            "right": 235,
+            "bottom": 595
+          },
+          "maskSha256": "691085117c39f2882afb2dde800c3f5e4588879f82b7e134ea58d8f71149285f"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 2347,
+          "bounds": {
+            "left": 209,
+            "top": 517,
+            "right": 284,
+            "bottom": 595
+          },
+          "maskSha256": "6994fcdbb5f45124e7c9540d9b5580ad688acbc5d5a69c37205c0474ffcee099"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 368,
+          "bounds": {
+            "left": 521,
+            "top": 190,
+            "right": 544,
+            "bottom": 232
+          },
+          "maskSha256": "6a3a20b174ce1fc9c9f243b916266ea1eaafe47c1b8bff6040924eef1e25c5a3"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 253,
+          "bounds": {
+            "left": 461,
+            "top": 950,
+            "right": 473,
+            "bottom": 977
+          },
+          "maskSha256": "6ad27e46cb9f268b6af272ce8a04b9cd286a1a57f941b9a8743be7e83b02c135"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 7577,
+          "bounds": {
+            "left": 454,
+            "top": 30,
+            "right": 563,
+            "bottom": 198
+          },
+          "maskSha256": "6db2c66e849d2f51e97690fef6ddf20a4df6fc9932f78752290eacb5ac900217"
+        },
+        {
+          "color": "#0c2f68",
+          "pixels": 4297,
+          "bounds": {
+            "left": 620,
+            "top": 753,
+            "right": 743,
+            "bottom": 851
+          },
+          "maskSha256": "6feef9fb7f44c1b0bb4b1ab2f028b0418e3c165d8de372847f95f8688cc9eb9d"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 136800,
+          "bounds": {
+            "left": 234,
+            "top": 319,
+            "right": 651,
+            "bottom": 987
+          },
+          "maskSha256": "730041026a0f3f9dc994db389948eff9fe596f9dea373a3b498b73c7c12ce9be"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 249,
+          "bounds": {
+            "left": 544,
+            "top": 952,
+            "right": 555,
+            "bottom": 980
+          },
+          "maskSha256": "734fa7232dd4d40d46864c74e50a5aa752fdbc781d81b2ba75e581973661667a"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 1248,
+          "bounds": {
+            "left": 325,
+            "top": 93,
+            "right": 356,
+            "bottom": 181
+          },
+          "maskSha256": "79a80232941a9cad7ed7639937d243c93185e2ecc1758e39a993553037f8f0b2"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 161,
+          "bounds": {
+            "left": 259,
+            "top": 530,
+            "right": 280,
+            "bottom": 544
+          },
+          "maskSha256": "7c1ec21104ada7a0815b061987557602f8fd943c62e71039d7fb6903d3a32a12"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 167,
+          "bounds": {
+            "left": 574,
+            "top": 530,
+            "right": 598,
+            "bottom": 544
+          },
+          "maskSha256": "7c69483f99f711d63be19ec30d694f820808a77b9c130ba56d84b7e5a56a8541"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 461,
+          "bounds": {
+            "left": 447,
+            "top": 176,
+            "right": 472,
+            "bottom": 202
+          },
+          "maskSha256": "7f201edd5ed50f69246055ca8d564cf887b6f6bcb2886e02fa6acbea9c46b923"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 1307,
+          "bounds": {
+            "left": 501,
+            "top": 93,
+            "right": 532,
+            "bottom": 181
+          },
+          "maskSha256": "7fbe86277877c6f20595cf985e36e7c1eb6c5c0ebbd3355459ce8ed92ddb1089"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 6113,
+          "bounds": {
+            "left": 344,
+            "top": 262,
+            "right": 513,
+            "bottom": 367
+          },
+          "maskSha256": "7fc684b9e3c567572f30efb9cd5d265ddb8b690b60909ed8285f46a898576776"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 1093,
+          "bounds": {
+            "left": 486,
+            "top": 306,
+            "right": 534,
+            "bottom": 366
+          },
+          "maskSha256": "8518394213620e98bc05c875bf8bb96868e0b9c69604e7f946f6e66a3781d1a8"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 449,
+          "bounds": {
+            "left": 385,
+            "top": 176,
+            "right": 409,
+            "bottom": 202
+          },
+          "maskSha256": "89aab90ab05c2ccd2ec6ebd1118e3b6c43e2074d2ee48ecb2a0eb58c681be94d"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 4068,
+          "bounds": {
+            "left": 331,
+            "top": 384,
+            "right": 383,
+            "bottom": 723
+          },
+          "maskSha256": "8b8a7ce8787b1cdf2cf0a61bf00ec966c2fd80bf39a763e21c080488a49501e5"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 6843,
+          "bounds": {
+            "left": 297,
+            "top": 29,
+            "right": 391,
+            "bottom": 198
+          },
+          "maskSha256": "8c6cbc4fc81f3e6415af1adb32f00ffe3d7acb4aae8514df3404933b79187769"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 1736,
+          "bounds": {
+            "left": 310,
+            "top": 50,
+            "right": 341,
+            "bottom": 156
+          },
+          "maskSha256": "8fb54c32b7c63fd7244caacd2546cb331c2533fd606223d6b3bc49829fbab9db"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 1043,
+          "bounds": {
+            "left": 322,
+            "top": 306,
+            "right": 370,
+            "bottom": 366
+          },
+          "maskSha256": "92e2979c145a5aae6513d74e0739d5234162a4dcacdb1a7ff7a2da7f52b427b2"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 399,
+          "bounds": {
+            "left": 596,
+            "top": 581,
+            "right": 622,
+            "bottom": 602
+          },
+          "maskSha256": "9e04e02ddc9d083cc80382607bcf97e37372e5d01cf8c5be75ecb6ef0b31cfe7"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 35,
+          "bounds": {
+            "left": 632,
+            "top": 590,
+            "right": 642,
+            "bottom": 602
+          },
+          "maskSha256": "a3181ce4279b428941e559ca42930407f8fa9bd391f11696534584774f33b1d6"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 349,
+          "bounds": {
+            "left": 620,
+            "top": 575,
+            "right": 643,
+            "bottom": 596
+          },
+          "maskSha256": "a441026224a6b75ac698faf589546a4c60e2bd54dff8a7004427e74c31e347ea"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 516,
+          "bounds": {
+            "left": 457,
+            "top": 189,
+            "right": 500,
+            "bottom": 224
+          },
+          "maskSha256": "a5ab3f6b495d575a13b421dbf4786394a7ea122efc5d76358d974b79ee180f6f"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 11,
+          "bounds": {
+            "left": 455,
+            "top": 157,
+            "right": 460,
+            "bottom": 162
+          },
+          "maskSha256": "b1a857b7da6e1cb720df184b8e49669f008a3660cb01a66d106535e4f803ff46"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 362,
+          "bounds": {
+            "left": 452,
+            "top": 205,
+            "right": 474,
+            "bottom": 232
+          },
+          "maskSha256": "b4dcd7e910de8a37749a51009fd70a2a72c9b01ddfadd125cca5b84396faa252"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 282,
+          "bounds": {
+            "left": 506,
+            "top": 955,
+            "right": 518,
+            "bottom": 986
+          },
+          "maskSha256": "b5d4bb153f139bdc747d61da8146963423b24d72fe6bd4e331a1820c24c054f9"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 115,
+          "bounds": {
+            "left": 564,
+            "top": 951,
+            "right": 571,
+            "bottom": 972
+          },
+          "maskSha256": "b73fc02036d5d519f3566fb6a7bf304085dd464894ea5dcf01f9b0f5a076477e"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 47,
+          "bounds": {
+            "left": 508,
+            "top": 967,
+            "right": 519,
+            "bottom": 988
+          },
+          "maskSha256": "ba1d30a8a6064428dd7c6a2049b75888e6b84141049bb0045af147d659ae0b81"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 375,
+          "bounds": {
+            "left": 619,
+            "top": 542,
+            "right": 651,
+            "bottom": 562
+          },
+          "maskSha256": "bef87e9f207049c4d035ac94fad0bd3c59d2a278f9abb45d6eb2bd7d29cfa0b7"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 48,
+          "bounds": {
+            "left": 584,
+            "top": 592,
+            "right": 590,
+            "bottom": 601
+          },
+          "maskSha256": "bf840d90e15aba02482a88d6a4c124c5b121da274b3ef9188aa28b0b5b4422e0"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 20,
+          "bounds": {
+            "left": 294,
+            "top": 960,
+            "right": 295,
+            "bottom": 975
+          },
+          "maskSha256": "c4ac58498af7fa26f78a784b9229923f9f56a4f9977bc3067e8a485e73782960"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 7419,
+          "bounds": {
+            "left": 487,
+            "top": 478,
+            "right": 550,
+            "bottom": 706
+          },
+          "maskSha256": "c5e47dabd08d5e04448314a74ab66d73cd983e848daadcfa7fef7fef7d94f174"
+        },
+        {
+          "color": "#0c2f68",
+          "pixels": 1765,
+          "bounds": {
+            "left": 509,
+            "top": 554,
+            "right": 538,
+            "bottom": 642
+          },
+          "maskSha256": "cdcad01eff4e5b5f26cb97a67fee5d043ed52830d861891ed9e3d52cbb206316"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 101,
+          "bounds": {
+            "left": 206,
+            "top": 543,
+            "right": 216,
+            "bottom": 557
+          },
+          "maskSha256": "da4e570793804194ea234d8274a6030da333c848af96046b04de4dbe50a81186"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 25,
+          "bounds": {
+            "left": 340,
+            "top": 965,
+            "right": 344,
+            "bottom": 982
+          },
+          "maskSha256": "dabdd301b212131c836c26677616f707b640007604e139179de9e6b5911ef8fc"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 29,
+          "bounds": {
+            "left": 481,
+            "top": 249,
+            "right": 491,
+            "bottom": 256
+          },
+          "maskSha256": "dbf638f1a473c2e5f98131a24d279703994b1d077aa60b8b2503e6ebc1ecb96e"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 74,
+          "bounds": {
+            "left": 212,
+            "top": 587,
+            "right": 224,
+            "bottom": 601
+          },
+          "maskSha256": "df15c65dbdee83972dc0dd08f2e5969d0969827d940da13b6049c382051e85fd"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 103,
+          "bounds": {
+            "left": 236,
+            "top": 599,
+            "right": 246,
+            "bottom": 611
+          },
+          "maskSha256": "e1d9733b849591ca8b146eff92b1ed01e1f5b13181aab1c0dbf16c21bafba749"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 20,
+          "bounds": {
+            "left": 640,
+            "top": 540,
+            "right": 647,
+            "bottom": 546
+          },
+          "maskSha256": "e6fa822cbe0a68a1001e90c3de6f0a58e885f591ea5e30fd3eee70484e2cd4fe"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 337,
+          "bounds": {
+            "left": 315,
+            "top": 192,
+            "right": 336,
+            "bottom": 231
+          },
+          "maskSha256": "e75741a4f168a069c0152bdf9bb05a7b4866e08ac95707eb627b109d472b1ba2"
+        },
+        {
+          "color": "#0c2f68",
+          "pixels": 1762,
+          "bounds": {
+            "left": 316,
+            "top": 554,
+            "right": 344,
+            "bottom": 642
+          },
+          "maskSha256": "e898957db8949f6ec8014ec356101877d91b32548a649d4359137eb40657a7b4"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 85,
+          "bounds": {
+            "left": 261,
+            "top": 592,
+            "right": 272,
+            "bottom": 602
+          },
+          "maskSha256": "e9a0536d2a8363ec2d07e8f057f2387bde92153e494ea7ce254164412cedd449"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 291,
+          "bounds": {
+            "left": 331,
+            "top": 955,
+            "right": 343,
+            "bottom": 986
+          },
+          "maskSha256": "ea6960ad1ae67989f1de93f0d717ad428522a6f0437faef3401058d225df309f"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 9132,
+          "bounds": {
+            "left": 525,
+            "top": 716,
+            "right": 726,
+            "bottom": 845
+          },
+          "maskSha256": "ecc4731ceca04c126c8aa2624ded6bf0cdeb6b1d796f57ad7002ef5eecf4a5b4"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 28,
+          "bounds": {
+            "left": 215,
+            "top": 589,
+            "right": 217,
+            "bottom": 599
+          },
+          "maskSha256": "ee631b9976e506f8452ce5519f7999b10bacf83a251b79f179643bf745f300b9"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 24,
+          "bounds": {
+            "left": 743,
+            "top": 783,
+            "right": 749,
+            "bottom": 795
+          },
+          "maskSha256": "f04e674a9ad3628b64accb09df327de9bb4b93d5fa25e3017cec0a0b3abc9e85"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 91,
+          "bounds": {
+            "left": 380,
+            "top": 219,
+            "right": 401,
+            "bottom": 234
+          },
+          "maskSha256": "f49cf494ead439c24f34540f94fc2a4f9dbba07e61165f79cdb1734e57bb687c"
+        },
+        {
+          "color": "#fac36c",
+          "pixels": 67,
+          "bounds": {
+            "left": 280,
+            "top": 955,
+            "right": 285,
+            "bottom": 971
+          },
+          "maskSha256": "f58b48f2a569fb199b8738d1f736bf1070726ee09071ca894761b1e680c21fb7"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 1761,
+          "bounds": {
+            "left": 518,
+            "top": 51,
+            "right": 550,
+            "bottom": 155
+          },
+          "maskSha256": "f63730e7e3795b7a8f351246bba85f6f9bc6cff8b022a7ef04bf3948ec10b822"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 321,
+          "bounds": {
+            "left": 213,
+            "top": 543,
+            "right": 235,
+            "bottom": 561
+          },
+          "maskSha256": "f66285683bdb0a7c49bbd69da3828537588dcaeeaf607b4e111f5e9ddedc0438"
+        },
+        {
+          "color": "#fcb8a4",
+          "pixels": 712,
+          "bounds": {
+            "left": 240,
+            "top": 539,
+            "right": 280,
+            "bottom": 564
+          },
+          "maskSha256": "f949c6a371788f3e878e958297798fdfc78386211bb4ff0a155da4a5195fd80b"
+        },
+        {
+          "color": "#282b30",
+          "pixels": 132,
+          "bounds": {
+            "left": 388,
+            "top": 211,
+            "right": 399,
+            "bottom": 226
+          },
+          "maskSha256": "fd33eda831b4a10a2e8a188bd385cf0746e55c6e24fba6d1e6b1cee0e87f109f"
+        },
+        {
+          "color": "#7aaded",
+          "pixels": 2693,
+          "bounds": {
+            "left": 328,
+            "top": 155,
+            "right": 389,
+            "bottom": 262
+          },
+          "maskSha256": "fe3ed33a0526b0bbb104f9ddddf1d0dfc808162d87408050881bf91e67314fab"
+        }
+      ],
+      "partitionSha256": "51ca5a4a4918ccffe070b8a97106086a7d216aed3967093b8cbe05301e6a5928"
+    },
+    {
+      "view": "back",
+      "width": 733,
+      "height": 1024,
+      "rgbaSha256": "dae2fa7e2e6327faff7f4824752e5d9fcb58735634164256452604b5cb16e0a6",
+      "components": [
+        {
+          "color": "#79aded",
+          "pixels": 6459,
+          "bounds": {
+            "left": 321,
+            "top": 476,
+            "right": 381,
+            "bottom": 687
+          },
+          "maskSha256": "003389e897620628b8c14255382ff7add09f840a5c350f7a8e6e61c265efdaeb"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 4,
+          "bounds": {
+            "left": 443,
+            "top": 590,
+            "right": 445,
+            "bottom": 591
+          },
+          "maskSha256": "1e6bd23d2302c32c9db9b421dd7f6c1b4157d030e77a6f896d82fd8f765afc9e"
+        },
+        {
+          "color": "#0d2f64",
+          "pixels": 1678,
+          "bounds": {
+            "left": 147,
+            "top": 558,
+            "right": 174,
+            "bottom": 645
+          },
+          "maskSha256": "1f63ed4a4e9ca829132cfdec59a8067a0a1bc7abdf3c7956df2cd2035f818647"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 127,
+          "bounds": {
+            "left": 458,
+            "top": 581,
+            "right": 468,
+            "bottom": 596
+          },
+          "maskSha256": "2950c37a0b6009ddf9115d352dfe42cc82ac5ce5f022906cdb8238441eac666f"
+        },
+        {
+          "color": "#79aded",
+          "pixels": 1696,
+          "bounds": {
+            "left": 237,
+            "top": 318,
+            "right": 281,
+            "bottom": 393
+          },
+          "maskSha256": "2d6b46e3f9c7998c1af44c2d92525fba6b7ccc71857bc68d8c4dc74c888f486d"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 94,
+          "bounds": {
+            "left": 41,
+            "top": 545,
+            "right": 49,
+            "bottom": 560
+          },
+          "maskSha256": "35e0b6f1d5e63aa3d85a078d0ac9184b18e8cb049b7659db3bde17f9b35a5516"
+        },
+        {
+          "color": "#79aded",
+          "pixels": 10201,
+          "bounds": {
+            "left": 181,
+            "top": 143,
+            "right": 335,
+            "bottom": 258
+          },
+          "maskSha256": "371a8322d1f1595aa59dff715ff1b282718b725040bc3e1ae5ee5c2943ba4e19"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 113281,
+          "bounds": {
+            "left": 66,
+            "top": 347,
+            "right": 450,
+            "bottom": 981
+          },
+          "maskSha256": "40d0428c10f91f128ff7b813d350d15a2cfe9647cb77bd23f5e69c9b438cf01d"
+        },
+        {
+          "color": "#0d2f64",
+          "pixels": 5692,
+          "bounds": {
+            "left": 428,
+            "top": 735,
+            "right": 524,
+            "bottom": 855
+          },
+          "maskSha256": "459f3b129cb6312778625fd1f462ced145dc5364d97f12c7ea1772b0b980bc33"
+        },
+        {
+          "color": "#79aded",
+          "pixels": 8450,
+          "bounds": {
+            "left": 135,
+            "top": 475,
+            "right": 197,
+            "bottom": 723
+          },
+          "maskSha256": "4b4db285252699a95984ca4fbcff92832624b5b29a764c2ef937e6456c9b7e9f"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 51,
+          "bounds": {
+            "left": 416,
+            "top": 589,
+            "right": 425,
+            "bottom": 595
+          },
+          "maskSha256": "4f0398b846819d3aea1f5c1e42cc4d62ef0cd8a2e49af09a8b9d0af9d9138077"
+        },
+        {
+          "color": "#79aded",
+          "pixels": 1478,
+          "bounds": {
+            "left": 156,
+            "top": 303,
+            "right": 198,
+            "bottom": 369
+          },
+          "maskSha256": "5d80e18e51b4e018e6f150f7b02eeb5b4791f58d71ef8a71098d165a8e52464a"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 104,
+          "bounds": {
+            "left": 390,
+            "top": 953,
+            "right": 398,
+            "bottom": 972
+          },
+          "maskSha256": "6023dced87ffbd54b497a70643c028b6d31fe1a6f5d24a7559ae5df82d996305"
+        },
+        {
+          "color": "#0d2f64",
+          "pixels": 3148,
+          "bounds": {
+            "left": 295,
+            "top": 370,
+            "right": 334,
+            "bottom": 630
+          },
+          "maskSha256": "61023fb1ce9930a63e71273ff08d1e474d9846e9b6d5d0db79d6518cc76a9f61"
+        },
+        {
+          "color": "#0d2f64",
+          "pixels": 1615,
+          "bounds": {
+            "left": 343,
+            "top": 558,
+            "right": 370,
+            "bottom": 644
+          },
+          "maskSha256": "612ee7de77de28a1dce41b2cb1bfa2625268222e8e959e42c052bc2c28ac789d"
+        },
+        {
+          "color": "#272a30",
+          "pixels": 10778,
+          "bounds": {
+            "left": 287,
+            "top": 31,
+            "right": 381,
+            "bottom": 199
+          },
+          "maskSha256": "6242cf139e9c9650b9fde8f6ba08b027cca46abfa5fb68abe430f8d80f7e9264"
+        },
+        {
+          "color": "#272a30",
+          "pixels": 15669,
+          "bounds": {
+            "left": 181,
+            "top": 240,
+            "right": 337,
+            "bottom": 431
+          },
+          "maskSha256": "69985f43982ee04d3dcadbdc12fc6a1b6d6b3e416db64cdaf593eb7671f8212f"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 13,
+          "bounds": {
+            "left": 437,
+            "top": 597,
+            "right": 440,
+            "bottom": 604
+          },
+          "maskSha256": "7381829ae295dfe1884ddb351931fa4ed41143497202f5cc1374eee214cb7b2d"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 1687,
+          "bounds": {
+            "left": 292,
+            "top": 189,
+            "right": 362,
+            "bottom": 260
+          },
+          "maskSha256": "76809522125f15c5b9a61f52c9e04513a466389382065ca15400b1eb3c5b7cfc"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 1632,
+          "bounds": {
+            "left": 156,
+            "top": 190,
+            "right": 226,
+            "bottom": 261
+          },
+          "maskSha256": "77fd5ddd824a967501d1fc4a5494e5a1c60559c5ece5a4b39d2ea7aa81fdf905"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 121,
+          "bounds": {
+            "left": 71,
+            "top": 591,
+            "right": 82,
+            "bottom": 605
+          },
+          "maskSha256": "7a6409d2d451eece35300907eeb45730515beec7306ba6d0441c70575d685d92"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 128,
+          "bounds": {
+            "left": 50,
+            "top": 581,
+            "right": 60,
+            "bottom": 597
+          },
+          "maskSha256": "7af8ff6d874259e5f8ca8cad55021752003377c1b87b299bc34dc4dd8817d282"
+        },
+        {
+          "color": "#79aded",
+          "pixels": 148,
+          "bounds": {
+            "left": 454,
+            "top": 537,
+            "right": 474,
+            "bottom": 554
+          },
+          "maskSha256": "837bd42e8d54a94f89110b0fe9036aadb8ca077aed2cc4c16c1831832d778026"
+        },
+        {
+          "color": "#f9c86f",
+          "pixels": 52,
+          "bounds": {
+            "left": 101,
+            "top": 956,
+            "right": 106,
+            "bottom": 971
+          },
+          "maskSha256": "863a4750280cc5757866725f4750030f569a87ae8c8930bcbafc1cc926b2cb07"
+        },
+        {
+          "color": "#79aded",
+          "pixels": 1481,
+          "bounds": {
+            "left": 321,
+            "top": 303,
+            "right": 364,
+            "bottom": 370
+          },
+          "maskSha256": "86fdd722e65d58fb9fcde226b1d3f3dd45b6e03727d7f35d26265afe18f245a8"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 6987,
+          "bounds": {
+            "left": 212,
+            "top": 62,
+            "right": 306,
+            "bottom": 193
+          },
+          "maskSha256": "8e10fce65341e4223c184a02656d4deab6fe7e0f938de6235e6825505b338748"
+        },
+        {
+          "color": "#f9c86f",
+          "pixels": 48,
+          "bounds": {
+            "left": 94,
+            "top": 589,
+            "right": 100,
+            "bottom": 598
+          },
+          "maskSha256": "a3c6264f64951fd1bfea1b5d8129febdbc0b88b53ee1d9721d4be336dabf9985"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 7878,
+          "bounds": {
+            "left": 476,
+            "top": 709,
+            "right": 588,
+            "bottom": 825
+          },
+          "maskSha256": "a446d228cf033563cb218253620d31763315983dae521bbc54063d4963eb836d"
+        },
+        {
+          "color": "#272a30",
+          "pixels": 3180,
+          "bounds": {
+            "left": 397,
+            "top": 518,
+            "right": 474,
+            "bottom": 593
+          },
+          "maskSha256": "a5132bef06551b330887d169f6aed87f84e706195a546ba28f2920be8732a167"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 102,
+          "bounds": {
+            "left": 469,
+            "top": 545,
+            "right": 478,
+            "bottom": 560
+          },
+          "maskSha256": "b1d0c0780cb293c8fe37f8c5ecde2fc5090216694bdc30aae62eba22277aef91"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 9,
+          "bounds": {
+            "left": 443,
+            "top": 600,
+            "right": 445,
+            "bottom": 604
+          },
+          "maskSha256": "c04daa3ed5e51b0eb838b9200f340fdfa248dfab0652f4f2bc15e184ca178db5"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 8,
+          "bounds": {
+            "left": 446,
+            "top": 592,
+            "right": 446,
+            "bottom": 599
+          },
+          "maskSha256": "c1f8e644a702b529b4ff13f2068ca0c89dec6d953e2f9cdac45e3668bea9adab"
+        },
+        {
+          "color": "#272a30",
+          "pixels": 3302,
+          "bounds": {
+            "left": 45,
+            "top": 519,
+            "right": 121,
+            "bottom": 593
+          },
+          "maskSha256": "c47b177249fe608ad7c73e1e728543275b4a9032bf2b62974139f115f33d55d7"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 22,
+          "bounds": {
+            "left": 94,
+            "top": 591,
+            "right": 102,
+            "bottom": 600
+          },
+          "maskSha256": "c809c2b7591dc1c78c51afcec25f8b787acadd102c5bdcbf768c7d68f0109719"
+        },
+        {
+          "color": "#272a30",
+          "pixels": 11113,
+          "bounds": {
+            "left": 134,
+            "top": 31,
+            "right": 233,
+            "bottom": 199
+          },
+          "maskSha256": "cd5124fcf490d51005a0d5a5b64c7d528c0a9ab37f23aa5628debc311ab2d04c"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 64,
+          "bounds": {
+            "left": 99,
+            "top": 953,
+            "right": 107,
+            "bottom": 973
+          },
+          "maskSha256": "ce492282aa846a60af68fe359db5026c378eca1aa64acc2783677f52bd0359dd"
+        },
+        {
+          "color": "#79aded",
+          "pixels": 4932,
+          "bounds": {
+            "left": 145,
+            "top": 872,
+            "right": 205,
+            "bottom": 977
+          },
+          "maskSha256": "cfc326c2eca89691dac6c586390e531a8cf61d66fde236a9d956fce1d85a93b7"
+        },
+        {
+          "color": "#79aded",
+          "pixels": 14511,
+          "bounds": {
+            "left": 317,
+            "top": 712,
+            "right": 487,
+            "bottom": 861
+          },
+          "maskSha256": "d01b7d7f7c19c5b5435f1573d5e83919c3d9b6b1a280cea6035f8794b879a359"
+        },
+        {
+          "color": "#79aded",
+          "pixels": 4726,
+          "bounds": {
+            "left": 294,
+            "top": 871,
+            "right": 351,
+            "bottom": 977
+          },
+          "maskSha256": "d5d187f6d005f28f82e729c42d25162c17bd26a59eaeec59f6b8c3846f4b080d"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 31,
+          "bounds": {
+            "left": 417,
+            "top": 594,
+            "right": 424,
+            "bottom": 599
+          },
+          "maskSha256": "d960cdf653d05ff8132a34efcf073c922860307a103e9aee55d769a68525715f"
+        },
+        {
+          "color": "#e0a155",
+          "pixels": 981,
+          "bounds": {
+            "left": 479,
+            "top": 812,
+            "right": 547,
+            "bottom": 842
+          },
+          "maskSha256": "dea02e42189aff39676410aecf04b8f0b54f87772bb828a860a7fddc5c1c5693"
+        },
+        {
+          "color": "#f9c86f",
+          "pixels": 88,
+          "bounds": {
+            "left": 437,
+            "top": 590,
+            "right": 445,
+            "bottom": 604
+          },
+          "maskSha256": "e4ab5661742271bf23b227ef8893852589bf1fe53882841626b206b7c20d36af"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 7,
+          "bounds": {
+            "left": 93,
+            "top": 591,
+            "right": 93,
+            "bottom": 597
+          },
+          "maskSha256": "e76e37ca1a01286f50633fd6521489bc94753d6ea8216c03728d0d804db19af6"
+        },
+        {
+          "color": "#0d2f64",
+          "pixels": 3229,
+          "bounds": {
+            "left": 184,
+            "top": 369,
+            "right": 222,
+            "bottom": 676
+          },
+          "maskSha256": "f27b6b104090a61b3ccab4a26861f976ac0941d4607b98fb1f6ae4e00a7dda9c"
+        },
+        {
+          "color": "#fefaf8",
+          "pixels": 4,
+          "bounds": {
+            "left": 436,
+            "top": 593,
+            "right": 436,
+            "bottom": 596
+          },
+          "maskSha256": "f844528c163f093a2ff9cad5e6c3aa4ba4236d46a7b61ea37612f1a35715600c"
+        }
+      ],
+      "partitionSha256": "a9dadeecc937cce7829911d4f188e5adb7529ecb5d4b7b315ab646ba1f6b03e6"
+    }
+  ],
+  "baselineCommit": "f8ebe4ce18cebbbd45d82682a80958e689c3d6d3"
+}
