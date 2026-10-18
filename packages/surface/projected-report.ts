@@ -6,8 +6,8 @@ import {numericalTriangleArea} from './numerical';
 /** Stable geometric chart candidate. A simple boundary and positive orientation
  * on every triangle make this disk projection injective; all physical stretch
  * metrics are measured before it may replace the conformal solution. */
-export function projectedReport(mesh:Surface):SurfaceReport|undefined{
- const vertices=new Map(mesh.vertices.map(v=>[v.id,v])),xyz=(id:string)=>{const v=vertices.get(id)!;return [v.xMm,v.yMm,v.zMm];},sub=(a:number[],b:number[])=>a.map((v,i)=>v-b[i]),dot=(a:number[],b:number[])=>a.reduce((s,v,i)=>s+v*b[i],0),cross=(a:number[],b:number[])=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],unit=(a:number[])=>{const l=Math.hypot(...a);return a.map(v=>v/l);};
+export function projectedReport(mesh:Surface,vertices:ReadonlyMap<string,Surface['vertices'][number]>=new Map(mesh.vertices.map(v=>[v.id,v]))):SurfaceReport|undefined{
+ const xyz=(id:string)=>{const v=vertices.get(id)!;return [v.xMm,v.yMm,v.zMm];},sub=(a:number[],b:number[])=>a.map((v,i)=>v-b[i]),dot=(a:number[],b:number[])=>a.reduce((s,v,i)=>s+v*b[i],0),cross=(a:number[],b:number[])=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],unit=(a:number[])=>{const l=Math.hypot(...a);return a.map(v=>v/l);};
  const used=new Set(mesh.faces.flatMap(f=>f.vertices)),edges=new Map<string,{a:string;b:string;count:number}>(),normals=mesh.faces.map(f=>{const [a,b,c]=f.vertices.map(xyz);return cross(sub(b,a),sub(c,a));}),normal=unit(normals.reduce((s,n)=>s.map((v,i)=>v+n[i]),[0,0,0]));
  if(!normal.every(Number.isFinite)||normals.some((n,i)=>numericalTriangleArea(mesh.faces[i].vertices.map(id=>xyz(id) as [number,number,number]))===undefined||dot(n,normal)<=64*Number.EPSILON*Math.hypot(...n)))return;
  mesh.faces.forEach(f=>f.vertices.forEach((a,i)=>{const b=f.vertices[(i+1)%3],key=edgeKey(a,b),e=edges.get(key)??{a,b,count:0};e.count++;edges.set(key,e);}));

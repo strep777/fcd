@@ -7,6 +7,21 @@ import {mapShapeContour,pieceContour,sampleShapeContour} from './shape-contour';
 export type Shape=NonNullable<Marking['surfaceShape']>;
 export type Point={xMm:number;yMm:number};
 export type World={xMm:number;yMm:number;zMm:number};
+/** Cut acceptance replaces the live source tag with an archive link. Follow
+ * that immutable chain before treating a legacy polygon as painted geometry;
+ * reference contours and incomplete provenance must retain their exact nodes. */
+export function isSurfacePaint(marking:Marking,project?:Project):boolean {
+ if(!marking.surfaceShape)return false;
+ const visited=new Set<string>();let source=marking;
+ while(source.source==='cut-library'){
+  const entryId=source.cutLibraryId;if(!entryId||visited.has(entryId))return false;
+  visited.add(entryId);
+  const original=project?.cuttingLibrary?.find(entry=>entry.id===entryId)?.markings.find(m=>m.id===source.id);
+  if(!original||original.sourceHash!==(source.cutLibrarySourceHash??source.sourceHash))return false;
+  source=original;
+ }
+ return source.source==='surface';
+}
 const dot=(a:number[],b:number[])=>a.reduce((s,v,i)=>s+v*b[i],0);
 export function shapeWorld(frame:CutProjection,p:Point):World{return {xMm:frame.origin[0]+frame.axes[0][0]*p.xMm+frame.axes[1][0]*p.yMm,yMm:frame.origin[1]+frame.axes[0][1]*p.xMm+frame.axes[1][1]*p.yMm,zMm:frame.origin[2]+frame.axes[0][2]*p.xMm+frame.axes[1][2]*p.yMm};}
 export function shapePoint(frame:CutProjection,p:World):Point{const d=[p.xMm-frame.origin[0],p.yMm-frame.origin[1],p.zMm-frame.origin[2]];return {xMm:dot(d,frame.axes[0]),yMm:dot(d,frame.axes[1])};}

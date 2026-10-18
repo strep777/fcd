@@ -12,11 +12,12 @@ import {pathToFileURL} from 'node:url';
 let canvasBox={x:0,y:0,width:900,height:500},frameId=0;
 const frames=new Map(),observers=new Set();
 class HostNode{
- constructor(tag=''){this.__v_skip=true;this.tag=tag;this.tagName=tag.toUpperCase();this.children=[];this.parentNode=null;this.attrs={};this.style={};this.listeners=new Map();this.value='';this.defaultValue='';this.type='';this.clientWidth=1120;this.dataset={};}
+ constructor(tag=''){this.__v_skip=true;this.tag=tag;this.tagName=tag.toUpperCase();this.children=[];this.parentNode=null;this.attrs={};this.style={};this.listeners=new Map();this.value='';this.defaultValue='';this.type='';this.open=false;this.clientWidth=1120;this.dataset={};}
  get textContent(){return this.text??this.children.map(n=>n.textContent).join('');}set textContent(v){this.text=String(v);this.children=[];}
  get options(){return this.children.filter(n=>n.tag==='option');}get selectedIndex(){return this.options.findIndex(n=>n.selected);}set selectedIndex(i){this.options.forEach((n,j)=>{n.selected=j===i;});}get multiple(){return !!this.attrs.multiple;}
  addEventListener(type,listener){this.listeners.set(type,[...(this.listeners.get(type)??[]),listener]);}removeEventListener(type,listener){this.listeners.set(type,(this.listeners.get(type)??[]).filter(l=>l!==listener));}
- dispatchEvent(e){for(const listener of this.listeners.get(e.type)??[])listener({type:e.type,target:this,currentTarget:this});return true;}
+ dispatchEvent(e){const handler=this.attrs['on'+e.type[0].toUpperCase()+e.type.slice(1)],listeners=new Set([...(this.listeners.get(e.type)??[]),...(Array.isArray(handler)?handler:handler?[handler]:[])]);for(const listener of listeners)listener({...e,target:this,currentTarget:this});return true;}
+ get ownerDocument(){return document;}get valueAsNumber(){return this.value===''?NaN:Number(this.value);}
  getRootNode(){return document;}getBoundingClientRect(){return {x:0,y:0,left:0,top:0,width:1120,height:640};}getClientRects(){return [this.getBoundingClientRect()];}setPointerCapture(){}setAttribute(k,v){this.attrs[k]=v;}removeAttribute(k){delete this.attrs[k];}
 }
 class Canvas extends HostNode{
@@ -31,9 +32,9 @@ globalThis.localStorage={getItem:()=>null,setItem(){}};const events=new EventTar
 const {createRenderer,h,nextTick,shallowRef}=await import('vue');
 await mkdir('.local/tests',{recursive:true});await mkdir('test-results',{recursive:true});
 const directory=resolve(await mkdtemp('.local/tests/assembly-component-')),file=resolve(directory,'fixture.mjs');
-await build({stdin:{contents:"export {default as CutAssemblyPreview} from './apps/desktop/src/CutAssemblyPreview.vue';export {default as AssemblyPage} from './apps/desktop/src/AssemblyPage.vue';export {useSession} from './apps/desktop/src/store';export {createPinia} from 'pinia';export {cutAssembly} from './packages/surface/cut-assembly';export {assemblyRenderer} from './apps/desktop/src/modules/assembly-renderer';",sourcefile:'assembly-component.ts',resolveDir:resolve('.'),loader:'ts'},outfile:file,bundle:true,platform:'node',format:'esm',packages:'external',plugins:[{name:'assembly-vue',setup(builder){builder.onLoad({filter:/\.vue$/},async({path})=>{const {descriptor}=parse(await readFile(path,'utf8'));return {contents:compileScript(descriptor,{id:'assembly',inlineTemplate:true,templateOptions:{compilerOptions:{hoistStatic:false}}}).content,loader:'ts',resolveDir:dirname(path)};});}}]});
-const {CutAssemblyPreview,AssemblyPage,useSession,createPinia,cutAssembly,assemblyRenderer}=await import(pathToFileURL(file).href);
-const renderer=createRenderer({createElement:tag=>tag==='canvas'?new Canvas():new HostNode(tag),createText:text=>{const n=new HostNode('#text');n.textContent=text;return n;},createComment:text=>{const n=new HostNode('#comment');n.textContent=text;return n;},setText:(n,t)=>{n.textContent=t;},setElementText:(n,t)=>{n.textContent=t;},parentNode:n=>n.parentNode,nextSibling:n=>n.parentNode?.children[n.parentNode.children.indexOf(n)+1]??null,insert(n,parent,anchor){if(n.parentNode){const i=n.parentNode.children.indexOf(n);if(i>=0)n.parentNode.children.splice(i,1);}const i=anchor?parent.children.indexOf(anchor):-1;parent.children.splice(i<0?parent.children.length:i,0,n);n.parentNode=parent;},remove(n){if(n.parentNode){const i=n.parentNode.children.indexOf(n);if(i>=0)n.parentNode.children.splice(i,1);n.parentNode=null;}},patchProp(n,key,old,value){n.attrs[key]=value;if(key==='value'){n.value=value;n._value=value;}if(key==='type')n.type=value;if(key==='checked')n.checked=value;}});
+await build({stdin:{contents:"export {default as CutAssemblyPreview} from './apps/desktop/src/CutAssemblyPreview.vue';export {default as AssemblyPage} from './apps/desktop/src/AssemblyPage.vue';export {default as UnwrapTools} from './apps/desktop/src/UnwrapTools.vue';export {useSession} from './apps/desktop/src/store';export {createPinia} from 'pinia';export {cutAssembly} from './packages/surface/cut-assembly';export {assemblyRenderer} from './apps/desktop/src/modules/assembly-renderer';",sourcefile:'assembly-component.ts',resolveDir:resolve('.'),loader:'ts'},outfile:file,bundle:true,platform:'node',format:'esm',packages:'external',plugins:[{name:'assembly-vue',setup(builder){builder.onLoad({filter:/\.vue$/},async({path})=>{const {descriptor}=parse(await readFile(path,'utf8'));return {contents:compileScript(descriptor,{id:'assembly',inlineTemplate:true,templateOptions:{compilerOptions:{hoistStatic:false}}}).content,loader:'ts',resolveDir:dirname(path)};});}}]});
+const {CutAssemblyPreview,AssemblyPage,UnwrapTools,useSession,createPinia,cutAssembly,assemblyRenderer}=await import(pathToFileURL(file).href);
+const renderer=createRenderer({querySelector:()=>null,createElement:tag=>tag==='canvas'?new Canvas():new HostNode(tag),createText:text=>{const n=new HostNode('#text');n.textContent=text;return n;},createComment:text=>{const n=new HostNode('#comment');n.textContent=text;return n;},setText:(n,t)=>{n.textContent=t;},setElementText:(n,t)=>{n.textContent=t;},parentNode:n=>n.parentNode,nextSibling:n=>n.parentNode?.children[n.parentNode.children.indexOf(n)+1]??null,insert(n,parent,anchor){if(n.parentNode){const i=n.parentNode.children.indexOf(n);if(i>=0)n.parentNode.children.splice(i,1);}const i=anchor?parent.children.indexOf(anchor):-1;parent.children.splice(i<0?parent.children.length:i,0,n);n.parentNode=parent;},remove(n){if(n.parentNode){const i=n.parentNode.children.indexOf(n);if(i>=0)n.parentNode.children.splice(i,1);n.parentNode=null;}},patchProp(n,key,old,value){n.attrs[key]=value;if(key==='value'){n.value=value;n._value=value;}if(key==='type')n.type=value;if(key==='checked')n.checked=value;if(key==='open')n.open=!!value;}});
 function walk(node){return [node,...node.children.flatMap(walk)];}const hasClass=(n,name)=>n.attrs.class?.split(' ').includes(name);
 async function flush(){for(let i=0;i<3;i++){await nextTick();const pending=[...frames];frames.clear();for(const [,fn]of pending)fn();await new Promise(resolve=>setImmediate(resolve));}}
 function digest(value){return createHash('sha256').update(value).digest('hex');}
@@ -49,7 +50,7 @@ function fixture(){
 }
 async function mount(component,props,p){
  const root=new HostNode('root'),input=shallowRef(props),pinia=createPinia(),store=useSession(pinia);if(p)store.data={project:p,geometry:[],canUndo:false,canRedo:false,savedRevision:null,history:[],recovery:[],recent:[],jobs:[]};
- const app=renderer.createApp({render:()=>h(component,input.value)});app.use(pinia);app.mount(root);await flush();return {root,app,input};
+ const app=renderer.createApp({render:()=>h(component,input.value)});app.use(pinia);app.mount(root);await flush();return {root,app,input,store};
 }
 const checks=[],data=fixture(),view=await mount(CutAssemblyPreview,{surface:data.surface,run:data.run,language:'en'});
 try{
@@ -71,6 +72,26 @@ try{
  canvasBox={x:0,y:0,width:660,height:360};for(const o of observers)if(o.nodes.has(resized))o.callback([{contentRect:canvasBox}]);await flush();assert.equal(resized.width,660);assert.equal(resized.height,360);assert.equal(resized.dataset.triangles,'2');
  const afterResize=resized.paths.flatMap(p=>p.points),rx=afterResize.map(p=>p[0]),ry=afterResize.map(p=>p[1]);assert(Math.abs((Math.min(...rx)+Math.max(...rx))/2-330)<1e-6);assert(Math.abs((Math.min(...ry)+Math.max(...ry))/2-180)<1e-6);checks.push({case:'hidden / restored viewport resize keeps real canvas dimensions and model center synchronized',passed:true});
 }finally{view.app.unmount();await flush();assert.equal(frames.size,0);assert.equal(observers.size,0);}
+
+{
+ const savedApi=window.fpcad,foldedData=fixture();let progressUnsubscribed=0;
+ window.fpcad={onSurfaceProgress:()=>()=>progressUnsubscribed++};
+ const folded=await mount(UnwrapTools,{language:'en'},foldedData.project),before=JSON.stringify(folded.store.data.project);
+ try{
+  const details=walk(folded.root).find(n=>n.tag==='details'&&n.children.some(child=>child.tag==='summary'&&child.textContent==='Cut assembly preview'));assert(details);
+  const canvas=()=>walk(folded.root).find(n=>n instanceof Canvas),pieceControl=name=>walk(folded.root).find(n=>n.attrs['aria-label']==='Show cut '+name),button=text=>walk(folded.root).find(n=>n.tag==='button'&&n.textContent===text);
+  const toggle=async open=>{details.open=open;details.dispatchEvent({type:'toggle'});await flush();};
+  assert.equal(details.open,false);assert.equal(canvas(),undefined,'initially closed details do not mount the preview');assert.equal(observers.size,0);assert.equal(frames.size,0);
+  await toggle(true);const firstCanvas=canvas();assert(firstCanvas);assert.equal(firstCanvas.dataset.triangles,'2');assert.equal(pieceControl('White torso').value,foldedData.run.pieces[0].id);
+  const white=pieceControl('White torso');white.checked=false;white.dispatchEvent({type:'change'});await flush();assert.equal(canvas().dataset.triangles,'1');
+  await toggle(false);assert.equal(canvas(),undefined);assert.equal(observers.size,0,'closing details disconnects preview and split observers');assert.equal(frames.size,0,'closing details cancels pending preview frames');assert.equal(progressUnsubscribed,0,'closing only releases the preview, retaining the parent task listener');
+  await toggle(true);assert(canvas()!==firstCanvas,'reopening creates a new renderer');assert.equal(canvas().dataset.triangles,'1');assert.equal(pieceControl('White torso').checked,false);assert.equal(pieceControl('White torso').value,foldedData.run.pieces[0].id);assert.equal(pieceControl('Blue flank').checked,true);
+  button('Clear preview').dispatchEvent({type:'click',button:0});await flush();assert.equal(canvas().dataset.triangles,'0');await toggle(false);await toggle(true);assert.equal(canvas().dataset.triangles,'0','an explicitly empty selection survives remounting');assert.equal(pieceControl('White torso').checked,false);assert.equal(pieceControl('Blue flank').checked,false);assert.equal(JSON.stringify(folded.store.data.project),before,'preview interaction must not modify project state');
+  await toggle(false);const added={...foldedData.run.pieces[0],id:randomUUID(),name:'New panel'};folded.store.data.project.surfaceRun={...foldedData.run,pieces:[...foldedData.run.pieces,added],bindings:[...foldedData.run.bindings,{...foldedData.run.bindings[0],pieceId:added.id}]};await flush();assert.equal(canvas(),undefined,'updating a closed preview does not construct its renderer');
+  await toggle(true);assert.equal(canvas().dataset.triangles,'1');assert.equal(pieceControl('New panel').checked,true,'new pieces are selected by default');assert.equal(pieceControl('New panel').value,added.id);assert.equal(pieceControl('White torso').checked,false);assert.equal(pieceControl('Blue flank').checked,false);
+  checks.push({case:'closed details defer preview creation; close releases resources; reopen preserves hidden and cleared selections and piece IDs while selecting new pieces',passed:true});
+ }finally{folded.app.unmount();await flush();window.fpcad=savedApi;assert.equal(progressUnsubscribed,1);assert.equal(frames.size,0);assert.equal(observers.size,0);}
+}
 
 canvasBox={x:0,y:0,width:900,height:500};const page=await mount(AssemblyPage,{language:'en',active:true},data.project);
 try{for(let i=0;i<20&&!walk(page.root).some(n=>n instanceof Canvas);i++)await flush();assert(walk(page.root).some(n=>n instanceof Canvas),'validated AssemblyPage renders the actual preview');assert(walk(page.root).some(n=>hasClass(n,'assembly-picker')));checks.push({case:'AssemblyPage integrates the split preview after saved binding integrity verification',passed:true});}finally{page.app.unmount();await flush();}

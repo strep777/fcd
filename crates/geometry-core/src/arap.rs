@@ -68,8 +68,10 @@ pub fn refine(
     refine_with_weights(mesh, globals, faces, uv, anchors, limit, None)
 }
 
-/// One fixed, bounded reweighting of measured hard-quality failures. This is
-/// only a proposal: the caller must recheck every face and nonlocal overlaps.
+/// Minimax-oriented retries for the hard manufacturing limits. Area-weighted
+/// ARAP can ignore tiny boundary triangles created by material intersections.
+/// Promote measured failures relative to the median element area, without
+/// removing those triangles or relaxing their physical acceptance limits.
 pub fn refine_balanced(
     mesh: &Mesh,
     globals: &[usize],
@@ -78,11 +80,65 @@ pub fn refine_balanced(
     anchors: [usize; 2],
     limit: usize,
 ) -> Result<ArapReport, &'static str> {
-    let weights: Vec<_> = quality_ratios(mesh, globals, faces, uv)
-        .into_iter()
-        .map(|ratio| ratio.max(1.).powi(6).min(64.))
+    let areas: Vec<_> = faces
+        .iter()
+        .map(|f| {
+            let p = f.map(|i| &mesh.vertices[globals[i]]);
+            let u = [
+                p[1].x_mm - p[0].x_mm,
+                p[1].y_mm - p[0].y_mm,
+                p[1].z_mm - p[0].z_mm,
+            ];
+            let v = [
+                p[2].x_mm - p[0].x_mm,
+                p[2].y_mm - p[0].y_mm,
+                p[2].z_mm - p[0].z_mm,
+            ];
+            (u[1] * v[2] - u[2] * v[1])
+                .hypot(u[2] * v[0] - u[0] * v[2])
+                .hypot(u[0] * v[1] - u[1] * v[0])
+                / 2.
+        })
         .collect();
-    refine_with_weights(mesh, globals, faces, uv, anchors, limit, Some(&weights))
+    let mut sorted = areas.clone();
+    sorted.sort_by(f64::total_cmp);
+    let reference = sorted[sorted.len() / 2];
+    let mut weights = vec![1_f64; faces.len()];
+    let mut current = uv.clone();
+    let mut best = quality_ratios(mesh, globals, faces, uv)
+        .into_iter()
+        .fold(0_f64, f64::max);
+    let mut best_report = None;
+    for _ in 0..6.min(limit) {
+        let ratios = quality_ratios(mesh, globals, faces, &current);
+        for (i, ratio) in ratios.iter().enumerate() {
+            if *ratio > 1. {
+                let correction = ratio.powi(4).max(1.5);
+                weights[i] = (weights[i] * correction).max(reference / areas[i]).min(1e6);
+            }
+        }
+        let report = refine_with_weights(
+            mesh,
+            globals,
+            faces,
+            &mut current,
+            anchors,
+            limit,
+            Some(&weights),
+        )?;
+        let quality = quality_ratios(mesh, globals, faces, &current)
+            .into_iter()
+            .fold(0_f64, f64::max);
+        if quality < best {
+            best = quality;
+            *uv = current.clone();
+            best_report = Some(report);
+        }
+        if quality <= 1. {
+            break;
+        }
+    }
+    best_report.ok_or("ARAP_NOT_CONVERGED")
 }
 
 /// Ratios to the existing maximum area, edge and combined distortion limits.
@@ -300,21 +356,32 @@ fn refine_conditioned(
     if diagonal.iter().any(|&d| d < 1e-14) {
         return Err("NUMERICAL_FAILURE");
     }
-    let multiply = |x: &[f64]| {
-        let mut out = vec![0.; n];
-        for row in &rows {
-            let value: f64 = row
-                .iter()
-                .filter_map(|&(v, c)| index[v].map(|i| x[i] * c))
-                .sum();
-            for &(v, c) in row {
-                if let Some(i) = index[v] {
-                    out[i] += c * value;
+    // The FEM stiffness matrix is constant throughout the local/global
+    // iterations. Assemble it once: expanding every triangle gradient on
+    // every CG step repeats the same work thousands of times on a body chart.
+    let mut stiffness = vec![std::collections::BTreeMap::<usize, f64>::new(); n];
+    for row in &rows {
+        for &(a, ca) in row {
+            if let Some(i) = index[a] {
+                for &(b, cb) in row {
+                    if let Some(j) = index[b] {
+                        *stiffness[i].entry(j).or_default() += ca * cb;
+                    }
                 }
             }
         }
-        out
+    }
+    let stiffness: Vec<Vec<(usize, f64)>> = stiffness
+        .into_iter()
+        .map(|row| row.into_iter().collect())
+        .collect();
+    let multiply = |x: &[f64]| {
+        stiffness
+            .iter()
+            .map(|row| row.iter().map(|&(j, value)| value * x[j]).sum())
+            .collect::<Vec<f64>>()
     };
+    let factor = crate::sparse::Factor::new(&stiffness);
     for iteration in 0..limit {
         if converged {
             break;
@@ -337,7 +404,7 @@ fn refine_conditioned(
                     }
                 }
             }
-            let mut x: Vec<_> = free.iter().map(|&v| uv[v][axis]).collect();
+            let mut x: Vec<_> = factor.as_ref().map(|f| f.solve(&rhs)).filter(|x| x.iter().all(|v| v.is_finite())).unwrap_or_else(|| free.iter().map(|&v| uv[v][axis]).collect());
             let product = multiply(&x);
             let mut residual: Vec<_> = rhs.iter().zip(product).map(|(a, b)| a - b).collect();
             let mut z: Vec<_> = residual.iter().zip(&diagonal).map(|(r, d)| r / d).collect();

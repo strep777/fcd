@@ -324,6 +324,137 @@ fn separated_boundary_anchors(vertices: &[Vertex], boundary: &[usize]) -> (usize
     (first, farthest(first))
 }
 
+// LSCM has a free boundary and can flip even on a valid disk. In that case,
+// initialize ARAP with a positive-weight harmonic disk instead of interpreting
+// a failed starting chart as a requirement for another physical sewing seam.
+// This is only an initializer: the final physical metrics and overlap checks
+// below still decide whether the panel is usable.
+fn convex_disk_start(
+    mesh: &Mesh,
+    globals: &[usize],
+    faces: &[[usize; 3]],
+    boundary: &[usize],
+) -> Result<Vec<[f64; 2]>, &'static str> {
+    let mut neighbors = vec![BTreeSet::new(); globals.len()];
+    for f in faces {
+        for j in 0..3 {
+            neighbors[f[j]].insert(f[(j + 1) % 3]);
+            neighbors[f[(j + 1) % 3]].insert(f[j]);
+        }
+    }
+    let lengths: Vec<_> = boundary
+        .iter()
+        .enumerate()
+        .map(|(i, &a)| {
+            length(sub(
+                &mesh.vertices[globals[a]],
+                &mesh.vertices[globals[boundary[(i + 1) % boundary.len()]]],
+            ))
+        })
+        .collect();
+    let perimeter: f64 = lengths.iter().sum();
+    if !perimeter.is_finite() || perimeter <= 0. {
+        return Err("NUMERICAL_FAILURE");
+    }
+    let border: BTreeSet<_> = boundary.iter().copied().collect();
+    let free: Vec<_> = (0..globals.len()).filter(|i| !border.contains(i)).collect();
+    let mut index = vec![None; globals.len()];
+    for (i, &v) in free.iter().enumerate() {
+        index[v] = Some(i);
+    }
+    let mut uv = vec![[0., 0.]; globals.len()];
+    let mut angle: f64 = 0.;
+    for (i, &v) in boundary.iter().enumerate() {
+        uv[v] = [angle.cos(), angle.sin()];
+        angle += std::f64::consts::TAU * lengths[i] / perimeter;
+    }
+    let multiply = |x: &[f64]| -> Vec<f64> {
+        free.iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                neighbors[v].len() as f64 * x[i]
+                    - neighbors[v]
+                        .iter()
+                        .filter_map(|&n| index[n].map(|j| x[j]))
+                        .sum::<f64>()
+            })
+            .collect()
+    };
+    let inner = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a, b)| a * b).sum::<f64>();
+    for axis in 0..2 {
+        let rhs: Vec<_> = free
+            .iter()
+            .map(|&v| {
+                neighbors[v]
+                    .iter()
+                    .filter(|&&n| index[n].is_none())
+                    .map(|&n| uv[n][axis])
+                    .sum::<f64>()
+            })
+            .collect();
+        let mut x = vec![0.; free.len()];
+        let mut residual = rhs.clone();
+        let mut z: Vec<_> = residual
+            .iter()
+            .enumerate()
+            .map(|(i, r)| r / neighbors[free[i]].len() as f64)
+            .collect();
+        let mut direction = z.clone();
+        let mut rz = inner(&residual, &z);
+        let tolerance = 1e-12 * inner(&rhs, &rhs).sqrt().max(1.);
+        let mut solved = inner(&residual, &residual).sqrt() <= tolerance;
+        for _ in 0..3000 {
+            if solved {
+                break;
+            }
+            let product = multiply(&direction);
+            let denominator = inner(&direction, &product);
+            if denominator <= 0. || !denominator.is_finite() {
+                break;
+            }
+            let alpha = rz / denominator;
+            for i in 0..free.len() {
+                x[i] += alpha * direction[i];
+                residual[i] -= alpha * product[i];
+            }
+            solved = inner(&residual, &residual).sqrt() <= tolerance;
+            if solved {
+                break;
+            }
+            z = residual
+                .iter()
+                .enumerate()
+                .map(|(i, r)| r / neighbors[free[i]].len() as f64)
+                .collect();
+            let next = inner(&residual, &z);
+            let beta = next / rz;
+            for i in 0..free.len() {
+                direction[i] = z[i] + beta * direction[i];
+            }
+            rz = next;
+        }
+        if !solved {
+            return Err("UNWRAP_NOT_CONVERGED");
+        }
+        for (i, &v) in free.iter().enumerate() {
+            uv[v][axis] = x[i];
+        }
+    }
+    // Restore physical scale before the free-boundary ARAP relaxation.
+    for p in &mut uv {
+        p[0] *= perimeter / std::f64::consts::TAU;
+        p[1] *= perimeter / std::f64::consts::TAU;
+    }
+    if faces
+        .iter()
+        .any(|f| crate::numerical::positive_area2(f.map(|i| uv[i])).is_none())
+        || has_overlap(faces, &uv)?
+    {
+        return Err("UNWRAP_FLIPPED");
+    }
+    Ok(uv)
+}
+
 fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Patch, &'static str> {
     if group.len() > 50_000 {
         return Err("PATCH_LIMIT");
@@ -435,24 +566,22 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
     if diagonal.iter().any(|&d| d < 1e-14) {
         return Err("NUMERICAL_FAILURE");
     }
-    let multiply = |x: &[f64]| {
-        let mut y = vec![0.; count];
-        for (row, _) in &rows {
-            let v: f64 = row.iter().map(|&(i, c)| x[i] * c).sum();
-            for &(i, c) in row {
-                y[i] += c * v;
-            }
+    let mut stiffness = vec![BTreeMap::<usize, f64>::new(); count];
+    for (row, _) in &rows {
+        for &(i, a) in row {
+            for &(j, b) in row { *stiffness[i].entry(j).or_default() += a * b; }
         }
-        y
-    };
+    }
+    let stiffness: Vec<Vec<(usize, f64)>> = stiffness.into_iter().map(|r| r.into_iter().collect()).collect();
+    let multiply = |x: &[f64]| stiffness.iter().map(|row| row.iter().map(|&(j, a)| a * x[j]).sum()).collect::<Vec<f64>>();
     let inner = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a, b)| a * b).sum::<f64>();
-    let mut solution = vec![0.; count];
-    let mut r = rhs.clone();
+    let mut solution = crate::sparse::Factor::new(&stiffness).map(|f| f.solve(&rhs)).filter(|x| x.iter().all(|v| v.is_finite())).unwrap_or_else(|| vec![0.; count]);
+    let mut r: Vec<f64> = rhs.iter().zip(multiply(&solution)).map(|(b, a)| b - a).collect();
     let mut z: Vec<_> = r.iter().zip(&diagonal).map(|(r, d)| r / d).collect();
     let mut direction = z.clone();
     let mut rz = inner(&r, &z);
     let initial = inner(&rhs, &rhs).sqrt();
-    let mut converged = initial < 1e-12;
+    let mut converged = inner(&r, &r).sqrt() <= 1e-9 * initial.max(1.);
     for _ in 0..3000 {
         if converged {
             break;
@@ -511,6 +640,19 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
         .iter()
         .map(|&i| faces[i].map(|g| locals[&g]))
         .collect();
+    if (mesh.method == "arap" || mesh.method == "arap-balanced")
+        && (local_faces
+            .iter()
+            .any(|f| crate::numerical::positive_area2(f.map(|i| uv[i])).is_none())
+            || has_overlap(&local_faces, &uv)?)
+    {
+        uv = convex_disk_start(
+            mesh,
+            &globals,
+            &local_faces,
+            &boundary.iter().map(|g| locals[g]).collect::<Vec<_>>(),
+        )?;
+    }
     let initial_uv = uv.clone();
     let mut arap = if mesh.method == "arap" || mesh.method == "arap-balanced" {
         Some(crate::arap::refine(
@@ -548,10 +690,9 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
             [locals[&first], locals[&second]],
             mesh.iterations.unwrap_or(30).clamp(1, 100),
         ) {
-            if report.converged
-                && crate::arap::quality_ratios(mesh, &globals, &local_faces, &candidate)
-                    .iter()
-                    .all(|&r| r <= 1.)
+            if crate::arap::quality_ratios(mesh, &globals, &local_faces, &candidate)
+                .iter()
+                .all(|&r| r <= 1.)
                 && matches!(has_overlap(&local_faces, &candidate), Ok(false))
             {
                 uv = candidate;
@@ -690,6 +831,32 @@ mod numerical_unwrap_tests {
                 })
                 .collect(),
         }
+    }
+    #[test]
+    fn curved_disk_uses_a_valid_start_instead_of_inventing_physical_cuts() {
+        let mut input: Mesh = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/curved-disk-start.json"
+        ))
+        .unwrap();
+        input.method = "lscm".into();
+        assert!(matches!(
+            unwrap_mesh(&input),
+            Err("UNWRAP_OVERLAP") | Err("UNWRAP_FLIPPED")
+        ));
+        input.method = "arap".into();
+        input.iterations = Some(100);
+        let patches = unwrap_mesh(&input).unwrap();
+        assert_eq!(patches.len(), 1);
+        assert_eq!(patches[0].face_ids.len(), input.faces.len());
+        assert!(patches[0]
+            .uv
+            .iter()
+            .all(|p| p.x_mm.is_finite() && p.y_mm.is_finite()));
+        // The report remains measured, not auto-approved by the initializer.
+        assert!(patches[0]
+            .face_distortion
+            .iter()
+            .all(|f| f.area_error.is_finite() && f.edge_error.is_finite()));
     }
     #[test]
     fn real_small_triangles_complete_lscm_and_arap_without_distortion() {

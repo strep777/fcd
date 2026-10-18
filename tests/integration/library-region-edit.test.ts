@@ -7,6 +7,7 @@ import {parseObj,unwrapSurface} from '../../apps/desktop/main/surface';
 import {projectMarking,markingIssues,staleMarkingIds} from '../../apps/desktop/main/markings';
 import {Repository} from '../../apps/desktop/main/repository';
 import {pack,unpack} from '../../apps/desktop/main/archive';
+import {edgeArcPoints} from '../../packages/pattern/edit';
 import type {SourceRegionOperation} from '../../packages/schema/index';
 const worker=resolve('target/release/fpcad-worker.exe');
 function sourceProject(){const p=project(),piece=rectangle(60,60);piece.allowanceMm=0;piece.nodes.forEach(n=>{n.xMm+=20;n.yMm+=20;});p.pieces=[];p.patternLibrary=[{piece,referenceId:randomUUID(),view:'front',category:'hand'}];return p;}
@@ -19,8 +20,10 @@ it('source contour changes preserve its absolute frame and metadata and remain a
 });
 it('ordered brush and pen booleans preserve round holes and do not recenter source coordinates',async()=>{
  const p=sourceProject(),piece=p.patternLibrary![0].piece,operations:SourceRegionOperation[]=[{kind:'brush',mode:'add',radiusMm:5,points:[{xMm:70,yMm:50},{xMm:100,yMm:50}]},{kind:'pen',mode:'add',points:[{xMm:75,yMm:60},{xMm:90,yMm:60},{xMm:90,yMm:70},{xMm:75,yMm:70}]},{kind:'brush',mode:'erase',radiusMm:8,points:[{xMm:45,yMm:45}]}];
- const result=await editLibraryRegion(worker,p,piece.id,{piece,operations}),edited=result.region.piece;
- expect(edited.holes).toHaveLength(1);expect(Math.abs(ringArea(edited.holes![0])-Math.PI*64)).toBeLessThan(2*Math.PI*8*.025);expect(Math.min(...edited.nodes.map(n=>n.xMm))).toBe(20);expect(Math.max(...edited.nodes.map(n=>n.xMm))).toBeCloseTo(105,1);expect(ringArea(edited.nodes)).toBeGreaterThan(3900);expect(edited.id).toBe(piece.id);
+ const result=await editLibraryRegion(worker,p,piece.id,{piece,operations}),edited=result.region.piece,outline=edited.nodes.flatMap(n=>edgeArcPoints(edited,n.id).slice(0,-1));
+ // Editable curve knots need not include an arc's extremum. Measure the actual
+ // saved outline with the same physical bounds, rather than endpoint extrema.
+ expect(edited.holes).toHaveLength(1);expect(Math.abs(ringArea(edited.holes![0])-Math.PI*64)).toBeLessThan(2*Math.PI*8*.025);expect(Math.min(...edited.nodes.map(n=>n.xMm))).toBe(20);expect(Math.max(...outline.map(n=>n.xMm))).toBeCloseTo(105,1);expect(ringArea(outline)).toBeGreaterThan(3900);expect(edited.id).toBe(piece.id);
  const erasedThenRestored=await editLibraryRegion(worker,p,piece.id,{piece,operations:[operations[2],{...operations[2],mode:'add'}]});expect(erasedThenRestored.region.piece.holes??[]).toHaveLength(0);expect(ringArea(erasedThenRestored.region.piece.nodes)).toBeCloseTo(3600,2);
 });
 it('invalid, disconnected, fully erased and over-budget edits cannot mutate source data',async()=>{

@@ -5,7 +5,7 @@ import type Module from 'manifold-3d';
 import {triangulateMaterialTiles,type MaterialTile} from '../../../packages/surface/material-tiles';
 import {randomUUID} from 'node:crypto';
 import type {Project,SurfaceRun,Binding,UnwrapOptions} from '../../../packages/schema/index';
-import {materialCutMesh,openMaterialMesh,type MaterialFace} from '../../../packages/surface/design-cuts';
+import {materialCutMesh,openMaterialMesh,composeMaterialStation,type MaterialFace} from '../../../packages/surface/design-cuts';
 import {clip} from './markings';
 import {hash,DomainError} from './repository';
 import {pieceGeometryHash,cutColorHash,unwrapSurface} from './surface';
@@ -55,8 +55,12 @@ export async function prepareDesignSurface(worker:string,project:Project,colorBo
 }
 
 export async function unwrapDesignSurface(worker:string,project:Project,working:Awaited<ReturnType<typeof prepareDesignSurface>>,options:UnwrapOptions){
- const originals=new Map(project.surface!.faces.map(f=>[f.id,f.region])),regions=new Map([...working.provenance].map(([id,m])=>[id,originals.get(m.faceId)!]));
- let run=await unwrapSurface(worker,working.surface,project,{...options,optimizeCuts:false},undefined,regions),distortionSeams=0,manufacturingSeams=run.designCutReport?.manufacturingSeams??0;
+ let run=await unwrapSurface(worker,working.surface,project,{...options,optimizeCuts:false},undefined,mesh=>{working.surface=mesh;},(mesh,children)=>{
+  // Compose every new station with its original-model barycentric triangle.
+  // Neighbouring charts refined only for conformity require the same update.
+  for(const [parent,rows] of children){const source=working.provenance.get(parent);if(!source)throw new DomainError('STALE_BINDING');working.provenance.delete(parent);for(const child of rows){const barycentric=child.triangle.map(point=>composeMaterialStation(point,source.barycentric));working.provenance.set(child.face.id,{...source,barycentric:barycentric as [[number,number,number],[number,number,number],[number,number,number]]});}}
+  working.surface=mesh;
+ }),distortionSeams=0,manufacturingSeams=run.designCutReport?.manufacturingSeams??0;
  run.designCutReport={materialDomains:working.materialDomains,userSeams:project.surface!.cutLines?.filter(l=>l.enabled).length??0,topologySeams:working.topologySeams+(run.designCutReport?.topologySeams??0),distortionSeams:distortionSeams+(run.designCutReport?.distortionSeams??0),manufacturingSeams};return {run,distortionSeams};
 }
 /** Refined solver faces are temporary. Store an exact barycentric material mesh

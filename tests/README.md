@@ -14,6 +14,7 @@
 新增状态回归套件：
 
 - `launcher.test.ts`：Windows BAT 启动编排，覆盖中文和空格路径、首次安装、参数转发及各阶段失败中止；使用命令记录器，不替代真实几何或桌面验证。
+- `integration/worker-session.test.ts`：真实 Rust one-shot/`--stream` 的平面与曲面求解等价、制造分析交替请求、连续错误恢复、并发拒绝、Abort/Dispose、序列化失败、UTF-8 输入/输出限额与真实超时。需要已构建的 `target/release/fpcad-worker.exe`；不使用假进程或假时钟。
 
 - `topology-provenance.test.ts`：精确细分、推断依赖、审阅与锁定、输出门禁、撤销和文件往返。
 - `anatomy-inference-provenance.test.ts`：分类元数据变更保留有效推断依赖、既有审阅状态和失效依赖。
@@ -53,6 +54,30 @@
 
 模型交互与裁切进度回归：
 
+- `integration/workflow-geometry.test.ts`：笔迹拟合误差与节点数、三维笔画精简、自由变换固定点与数值幂等、跨视角曲面裁线及对称坐标。
+- `integration/workflow-projection.test.ts`：跨部位贴附、同面多个花纹片段的 UV 保留、候选边界与对称曲面裁线持久化，使用真实几何工作进程。
+- `integration/workflow-independent-review.test.ts`：裁片内部边消除、不同分段的共享裁线去重、曲面边界节点、局部花纹保留、对称事务及模型参数一致性。
+- `integration/current-all-brush.test.ts`、`fixtures/symmetric-brush-exact-input.json`：真实 33 点笔触、左右对称、圆笔与多笔重叠、擦除孔洞、边界误差、节点间距及原子撤销；使用真实工作进程。
+- `integration/current-design-cut-regression.test.ts`：解剖元数据、半侧候选与原模型绑定恢复、肩部花纹完整性；含耗时整模求解，需单独报告结果。
+- `integration/design-chart-coalescing.test.ts`、`integration/design-chart-independent-review.test.ts`：合并多余裁片时保留材料边界、用户裁线、面覆盖和求解缓存有效性。
+- `integration/design-section.test.ts`、`integration/design-section-independent.test.ts`：三角形内部截面、孔洞与共享边、面积覆盖、绑定恢复及失败后输入不变。
+- `integration/material-diagonal-quality-independent.test.ts`：材料四边形对角线质量、非凸区域、孔洞与窄底色岛。
+- `integration/pattern-preview-independent.test.ts`：候选与已确认裁片的单片显示、选择切换、视图缩放及项目数据不变。
+- `integration/source-junction-evidence.test.ts`：浅角三材料交点的独立 RGB 证据，以及第三色边界误认的拒绝。
+- `integration/image-junction-model-independent.test.ts`：独立栅格化三色 T 交点在不同模糊和旋转下的定位、错误颜色归属拒绝、近邻双交点与短共享边、透明像素和非有限输入保护；不调用原生裁切。
+- `integration/image-junction-bend-independent.test.ts`：连续花纹边跨越三色交点时恢复真实尖角，拒绝圆弧、抛物线和错误颜色归属；检查载线反向、支线换序、透明与无效输入，以及 through 点经完整生产拟合后三种毫米标定下的保留和材料覆盖。
+- `integration/image-material-observation-independent.test.ts`：已知调色覆盖率与量化界、病态和错误 palette、透明与裁剪预算，以及真实圆弧／平头负例；检查跨两个交点的短共享边原子修改、未知材料回退和三种毫米标定下的完整材料网络。
+- `integration/design-provenance-roundoff.test.ts`、`integration/design-roundoff-independent.test.ts`：材料细分重心坐标的浮点边界、真实越界拒绝、嵌套面积守恒与持久化契约。
+- `integration/design-section-budget-independent.test.ts`：33 个材料区域各触发一次真实截面细分，检查后访问区域仍保存面内截点、逐面面积和颜色；仅注入原域求解拒绝，其余几何与制造检查使用生产实现。
+- `drawing-plane-delta-component.mjs`：斜面转动后的节点拖动保留点击偏移，跨指定部件及被前方独立表面遮挡的移动不生效；使用共用组件宿主，不验证 Electron 显示。
+- `integration/line-visibility-independent.test.ts`、`line-visibility-component.mjs`：用独立射线与真实 Vue 交互检查正交／透视遮挡、候选线透明度，以及可见截面手柄拖动；不替代最终 Electron 像素检查。
+- `legacy-paint-edit-component.mjs`：旧画笔多边形进入节点编辑时生成有界压缩草稿，取消不写入、确认才保存；保留已有曲线、样条和原图轮廓。组件宿主不代替 Electron 验收。
+- `current-legacy-paint-confirm-e2e.mjs`：需要将 `FPCAD_INSPECT_DATA_DIR` 指向 `.local/tests/` 内已接受 168 片结果的隔离基线，再运行 `node scripts/test-desktop.mjs --jobs 1 current-legacy-paint-confirm-e2e`。脚本只读备份该 SQLite 库到新的隔离目录，在隐藏 Electron 中检查 147 点旧花纹生成 18 点草稿、取消不写入、真实确认与撤销；不重算整模，不加入缺少该基线的默认桌面套件。`legacy-paint-camera.mjs` 是其缩放与平移显示辅助模块，不是独立测试入口。
+- `trim-material-preview-component.mjs`：独立密集探针检查同原面多色 trim 的精确范围、选择与失效过滤、颜色开关，以及映射草稿不残留旧裁片色；核对 GPU 输入和 Canvas 备用路径，不替代实际像素验收。
+- `legacy-handle-visibility-component.mjs`：运行 `node tests/legacy-handle-visibility-component.mjs "<隔离真实工作流导出的绝对路径>"`，也可用 `FPCAD_REAL_HANDLE_WORKFLOW` 指定文件。该导出须与 `fixtures/legacy-handle-occlusion.json` 记录的项目哈希一致；固定样本只保存独立诊断的 18 个世界坐标节点与相机证据。测试用真实 Vue 交互及独立射线检查可见节点、转动视角、编辑与取消；不读取用户库，不加入缺少真实导出的默认套件。
+- `workflow-editing-component.mjs`：自由变换确认与取消、绘制中隐藏节点、松手后生成节点，以及绘制时旋转模型；不替代桌面像素验证。
+- `mapping-transform-e2e.mjs`：运行 `node tests/mapping-transform-e2e.mjs`，在隐藏的 Electron 窗口中检查自由变换手柄与数值同步、取消与确认、左侧控件与右上导航的位置，以及对称涂绘的即时预览、稀疏节点、双侧原子撤销和锁定保护；使用独立项目库，截图和报告默认保存至 `test-results/current-cutting/mapping-*`。
+- `cut-workspace-render.mjs`：运行 `node tests/cut-workspace-render.mjs`，在无界面浏览器中检查真实 Vue 裁切工作台的 1280×800 与 1920×1080 布局、顶部按钮、二维辅助预览，以及计算预览和确认保存的分离；使用 API 替身，不验证求解算法。截图和报告保存在 `test-results/cut-workspace-*`。默认使用已安装的 Edge，也可通过 `FPCAD_TEST_BROWSER` 指定本地 Chromium 可执行文件。
 - `integration/surface-free-brush.test.ts`：无选中花纹的新笔刷、圆形与方形尺寸、跨部位与分离投影、失败不写入、撤销重做和文件往返。
 - `surface-edit-projection.test.ts`：曲面节点深度、遮挡层次、部位限制与轮廓裁至模型边缘。
 - `integration/surface-progress-runtime.test.ts`、`integration/surface-progress-preload.test.ts`：真实阶段协议、限流、取消、迟到事件和订阅清理。
@@ -78,6 +103,14 @@ node tests/model-manufacturing-controls-component.mjs
 node tests/unwrap-lifecycle-component.mjs
 node tests/source-region-locality-component.mjs
 node tests/surface-scope-component.mjs
+node tests/current-brush-component.mjs
+node tests/workflow-editing-component.mjs
 ```
 
+`current-brush-component.mjs` verifies sparse freehand regions, draft undo/redo, real area paint in Cutting, clean saved seam display and cut candidate selection without a Mapping transition. `integration/current-all-brush.test.ts` uses the native worker to check source/model round dabs, oblique two-point capsules, overlapping fills, repeated contained strokes and erased holes. Its boundary oracle samples analytic swept disks independently of the production footprint and fitter, with a 0.5 mm limit. These focused reports are saved in `test-results/current-cutting/`.
+
+`fixtures/symmetric-brush-exact-input.json` preserves an isolated desktop test's project and exact 33-point IPC input. The all-brush suite replays the production paint and symmetry functions, checks both closed boundaries, fewer than 80 editable nodes and no spans below 0.5 mm, and verifies both sides share one undo step with exact redo/archive restoration. Reconstructed camera and rounded-pointer trajectories are separate adversarial cases; they are not represented as the captured IPC input.
+
 `source-region-locality-component.mjs` 还需要 `test-results/current-task/real-cut-project.json` 的真实项目副本与 locality 集成测试输出；不读取或修改用户项目库。`surface-viewport-host.mjs` 是共用测试宿主，不是独立测试入口。新生成的本轮验证结果放在 `test-results/current-task-2/`。
+
+本轮汇总位于 `test-results/current-cutting/current-verification-summary.json`，保留原始全量、定向复测、失败、跳过及桌面构建范围。纯诊断脚本与阶段证据保存在忽略目录 `test-results/current-cutting/diagnostics/`；它们不是业务验收通过记录。

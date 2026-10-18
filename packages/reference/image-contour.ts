@@ -7,6 +7,8 @@ import {recoverContour,recoverBoundaryChain,recoverBoundaryLoop} from './recover
 import type {Point,Piece} from '../schema/index';
 import {compactSourceBoundary} from './image-compact-contour';
 import {inferTips,sourceTipPolygon} from './image-line-corners';
+import {materialTips} from './image-material-observation';
+import {shortMaterialBranches} from './image-short-material-branch';
 type Curve=NonNullable<Piece['curves']>[number];
 const geometryPiece=(shape:Pick<Piece,'nodes'>&Partial<Pick<Piece,'curves'|'holes'>>):Piece=>({id:'',name:'',closed:true,allowanceMm:0,cutQty:1,mirror:false,material:'',furRad:0,color:'#ffffff',...shape});
 type XY={xMm:number;yMm:number};
@@ -20,13 +22,40 @@ const segmentDistance=(p:XY,a:XY,b:XY)=>{const dx=b.xMm-a.xMm,dy=b.yMm-a.yMm,t=M
  * derivative ridges of a blurred/inked edge. There is no path smoothing pass. */
 export function imageBoundaryFit(width:number,height:number,rgba:Uint8Array,toPixel:(p:XY)=>XY,fromPixel:(p:XY)=>XY):BoundaryFit{
  if(rgba.length!==width*height*4)throw Error('IMAGE_LIMIT');
+ let junctionCorners:XY[]=[];
+ let materialPalette:string[]=[],materialBudget=0;
  const rgb=(p:XY)=>{const x=Math.max(0,Math.min(width-1,p.xMm-.5)),y=Math.max(0,Math.min(height-1,p.yMm-.5)),ix=Math.floor(x),iy=Math.floor(y),tx=x-ix,ty=y-iy;return [0,1,2].map(c=>{const at=(dx:number,dy:number)=>rgba[(Math.min(height-1,iy+dy)*width+Math.min(width-1,ix+dx))*4+c]/255;return at(0,0)*(1-tx)*(1-ty)+at(1,0)*tx*(1-ty)+at(0,1)*(1-tx)*ty+at(1,1)*tx*ty;});};
  const fit:BoundaryFit=(raw,closed,colors,createId)=>{
+  // A corner measured across a shared junction is an endpoint of each local
+  // fit. Refitting it as an ordinary interior raster sample would round away
+  // the source-supported bend that preparation just recovered.
+  const corners=!closed?raw.flatMap((p,i)=>i>0&&i<raw.length-1&&junctionCorners.some(q=>distance(toPixel(p),q)<1e-6)?[i]:[]):[];
+  if(corners.length){
+   const cuts=[0,...corners,raw.length-1],nodes:Point[]=[],curves:Curve[]=[],boundary:Point[]=[];
+   for(let i=0;i+1<cuts.length;i++){
+    const span=raw.slice(cuts[i],cuts[i+1]+1);let result=fit(span,false,colors,createId);
+    if(!result){const fallback=recoverBoundaryChain(span.map(p=>({...p,...toPixel(p)})),.8,createId),world=(p:Point)=>({...p,...fromPixel(p)});result={nodes:fallback.nodes.map(world),curves:(fallback.curves??[]).map(c=>({...c,c1:world(c.c1),c2:world(c.c2)}))};}
+    const observed=result.sourceBoundary??span;
+    nodes.push(...result.nodes.slice(0,i===cuts.length-2?undefined:-1));curves.push(...result.curves??[]);boundary.push(...observed.slice(0,i===cuts.length-2?undefined:-1));
+   }
+   return{nodes,curves,sourceBoundary:boundary};
+  }
   // Equivalent millimetre calibrations must produce the same native samples.
   // Round only floating-point transform noise, far below pixel resolution.
   const vertices=raw.map(p=>{const q=toPixel(p);return {...p,xMm:Math.round(q.xMm*1e8)/1e8,yMm:Math.round(q.yMm*1e8)/1e8};}),source:Point[]=[];
+  // A closed raster boundary has no intrinsic first vertex. Use a stable
+  // image-space origin so graph traversal cannot put the same physical tip
+  // across the fitter's start/end seam and change the recovered geometry.
+  if(closed&&vertices.length){let first=0;for(let i=1;i<vertices.length;i++)if(vertices[i].xMm<vertices[first].xMm||vertices[i].xMm===vertices[first].xMm&&vertices[i].yMm<vertices[first].yMm)first=i;if(first)vertices.push(...vertices.splice(0,first));}
   const world=(p:Point)=>({...p,...fromPixel(p)});
-  let tipModel:ReturnType<typeof inferTips>|undefined;const model=()=>tipModel??=inferTips(vertices,closed,width,height,rgba);
+  let tipModel:ReturnType<typeof inferTips>|undefined;const model=()=>{
+   if(tipModel)return tipModel;tipModel=inferTips(vertices,closed,width,height,rgba);
+   const unsupported=tipModel.candidates.filter(c=>!c.accepted&&(c.fitError??Infinity)<.09);
+   if(!closed&&materialPalette.length>=3&&materialPalette.length<=4&&unsupported.length&&materialBudget<4){
+    for(const foreground of colors){if(materialBudget++>=4)break;const measured=materialTips(vertices,closed,foreground,materialPalette.filter(c=>c!==foreground),width,height,rgba);if(measured&&measured.source.length===tipModel.source.length)tipModel.candidates.push(...measured.candidates.filter(c=>c.accepted&&unsupported.some(p=>distance(p.tip,c.tip)<6)));}
+   }
+   return tipModel;
+  };
   const polygon=closed?sourceTipPolygon(vertices,width,height,rgba,createId,model()):undefined;
   if(polygon){const nodes=polygon.nodes.map(world);return{nodes,curves:[],sourceBoundary:nodes};}
   const compact=closed?compactSourceBoundary(vertices,width,height,rgba,createId):undefined;
@@ -84,26 +113,30 @@ export function imageBoundaryFit(width:number,height:number,rgba:Uint8Array,toPi
    }return true;
   });
   const lineProposal=reliableSource&&!softSource?fitMeasuredBoundary(supportedPoints,closed,createId):undefined;
-  const fit=supported<source.length*.65?(closed?recoverBoundaryLoop(source,.8,createId,new Set()):recoverBoundaryChain(source,.8,createId)):softSource?fitMeasuredBoundary(observed,closed,createId,.25,p=>tangents.get(p.id)):reliableSource?(hardSource||lineProposal?.straightSupported?lineProposal!:fitMeasuredBoundary(supportedPoints,closed,createId,.35,p=>tangents.get(p.id))):fitMeasuredBoundary(supportedPoints,closed,createId);
+  const fitted=supported<source.length*.65?(closed?recoverBoundaryLoop(source,.8,createId,new Set()):recoverBoundaryChain(source,.8,createId)):softSource?fitMeasuredBoundary(observed,closed,createId,.25,p=>tangents.get(p.id)):reliableSource?(hardSource||lineProposal?.straightSupported?lineProposal!:fitMeasuredBoundary(supportedPoints,closed,createId,.35,p=>tangents.get(p.id))):fitMeasuredBoundary(supportedPoints,closed,createId);
 
   const partial=partialTips(vertices,source,source,closed,width,height,rgba,createId,model());
   if(partial){
    const raster=()=>{const result=closed?recoverContour(geometryPiece({nodes:vertices,holes:[],curves:[]}),.8,createId):recoverBoundaryChain(vertices,.8,createId);return{nodes:result.nodes,curves:result.curves??[]};};
-   const bases:(()=>typeof fit)[]=[];
-   if(supported>=source.length*.65&&sourceSpliceBase(fit,vertices,closed,createId))bases.push(()=>fit);
+   const bases:(()=>typeof fitted)[]=[];
+   if(supported>=source.length*.65&&sourceSpliceBase(fitted,vertices,closed,createId))bases.push(()=>fitted);
    bases.push(raster);
-   for(const base of bases){const replacement=spliceSourceTips(base(),closed,partial.windows,createId);
-    // The original fit can be valid while its splice anchors make the new
+   // A compact raster fit can itself exceed the source corridor at a nearby
+   // junction. Keep the exact source outside certified windows as the final
+   // fallback, instead of discarding independently measured corners.
+   bases.push(()=>({nodes:vertices,curves:[]}));
+   for(const base of bases){const replacement=spliceSourceTips(base(),closed,partial.windows,createId,true,vertices);
+    // The original fitted can be valid while its splice anchors make the new
     // path invalid. Verify the completed proposal against the certified tip
-    // boundary before choosing it; otherwise try the preserved raster fit.
+    // boundary before choosing it; otherwise try the preserved raster fitted.
     if(replacement&&sourceSpliceBase(replacement,partial.baseline,closed,createId)&&(!closed||safeContour(geometryPiece({...replacement,holes:[]}),geometryPiece({nodes:partial.baseline,holes:[],curves:[]}),.8)))return{nodes:replacement.nodes.map(world),curves:replacement.curves.map(c=>({...c,c1:world(c.c1),c2:world(c.c2)})),sourceBoundary:partial.baseline.map(world)};
    }
   }
   if(supported<source.length*.65)return;
-  if(closed&&fit.nodes.length===2&&fit.curves.length===2){const c=fit.curves[0],a=fit.nodes.find(p=>p.id===c.startNodeId)!,b=fit.nodes.find(p=>p.id===c.endNodeId)!,mid=(a:Point,b:Point):Point=>({id:createId(),xMm:(a.xMm+b.xMm)/2,yMm:(a.yMm+b.yMm)/2}),u=mid(a,c.c1),v=mid(c.c1,c.c2),w=mid(c.c2,b),l=mid(u,v),r=mid(v,w),m=mid(l,r);fit.nodes.splice(fit.nodes.indexOf(a)+1,0,m);fit.curves.splice(0,1,{...c,endNodeId:m.id,c1:u,c2:l},{...c,id:createId(),startNodeId:m.id,c1:r,c2:w});}
-  return {nodes:fit.nodes.map(world),curves:fit.curves.map(c=>({...c,c1:world(c.c1),c2:world(c.c2)})),sourceBoundary:reliableSource?observed.map(world):undefined};
+  if(closed&&fitted.nodes.length===2&&fitted.curves.length===2){const c=fitted.curves[0],a=fitted.nodes.find(p=>p.id===c.startNodeId)!,b=fitted.nodes.find(p=>p.id===c.endNodeId)!,mid=(a:Point,b:Point):Point=>({id:createId(),xMm:(a.xMm+b.xMm)/2,yMm:(a.yMm+b.yMm)/2}),u=mid(a,c.c1),v=mid(c.c1,c.c2),w=mid(c.c2,b),l=mid(u,v),r=mid(v,w),m=mid(l,r);fitted.nodes.splice(fitted.nodes.indexOf(a)+1,0,m);fitted.curves.splice(0,1,{...c,endNodeId:m.id,c1:u,c2:l},{...c,id:createId(),startNodeId:m.id,c1:r,c2:w});}
+  return {nodes:fitted.nodes.map(world),curves:fitted.curves.map(c=>({...c,c1:world(c.c1),c2:world(c.c2)})),sourceBoundary:reliableSource?observed.map(world):undefined};
  };
- fit.prepare=(branches)=>{const result=sourceJunctions(branches.map(b=>({...b,raw:b.raw.map(p=>{const q=toPixel(p);return {...p,xMm:Math.round(q.xMm*1e8)/1e8,yMm:Math.round(q.yMm*1e8)/1e8};})})),width,height,rgba);return result?.output.map(r=>r.map(p=>({...p,...fromPixel(p)})));};return fit;
+ fit.prepare=(branches)=>{materialPalette=[...new Set(branches.flatMap(b=>b.colors))].sort();materialBudget=0;const pixels=branches.map(b=>({...b,raw:b.raw.map(p=>{const q=toPixel(p);return {...p,xMm:Math.round(q.xMm*1e8)/1e8,yMm:Math.round(q.yMm*1e8)/1e8};})})),result=sourceJunctions(pixels,width,height,rgba);junctionCorners=result?.corners??[];const short=shortMaterialBranches(pixels.map((b,i)=>({...b,raw:result?.output[i]??b.raw})),width,height,rgba);junctionCorners.push(...short?.corners??[]);return(short?.output??result?.output)?.map(r=>r.map(p=>({...p,...fromPixel(p)})));};return fit;
 }
 
 /** Error-driven line/cubic approximation of measured subpixel samples. Lines
@@ -133,7 +166,10 @@ export function fitMeasuredBoundary(points:Point[],closed:boolean,createId:()=>s
   }
   const errors=p.map(v=>segmentDistance(v,a,b)),lineError=Math.max(...errors);
   const startTangent=tangentAt?.(a),endTangent=tangentAt?.(b),chord=distance(a,b),straightDerivative=!startTangent||!endTangent||chord===0||[startTangent,endTangent].every(t=>Math.abs(t.xMm*(b.yMm-a.yMm)-t.yMm*(b.xMm-a.xMm))/chord<.03);
-  if(lineError<=.01||lineError<=Math.min(.35,tolerance)&&straightDerivative){nodes.push(a);return;}
+  // Across several native pixels the observed positions can certify a
+  // straight span even if endpoint RGB gradients tilt at a pixel-cell edge.
+  // Short arcs still require tangent agreement to avoid polygonizing a dot.
+  if(lineError<=.01||lineError<=Math.min(.35,tolerance)&&(straightDerivative||chord>=4&&p.length>=6)){nodes.push(a);return;}
   // A hard pixel staircase can turn sharply over three samples even when its
   // supporting edge is straight. A real cusp persists over several native
   // pixels on both sides; test that larger scale before splitting the fit.
@@ -194,3 +230,4 @@ export function fitMeasuredBoundary(points:Point[],closed:boolean,createId:()=>s
  }
  return {nodes,curves,straightSupported:!closed&&allLines};
 }
+

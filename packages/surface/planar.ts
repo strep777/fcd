@@ -12,8 +12,8 @@ export function simplifyReportBoundary(report:SurfaceReport){
  return boundary.length>=3&&boundary.length<ids.length&&before*after>0&&Math.abs(after-before)<=Math.abs(before)*1e-6?{...report,boundary,boundaryToleranceMm:tolerance}:report;
 }
 /** An exact isometry for connected, oriented planar disks; curved patches stay with the solver. */
-export function planarReports(mesh:Surface,allowHoles=false){
- const vertices=new Map(mesh.vertices.map(v=>[v.id,v])),edgeFaces=new Map<string,number[]>(),adjacency=mesh.faces.map(()=>[] as number[]);
+export function planarReports(mesh:Surface,allowHoles=false,vertices:ReadonlyMap<string,Surface['vertices'][number]>=new Map(mesh.vertices.map(v=>[v.id,v]))){
+ const edgeFaces=new Map<string,number[]>(),adjacency=mesh.faces.map(()=>[] as number[]);
  for(const [i,f] of mesh.faces.entries())for(let j=0;j<3;j++){const key=[f.vertices[j],f.vertices[(j+1)%3]].sort().join(':'),list=edgeFaces.get(key)??[];list.push(i);edgeFaces.set(key,list);}
  for(const list of edgeFaces.values())if(list.length===2&&mesh.faces[list[0]].region===mesh.faces[list[1]].region){adjacency[list[0]].push(list[1]);adjacency[list[1]].push(list[0]);}
  const cross=(a:number[],b:number[])=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],dot=(a:number[],b:number[])=>a.reduce((n,x,i)=>n+x*b[i],0),xyz=(id:string)=>{const p=vertices.get(id)!;return [p.xMm,p.yMm,p.zMm];},sub=(a:number[],b:number[])=>a.map((n,i)=>n-b[i]),unit=(v:number[])=>{const l=Math.hypot(...v);return v.map(n=>n/l);};

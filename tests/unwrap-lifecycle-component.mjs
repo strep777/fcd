@@ -15,7 +15,7 @@ try{
   const save=deferred(),calls=[],before=timerStarts;let unsubscribed=0;
   const f=await mount(fixtureProject(),{component:'unwrap',controls:false,api:{onSurfaceProgress:()=>()=>unsubscribed++,apply:(...args)=>{calls.push({method:'apply',args});return save.promise;},unwrapSurface:(...args)=>{calls.push({method:'unwrap',args});return Promise.resolve(reply(f.store));}}});
   try{
-   f.byLabel('Cut seam allowance cm').attrs['onUpdate:modelValue'](2);await flush();const action=f.click(f.button('Cut and compute pattern candidate'));await flush();assert.deepEqual(calls.map(c=>c.method),['apply']);assert.equal(timerStarts,before);
+   f.byLabel('Cut seam allowance cm').attrs['onUpdate:modelValue'](2);await flush();const action=f.click(f.button('Compute & preview cut lines'));await flush();assert.deepEqual(calls.map(c=>c.method),['apply']);assert.equal(timerStarts,before);
    f.app.unmount();assert.equal(unsubscribed,1);save.resolve(succeeds?reply(f.store,{defaultAllowanceMm:20}):{ok:false,error:{code:'TEST_REJECTED'}});await action;await flush();
    assert.equal(timerStarts,before,'unmounted continuation cannot create elapsed timer');assert.equal(timers.size,0);assert.deepEqual(calls.map(c=>c.method),['apply'],'unmounted continuation cannot request unwrap');
    assert.equal(f.store.data.project.defaultAllowanceMm,succeeds?20:undefined,'the already requested allowance transaction retains its actual outcome');
@@ -23,13 +23,13 @@ try{
  });
  await check('running task uses real stages, ignores foreign progress, routes cancel and removes listener/timer on unmount',async()=>{
   const cut=deferred(),calls=[];let listener,unsubscribed=0;const before=timerStarts,stops=timerStops;
-  const f=await mount(fixtureProject(),{component:'unwrap',controls:false,api:{onSurfaceProgress:callback=>{listener=callback;return()=>unsubscribed++;},unwrapSurface:(...args)=>{calls.push({method:'unwrap',args});return cut.promise;},cancelSurface:async(...args)=>calls.push({method:'cancel',args})}});
+  const f=await mount(fixtureProject(),{component:'unwrap',controls:false,api:{onSurfaceProgress:callback=>{listener=callback;return()=>unsubscribed++;},unwrapSurface:(...args)=>{calls.push({method:'unwrap',args});return cut.promise;},cancelSurface:async(...args)=>{calls.push({method:'cancel',args});return {ok:true,cancelled:true,data:JSON.parse(JSON.stringify(f.store.data))};}}});
   try{
-   const action=f.click(f.button('Cut and compute pattern candidate'));await flush();assert.equal(timerStarts,before+1);assert.equal(timers.size,1);assert.deepEqual(calls[0].args.slice(0,2),[id('project'),1]);
+   const action=f.click(f.button('Compute & preview cut lines'));await flush();assert.equal(timerStarts,before+1);assert.equal(timers.size,1);assert.deepEqual(calls[0].args.slice(0,2),[id('project'),1]);
    listener({projectId:id('project'),revision:1,stage:'unwrap',completed:2,total:10});await flush();assert(f.root.textContent.includes('Unwrapping pieces'));assert(f.root.textContent.includes('2 / 10'));assert(!f.root.textContent.includes('20%'));
    listener({projectId:id('other-project'),revision:1,stage:'validate'});await flush();assert(!f.root.textContent.includes('Validating patterns'));listener({projectId:id('project'),revision:2,stage:'validate'});await flush();assert(!f.root.textContent.includes('Validating patterns'));
-   await f.click(f.button('Cancel unwrap'));assert.deepEqual(calls[1],{method:'cancel',args:[id('project'),1]});f.app.unmount();assert.equal(unsubscribed,1);assert.equal(timers.size,0);assert.equal(timerStops,stops+1);
-   listener({projectId:id('project'),revision:1,stage:'validate'});cut.resolve(reply(f.store));await action;assert.equal(timerStarts,before+1);assert.equal(timers.size,0);assert(!walk(f.root).some(n=>n.tag==='button'));
+   await f.click(f.button('Cancel unwrap'));assert.deepEqual(calls[1],{method:'cancel',args:[id('project'),1]});assert.equal(f.store.cancelling,true);assert(f.root.textContent.includes('Cancelling unwrap…'));assert(f.button('Cancelling…').attrs.disabled);f.app.unmount();assert.equal(unsubscribed,1);assert.equal(timers.size,0);assert.equal(timerStops,stops+1);
+   listener({projectId:id('project'),revision:1,stage:'validate'});cut.resolve(reply(f.store));await action;assert.equal(timerStarts,before+1);assert.equal(timers.size,0);assert(!walk(f.root).some(n=>n.tag==='button'));assert(!f.emits.some(e=>e.event==='previewReady'),'unmounted task must not emit candidate navigation');
   }finally{cut.resolve({ok:false,error:{code:'TEST_END'}});f.app.unmount();for(const token of timers.keys())globalThis.clearInterval(token);}
  });
 }finally{globalThis.setInterval=nativeInterval;globalThis.clearInterval=nativeClear;}

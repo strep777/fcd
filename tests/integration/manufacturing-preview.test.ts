@@ -24,7 +24,7 @@ let pinia:ReturnType<typeof createPinia>;
 let frames:ReturnType<typeof stubAnimationFrames>;
 beforeEach(()=>{pinia=createPinia();setActivePinia(pinia);frames=stubAnimationFrames();});afterEach(()=>vi.unstubAllGlobals());
 function setup(){const store=useSession(),p=project();p.pieces=[{...rectangle(350,600),allowanceMm:0}];p.surface=parseObj('v 0 0 0\nv 100 0 0\nv 100 100 0\nv 0 100 0\nf 1 2 3\nf 1 3 4');store.data.project=p;const editor=usePatternEditor(ref('zh'),ref('pattern'),()=>{});editor.selectedId.value=p.pieces[0].id;return {store,p,editor};}
-async function rendered(component:Component,advanced:boolean,props={}){const {editor}=setup(),app=createSSRApp(defineComponent({setup(){provide(patternEditorKey,editor);provide('advancedMode',ref(advanced));return ()=>h(component,props);}}));app.use(pinia);return renderToString(app);}
+async function rendered(component:Component,advanced:boolean,props={}){const {editor}=setup(),app=createSSRApp(defineComponent({setup(){provide(patternEditorKey,editor);provide('advancedMode',ref(advanced));return ()=>h(component,props);}}));app.use(pinia);const context:{teleports?:Record<string,string>}={},html=await renderToString(app,context);return html+Object.values(context.teleports??{}).join('');}
 it('keeps common piece edits and allowance available in simple mode, then restores advanced editing controls',async()=>{
  const simple=await rendered(PatternProperties,false),advanced=await rendered(PatternProperties,true);
  for(const text of ['裁片颜色','名称','生成缝份候选','材料与裁剪'])expect(simple).toContain(text);
@@ -33,7 +33,7 @@ it('keeps common piece edits and allowance available in simple mode, then restor
 });
 it('simple cutting retains computation and saved cuts while advanced restores manual point edits and solver options',async()=>{
  const simple=await rendered(CuttingPage,false,{language:'zh'}),advanced=await rendered(CuttingPage,true,{language:'zh'});
- for(const text of ['裁切版型','曲面钢笔','自由绘制','裁切并计算版型候选'])expect(simple).toContain(text);
+ for(const text of ['裁切版型','曲面钢笔','手绘裁线','花纹画笔（涂区域）','自动计算裁线并预览'])expect(simple).toContain(text);
  for(const text of ['手动切分点与切分线','半侧制版与中线围合','求解参数','展开算法']){expect(simple).not.toContain(text);expect(advanced).toContain(text);}
 });
 it('simple production forms keep fabric essentials while hiding algorithm and detailed manufacturing settings',async()=>{

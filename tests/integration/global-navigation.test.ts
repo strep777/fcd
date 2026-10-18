@@ -56,3 +56,6 @@ it('diagnostics navigate to pieces, seams or the mapped marking and close the as
  ui.state.assistantOpen.value=true;ui.state.showRecent.value=true;ui.state.showHome();expect(ui.state.home.value).toBe(true);expect(ui.state.assistantOpen.value).toBe(false);expect(ui.state.showRecent.value).toBe(false);
  }finally{ui.app.unmount();}
 });
+it('clearing mapped markings also clears the cached app selection before returning to mapping',async()=>{
+ const ui=await mount();try{ui.store.data.project!.markings=[{id:'removed-marking',paths:[{pieceId:'old-piece'}]} as any];ui.state.selectMarking({markingId:'removed-marking',pieceId:'old-piece'});await Vue.nextTick();expect(ui.state.selectedMarking.value?.markingId).toBe('removed-marking');ui.store.data.project!.markings=[];await Vue.nextTick();expect(ui.state.selectedMarking.value).toBeUndefined();ui.state.stage.value='cutting';await Vue.nextTick();ui.state.stage.value='mapping';await Vue.nextTick();expect(ui.state.selectedMarking.value).toBeUndefined();}finally{ui.app.unmount();}
+});

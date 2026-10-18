@@ -613,6 +613,11 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "anchorFaceId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
                           "curves": {
                             "maxItems": 2000,
                             "type": "array",
@@ -3378,6 +3383,11 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "anchorFaceId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
                           "curves": {
                             "maxItems": 2000,
                             "type": "array",
@@ -3995,6 +4005,9 @@
                                     ],
                                     "additionalProperties": false
                                   }
+                                },
+                                "surfaceAnchored": {
+                                  "type": "boolean"
                                 },
                                 "projection": {
                                   "type": "object",
@@ -6348,6 +6361,11 @@
                             "surfaceShape": {
                               "type": "object",
                               "properties": {
+                                "anchorFaceId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
                                 "curves": {
                                   "maxItems": 2000,
                                   "type": "array",
@@ -7566,6 +7584,11 @@
                     "surfaceShape": {
                       "type": "object",
                       "properties": {
+                        "anchorFaceId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
                         "curves": {
                           "maxItems": 2000,
                           "type": "array",
@@ -8619,6 +8642,11 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "anchorFaceId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
                           "curves": {
                             "maxItems": 2000,
                             "type": "array",
@@ -9236,6 +9264,9 @@
                                     ],
                                     "additionalProperties": false
                                   }
+                                },
+                                "surfaceAnchored": {
+                                  "type": "boolean"
                                 },
                                 "projection": {
                                   "type": "object",
@@ -11589,6 +11620,11 @@
                             "surfaceShape": {
                               "type": "object",
                               "properties": {
+                                "anchorFaceId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
                                 "curves": {
                                   "maxItems": 2000,
                                   "type": "array",
@@ -14082,6 +14118,9 @@
                               "additionalProperties": false
                             }
                           },
+                          "surfaceAnchored": {
+                            "type": "boolean"
+                          },
                           "projection": {
                             "type": "object",
                             "properties": {
@@ -15438,6 +15477,146 @@
               "properties": {
                 "type": {
                   "type": "string",
+                  "const": "surface.transform"
+                },
+                "vertexIds": {
+                  "minItems": 1,
+                  "maxItems": 200000,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "regions": {
+                  "minItems": 1,
+                  "maxItems": 500,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                },
+                "translationMm": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    },
+                    "z": {
+                      "type": "number",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "z"
+                  ],
+                  "additionalProperties": false
+                },
+                "rotationDeg": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    },
+                    "z": {
+                      "type": "number",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "z"
+                  ],
+                  "additionalProperties": false
+                },
+                "scale": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1000
+                    },
+                    "y": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1000
+                    },
+                    "z": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1000
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "z"
+                  ],
+                  "additionalProperties": false
+                },
+                "pivotMm": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    },
+                    "z": {
+                      "type": "number",
+                      "minimum": -100000,
+                      "maximum": 100000
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "z"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "translationMm",
+                "rotationDeg",
+                "scale"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
                   "const": "surface.resize"
                 },
                 "scale": {
@@ -15578,6 +15757,9 @@
                     ],
                     "additionalProperties": false
                   }
+                },
+                "surfaceAnchored": {
+                  "type": "boolean"
                 },
                 "projection": {
                   "type": "object",
@@ -16017,6 +16199,9 @@
                               ],
                               "additionalProperties": false
                             }
+                          },
+                          "surfaceAnchored": {
+                            "type": "boolean"
                           },
                           "projection": {
                             "type": "object",
@@ -17587,6 +17772,11 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "anchorFaceId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
                           "curves": {
                             "maxItems": 2000,
                             "type": "array",
@@ -19382,6 +19572,11 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "anchorFaceId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
                           "curves": {
                             "maxItems": 2000,
                             "type": "array",
@@ -22044,6 +22239,11 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "anchorFaceId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
                           "curves": {
                             "maxItems": 2000,
                             "type": "array",
@@ -24371,6 +24571,11 @@
             "shape": {
               "type": "object",
               "properties": {
+                "anchorFaceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
                 "curves": {
                   "maxItems": 2000,
                   "type": "array",
@@ -24709,9 +24914,17 @@
                     "square"
                   ]
                 },
+                "symmetric": {
+                  "type": "boolean"
+                },
                 "shape": {
                   "type": "object",
                   "properties": {
+                    "anchorFaceId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
                     "curves": {
                       "maxItems": 2000,
                       "type": "array",
@@ -25120,6 +25333,11 @@
             "shape": {
               "type": "object",
               "properties": {
+                "anchorFaceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
                 "curves": {
                   "maxItems": 2000,
                   "type": "array",

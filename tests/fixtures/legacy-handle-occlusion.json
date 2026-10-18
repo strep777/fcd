@@ -1,0 +1,576 @@
+{
+  "sourceProjectHash": "7b0e0d13311bd18692219483c5037cec2e00ccea898697038ade1333ac2a5c47",
+  "markingId": "ae5585ad-7d5b-4014-982f-52c1fde38b91",
+  "camera": {
+    "yaw": 0.4,
+    "pitch": -0.2,
+    "zoom": 32,
+    "perspective": false,
+    "center": [
+      0,
+      900,
+      -242.7893829345703
+    ],
+    "extent": 2068.39990234375,
+    "factor": 6.961903248826805,
+    "svgScale": 1.2953703703703703,
+    "fittedClientOffset": {
+      "x": -2192.428465256478,
+      "y": 4284.344480824612
+    },
+    "method": "Yaw/pitch/default orthographic state derived from saved inspection script; only common pan/client offset fitted from all 18 observed SVG circles. Independent replay residual verifies the camera."
+  },
+  "surface": {
+    "id": "4f840110-8306-474f-93a2-d4b408adc819",
+    "topologyVersion": 5,
+    "source": "species-template-1",
+    "vertices": [
+      {
+        "id": "e929f1e9-3151-41ec-9973-197ca621f1d5",
+        "xMm": 253.73300170898438,
+        "yMm": 1312.58056640625,
+        "zMm": 24.51963233947754
+      },
+      {
+        "id": "6cc5b284-8b66-47e9-afc9-7d0375a3416d",
+        "xMm": 296.7755432128906,
+        "yMm": 1300.1585693359375,
+        "zMm": 24.28976058959961
+      },
+      {
+        "id": "9cf21629-41f4-4cb5-ba0e-7d37210d962c",
+        "xMm": 342.6750183105469,
+        "yMm": 1284.363037109375,
+        "zMm": 23.784042358398438
+      },
+      {
+        "id": "9469e021-2df9-421a-ac8d-8e8b66220877",
+        "xMm": 250.5107879638672,
+        "yMm": 1299.0703125,
+        "zMm": 45.306373596191406
+      },
+      {
+        "id": "6d3e9254-c0d3-45bf-b52c-c1064202bb69",
+        "xMm": 286.9944152832031,
+        "yMm": 1267.2296142578125,
+        "zMm": 58.64067077636719
+      },
+      {
+        "id": "e6b8f7ca-d441-41a4-a7c8-c9d4beb8122c",
+        "xMm": 292.8577575683594,
+        "yMm": 1286.968994140625,
+        "zMm": 44.88162612915039
+      },
+      {
+        "id": "ca620cd5-be58-4018-a934-9511c2dc184d",
+        "xMm": 338.3812255859375,
+        "yMm": 1271.593017578125,
+        "zMm": 43.947181701660156
+      }
+    ],
+    "faces": [
+      {
+        "id": "b3b5f10f-1dec-4143-b377-b200a8f7a9b1",
+        "vertices": [
+          "6cc5b284-8b66-47e9-afc9-7d0375a3416d",
+          "e6b8f7ca-d441-41a4-a7c8-c9d4beb8122c",
+          "9cf21629-41f4-4cb5-ba0e-7d37210d962c"
+        ],
+        "region": "arm-right"
+      },
+      {
+        "id": "7244cd85-d650-4e78-8286-6b030a06553d",
+        "vertices": [
+          "e6b8f7ca-d441-41a4-a7c8-c9d4beb8122c",
+          "6d3e9254-c0d3-45bf-b52c-c1064202bb69",
+          "ca620cd5-be58-4018-a934-9511c2dc184d"
+        ],
+        "region": "arm-right"
+      },
+      {
+        "id": "2949e07f-ed5d-42d7-8c69-18015f5021e9",
+        "vertices": [
+          "e929f1e9-3151-41ec-9973-197ca621f1d5",
+          "9469e021-2df9-421a-ac8d-8e8b66220877",
+          "6cc5b284-8b66-47e9-afc9-7d0375a3416d"
+        ],
+        "region": "arm-right"
+      },
+      {
+        "id": "18e60317-4551-41cb-bdc2-ca792b06e86c",
+        "vertices": [
+          "9469e021-2df9-421a-ac8d-8e8b66220877",
+          "e6b8f7ca-d441-41a4-a7c8-c9d4beb8122c",
+          "6cc5b284-8b66-47e9-afc9-7d0375a3416d"
+        ],
+        "region": "arm-right"
+      }
+    ],
+    "assembly": {
+      "algorithm": "manifold-union-3.5.4",
+      "sourceHash": "b32f783e3d0d01ec50de532130783403d6161f37633f4bf8175f30195bec9bbc",
+      "components": 1,
+      "volumeMm3": 133122645.55126727,
+      "toleranceMm": 0.25,
+      "inputFaces": 8176,
+      "measurements": [
+        {
+          "name": "height",
+          "targetMm": 1800,
+          "actualMm": 1800,
+          "residualMm": 0
+        },
+        {
+          "name": "hipGirth",
+          "targetMm": 1200,
+          "actualMm": 1199.9874367505624,
+          "residualMm": -0.012563249437562263
+        },
+        {
+          "name": "waistGirth",
+          "targetMm": 900,
+          "actualMm": 899.9999963005296,
+          "residualMm": -3.699470425999607E-06
+        },
+        {
+          "name": "chestGirth",
+          "targetMm": 1100,
+          "actualMm": 1100.000001321163,
+          "residualMm": 1.3211629266152158E-06
+        },
+        {
+          "name": "neckGirth",
+          "targetMm": 500,
+          "actualMm": 500.00000376631914,
+          "residualMm": 3.7663191392312E-06
+        }
+      ]
+    },
+    "template": {
+      "id": "original-canine-digitigrade",
+      "version": "1.1.0",
+      "license": "original-project-source",
+      "parameters": {
+        "species": "canine",
+        "legType": "digitigrade",
+        "heightMm": 1800,
+        "neckGirthMm": 500,
+        "chestGirthMm": 1100,
+        "waistGirthMm": 900,
+        "hipGirthMm": 1200,
+        "shoulderWidthMm": 480,
+        "armLengthMm": 600,
+        "legLengthMm": 780,
+        "headWidthMm": 260,
+        "headLengthMm": 280,
+        "snoutLengthMm": 130,
+        "snoutWidthMm": 150,
+        "earHeightMm": 160,
+        "earWidthMm": 100,
+        "earAngleRad": 0,
+        "tailLengthMm": 900,
+        "tailBaseGirthMm": 200,
+        "tailTipGirthMm": 40,
+        "tailCurvature": 0.15,
+        "upperArmGirthMm": 400,
+        "forearmGirthMm": 310,
+        "thighGirthMm": 850,
+        "shinGirthMm": 470,
+        "pawLengthMm": 180,
+        "pawWidthMm": 170,
+        "footLengthMm": 280,
+        "clawLengthMm": 25,
+        "paddingMm": 0,
+        "layerMm": 0
+      },
+      "parts": [
+        "torso",
+        "head",
+        "snout",
+        "ear-left",
+        "arm-left",
+        "palm-left",
+        "palm-pad-left",
+        "leg-left",
+        "foot-left",
+        "finger-left-0",
+        "toe-left-0",
+        "hand-claw-left-0",
+        "foot-claw-left-0",
+        "finger-left-1",
+        "toe-left-1",
+        "hand-claw-left-1",
+        "foot-claw-left-1",
+        "finger-left-2",
+        "toe-left-2",
+        "hand-claw-left-2",
+        "foot-claw-left-2",
+        "finger-left-3",
+        "toe-left-3",
+        "hand-claw-left-3",
+        "foot-claw-left-3",
+        "ear-right",
+        "arm-right",
+        "palm-right",
+        "palm-pad-right",
+        "leg-right",
+        "foot-right",
+        "finger-right-0",
+        "toe-right-0",
+        "hand-claw-right-0",
+        "foot-claw-right-0",
+        "finger-right-1",
+        "toe-right-1",
+        "hand-claw-right-1",
+        "foot-claw-right-1",
+        "finger-right-2",
+        "toe-right-2",
+        "hand-claw-right-2",
+        "foot-claw-right-2",
+        "finger-right-3",
+        "toe-right-3",
+        "hand-claw-right-3",
+        "foot-claw-right-3",
+        "tail"
+      ],
+      "measurements": [
+        {
+          "name": "hipGirth",
+          "targetMm": 1200,
+          "actualMm": 1199.9999999999998,
+          "residualMm": -2.2737367544323206E-13
+        },
+        {
+          "name": "waistGirth",
+          "targetMm": 900,
+          "actualMm": 899.9999999999997,
+          "residualMm": -3.410605131648481E-13
+        },
+        {
+          "name": "chestGirth",
+          "targetMm": 1100,
+          "actualMm": 1099.9999999999998,
+          "residualMm": -2.2737367544323206E-13
+        },
+        {
+          "name": "neckGirth",
+          "targetMm": 500,
+          "actualMm": 500.00000000000006,
+          "residualMm": 5.684341886080802E-14
+        },
+        {
+          "name": "headWidth",
+          "targetMm": 260,
+          "actualMm": 260,
+          "residualMm": 0
+        },
+        {
+          "name": "headHeight",
+          "targetMm": 280,
+          "actualMm": 280,
+          "residualMm": 0
+        },
+        {
+          "name": "upperArmGirth-left",
+          "targetMm": 400,
+          "actualMm": 400.00000000000017,
+          "residualMm": 1.7053025658242404E-13
+        },
+        {
+          "name": "forearmGirth-left",
+          "targetMm": 310,
+          "actualMm": 310.00000000000006,
+          "residualMm": 5.684341886080802E-14
+        },
+        {
+          "name": "thighGirth-left",
+          "targetMm": 850,
+          "actualMm": 849.9999999999998,
+          "residualMm": -2.2737367544323206E-13
+        },
+        {
+          "name": "shinGirth-left",
+          "targetMm": 470,
+          "actualMm": 470.0000000000001,
+          "residualMm": 1.1368683772161603E-13
+        },
+        {
+          "name": "upperArmGirth-right",
+          "targetMm": 400,
+          "actualMm": 400.00000000000017,
+          "residualMm": 1.7053025658242404E-13
+        },
+        {
+          "name": "forearmGirth-right",
+          "targetMm": 310,
+          "actualMm": 310.00000000000006,
+          "residualMm": 5.684341886080802E-14
+        },
+        {
+          "name": "thighGirth-right",
+          "targetMm": 850,
+          "actualMm": 849.9999999999998,
+          "residualMm": -2.2737367544323206E-13
+        },
+        {
+          "name": "shinGirth-right",
+          "targetMm": 470,
+          "actualMm": 470.0000000000002,
+          "residualMm": 2.2737367544323206E-13
+        },
+        {
+          "name": "tailCenterlineLength",
+          "targetMm": 900,
+          "actualMm": 900,
+          "residualMm": 0
+        },
+        {
+          "name": "height",
+          "targetMm": 1800,
+          "actualMm": 1800,
+          "residualMm": 0
+        }
+      ],
+      "warnings": [
+        "ASSEMBLED_DIMENSIONS_REQUIRE_REVIEW",
+        "MANUFACTURING_TRIAL_REQUIRED"
+      ]
+    }
+  },
+  "points": [
+    {
+      "index": 0,
+      "world": {
+        "xMm": 319.0645860277797,
+        "yMm": 1257.4261724098478,
+        "zMm": 57.32083113400438
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 69.7862,
+        "yMm": -16.4246
+      }
+    },
+    {
+      "index": 1,
+      "world": {
+        "xMm": 326.97813455369635,
+        "yMm": 1265.3026135149476,
+        "zMm": 50.54308374221057
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 80.1913,
+        "yMm": -10.1443
+      }
+    },
+    {
+      "index": 2,
+      "world": {
+        "xMm": 324.15156334730074,
+        "yMm": 1272.6966219215124,
+        "zMm": 46.564273049070266
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 80.3783,
+        "yMm": -1.3696
+      }
+    },
+    {
+      "index": 3,
+      "world": {
+        "xMm": 326.39122052649145,
+        "yMm": 1280.8309296131802,
+        "zMm": 36.86906778611608
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 88.0667,
+        "yMm": 8.911
+      }
+    },
+    {
+      "index": 4,
+      "world": {
+        "xMm": 327.32904883497827,
+        "yMm": 1287.9089162070723,
+        "zMm": 26.405737880853525
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 95.192,
+        "yMm": 19.3224
+      }
+    },
+    {
+      "index": 5,
+      "world": {
+        "xMm": 325.8287912957252,
+        "yMm": 1290.3130499646147,
+        "zMm": 23.244404390392276
+      },
+      "expectedVisible": false,
+      "sourceNode": {
+        "xMm": 95.9314,
+        "yMm": 23.3851
+      }
+    },
+    {
+      "index": 6,
+      "world": {
+        "xMm": 325.46868643950893,
+        "yMm": 1292.6570882816238,
+        "zMm": 12.701671440896403
+      },
+      "expectedVisible": false,
+      "sourceNode": {
+        "xMm": 102.0766,
+        "yMm": 30.801
+      }
+    },
+    {
+      "index": 7,
+      "world": {
+        "xMm": 324.36412631497296,
+        "yMm": 1295.6615073949833,
+        "zMm": 0.23709062954320884
+      },
+      "expectedVisible": false,
+      "sourceNode": {
+        "xMm": 108.8041,
+        "yMm": 40.017
+      }
+    },
+    {
+      "index": 8,
+      "world": {
+        "xMm": 318.0272501478475,
+        "yMm": 1295.4642590267322,
+        "zMm": -11.601355667021751
+      },
+      "expectedVisible": false,
+      "sourceNode": {
+        "xMm": 111.0034,
+        "yMm": 48.6032
+      }
+    },
+    {
+      "index": 9,
+      "world": {
+        "xMm": 302.61308322598717,
+        "yMm": 1302.1261815405237,
+        "zMm": -5.316561557743447
+      },
+      "expectedVisible": false,
+      "sourceNode": {
+        "xMm": 94.9552,
+        "yMm": 56.5272
+      }
+    },
+    {
+      "index": 10,
+      "world": {
+        "xMm": 302.1637209016945,
+        "yMm": 1302.3285486509405,
+        "zMm": 5.096730293429374
+      },
+      "expectedVisible": false,
+      "sourceNode": {
+        "xMm": 88.2475,
+        "yMm": 51.4189
+      }
+    },
+    {
+      "index": 11,
+      "world": {
+        "xMm": 297.50778681096233,
+        "yMm": 1302.1635277616433,
+        "zMm": 13.549623768159545
+      },
+      "expectedVisible": false,
+      "sourceNode": {
+        "xMm": 79.4021,
+        "yMm": 48.7506
+      }
+    },
+    {
+      "index": 12,
+      "world": {
+        "xMm": 295.95179796961355,
+        "yMm": 1300.7597030696065,
+        "zMm": 22.5393063267586
+      },
+      "expectedVisible": false,
+      "sourceNode": {
+        "xMm": 72.6858,
+        "yMm": 43.6237
+      }
+    },
+    {
+      "index": 13,
+      "world": {
+        "xMm": 295.3529077602497,
+        "yMm": 1292.812277482449,
+        "zMm": 35.38116370242355
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 64.3783,
+        "yMm": 31.1795
+      }
+    },
+    {
+      "index": 14,
+      "world": {
+        "xMm": 295.60910499054506,
+        "yMm": 1289.1911344374698,
+        "zMm": 40.37208197688913
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 61.5371,
+        "yMm": 25.7462
+      }
+    },
+    {
+      "index": 15,
+      "world": {
+        "xMm": 297.830526873368,
+        "yMm": 1281.5947502343715,
+        "zMm": 47.09956222423813
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 59.194,
+        "yMm": 15.6265
+      }
+    },
+    {
+      "index": 16,
+      "world": {
+        "xMm": 300.0170055448243,
+        "yMm": 1269.4931050369137,
+        "zMm": 54.190037696360235
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 56.6018,
+        "yMm": 1.9441
+      }
+    },
+    {
+      "index": 17,
+      "world": {
+        "xMm": 308.1414264676807,
+        "yMm": 1257.5467248284485,
+        "zMm": 58.5654687990713
+      },
+      "expectedVisible": true,
+      "sourceNode": {
+        "xMm": 60.3711,
+        "yMm": -12.5911
+      }
+    }
+  ]
+}

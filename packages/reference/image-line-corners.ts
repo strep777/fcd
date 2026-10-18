@@ -36,18 +36,20 @@ export function compareSourceTips(a:Candidate,b:Candidate){
  if(!cleanA){const difference=(a.flankExtrapolationError??Infinity)-(b.flankExtrapolationError??Infinity);if(Number.isFinite(difference)&&difference!==0)return difference;}
  return a.error-b.error;
 }
-export function inferTips(vertices:P[],closed:boolean,width:number,height:number,rgba:Uint8Array){
+export function inferTips(vertices:P[],closed:boolean,width:number,height:number,rgba:Uint8Array,observation:{proposalRange?:number;quantizationError?:number}={}){
  // Validate before allocating a geometry key. Node identifiers belong to the
  // caller; the pixel measurement and cached result contain coordinates only.
  if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width*height>4096*4096||rgba.length!==width*height*4)throw Error('IMAGE_LIMIT');
  if(vertices.length<8||vertices.length>512||vertices.some(p=>!Number.isFinite(p.xMm)||!Number.isFinite(p.yMm)||p.xMm<0||p.xMm>width||p.yMm<0||p.yMm>height))return{source:[] as P[],candidates:[] as Candidate[],rejects:[] as Rejection[]};
+ const proposalRange=observation.proposalRange??1.5,quantizationError=observation.quantizationError??0;
+ if(!Number.isFinite(proposalRange)||proposalRange<1.5||proposalRange>4||!Number.isFinite(quantizationError)||quantizationError<0||quantizationError>2)throw Error('IMAGE_LIMIT');
  const points=vertices.map(p=>({xMm:p.xMm,yMm:p.yMm}));
- const key=JSON.stringify([width,height,closed,points.map(p=>[Object.is(p.xMm,-0)?'-0':p.xMm,Object.is(p.yMm,-0)?'-0':p.yMm])]);
- const measured=cachedMeasurement(rgba,key,observe=>measureTips(points,closed,width,height,rgba,observe));
+ const key=JSON.stringify([width,height,closed,proposalRange,quantizationError,points.map(p=>[Object.is(p.xMm,-0)?'-0':p.xMm,Object.is(p.yMm,-0)?'-0':p.yMm])]);
+ const measured=cachedMeasurement(rgba,key,observe=>measureTips(points,closed,width,height,rgba,observe,proposalRange,quantizationError));
  if(!closed&&measured.source.length)measured.source[measured.source.length-1]={...vertices.at(-1)!};
  return measured;
 }
-function measureTips(vertices:P[],closed:boolean,width:number,height:number,rgba:Uint8Array,observe:(pixelIndex:number)=>void){
+function measureTips(vertices:P[],closed:boolean,width:number,height:number,rgba:Uint8Array,observe:(pixelIndex:number)=>void,proposalRange:number,quantizationError:number){
  if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width*height>4096*4096||rgba.length!==width*height*4)throw Error('IMAGE_LIMIT');
  const empty=()=>({source:[] as P[],candidates:[] as Candidate[],rejects:[] as Rejection[]});if(vertices.length<8||vertices.length>512||vertices.some(p=>!Number.isFinite(p.xMm)||!Number.isFinite(p.yMm)||p.xMm<0||p.xMm>width||p.yMm<0||p.yMm>height))return empty();
  const source:P[]=[];for(let i=0;i<vertices.length-(closed?0:1);i++){const a=vertices[i],b=vertices[(i+1)%vertices.length],n=Math.max(1,Math.ceil(dist(a,b)-1e-8));if(source.length+n>1536)return empty();for(let j=0;j<n;j++)source.push({xMm:a.xMm+(b.xMm-a.xMm)*j/n,yMm:a.yMm+(b.yMm-a.yMm)*j/n});}if(!closed)source.push(vertices.at(-1)!);
@@ -105,7 +107,7 @@ function measureTips(vertices:P[],closed:boolean,width:number,height:number,rgba
  };
  for(let i=closed?0:26;i<source.length-(closed?0:26);i+=2){
   const left=Array.from({length:15},(_,j)=>at(i-j-8)),right=Array.from({length:15},(_,j)=>at(i+j+8)),l=line(left),r=line(right);
-  if(l.max>1.5||r.max>1.5){rejects.push({i,p:at(i),gate:'raw-line',l:l.max,r:r.max});continue;}const det=l.n.xMm*r.n.yMm-l.n.yMm*r.n.xMm;if(Math.abs(det)<.2){rejects.push({i,p:at(i),gate:'parallel',det});continue;}
+  if(l.max>proposalRange||r.max>proposalRange){rejects.push({i,p:at(i),gate:'raw-line',l:l.max,r:r.max});continue;}const det=l.n.xMm*r.n.yMm-l.n.yMm*r.n.xMm;if(Math.abs(det)<.2){rejects.push({i,p:at(i),gate:'parallel',det});continue;}
   let measuredLeft=measure(left,l),measuredRight=measure(right,r);if(measuredLeft&&Math.abs(dot(measuredLeft.n,l.n))<.995)measuredLeft=undefined;if(measuredRight&&Math.abs(dot(measuredRight.n,r.n))<.995)measuredRight=undefined;
   let ml=measuredLeft??{...l,points:left,sigma:measuredRight?.sigma??2},mr=measuredRight??{...r,points:right,sigma:measuredLeft?.sigma??2};
   const determinant=ml.n.xMm*mr.n.yMm-ml.n.yMm*mr.n.xMm;if(Math.abs(determinant)<.2){rejects.push({i,p:at(i),gate:'measured-parallel',determinant});continue;}
@@ -222,7 +224,13 @@ function measureTips(vertices:P[],closed:boolean,width:number,height:number,rgba
    return spread>0?flank.error**2*(1/flank.points.length+extrapolation**2/spread):Infinity;
   };
   const flankExtrapolationError=flankIntersection?Math.sqrt(supportVariance(ml)+supportVariance(mr))/Math.abs(ml.n.xMm*mr.n.yMm-ml.n.yMm*mr.n.xMm):undefined;
-  all.push({flankExtrapolationError,radius:capRadius,alternatives,i,point:at(i),tip:{xMm:q.xMm+params[0],yMm:q.yMm+params[1]},left:ml,right:mr,n1:normal(n1,params[2]),n2:normal(n2,params[3]),sigma:sigma+params[4],initialError,params,...score,accepted:supported&&score.contrast>30&&!alternatives.some(v=>v.error<score.error*.9&&v.params[5]/(v.kind===2?2:1)>1)});
+  // A bounded byte error can explain a small residual, but it cannot prove
+  // that a visibly better rounded/flat model is sharp. Compare squared
+  // residual energy after accounting for one observation's error bound;
+  // the two hypotheses are fitted to the same pixels, not two independent
+  // measurements whose uncertainty should be added together.
+  const changedCap=alternatives.some(v=>v.error<score.error*.9&&(score.error**2-v.error**2)*observedContrast**2>3*quantizationError**2&&v.params[5]/(v.kind===2?2:1)>1);
+  all.push({flankExtrapolationError,radius:capRadius,alternatives,i,point:at(i),tip:{xMm:q.xMm+params[0],yMm:q.yMm+params[1]},left:ml,right:mr,n1:normal(n1,params[2]),n2:normal(n2,params[3]),sigma:sigma+params[4],initialError,params,...score,accepted:supported&&score.contrast>30&&!changedCap});
  }
  const additional=curvedSourceCusps(source,closed,width,height,rgba,observe).filter(c=>!all.some(v=>v.accepted&&dist(v.tip,c.tip)<12));return{source,candidates:[...all,...additional],rejects};
 }

@@ -8,7 +8,7 @@ The desktop defaults to the `design` partition strategy. Material boundaries and
 2. Use a common clipping-grid origin for related barycentric operations. Verify each color union against its mutually exclusive visible layers, the occupied union against the independent sum of colors, and the colored-plus-base area against the original triangle. A failed face can retry the complete Boolean pipeline on another grid only within a 1e-6 mm displacement budget. Ordinary UV operations retain their local origin so large translated patterns still have usable numerical precision.
 3. Conform the material contours before triangulation, sharing stations on original model edges and internal material interfaces. Reinsert stations omitted by tessellation, and retain the original face and barycentric coordinates of every resulting triangle. Check material area and complete original-face coverage. Only floating-point-zero triangles may be omitted; a genuinely positive tiny material domain remains subject to the native geometry limits.
 4. Open saved user seams and necessary topology cuts. Planar dangling slits are extended to the outer boundary along existing mesh edges; a hole is not treated as an outer boundary. Existing complete cuts are not extended again.
-5. Unwrap each connected domain. Try measured curvature darts and balanced ARAP before introducing independent panels. Further partitions are justified by failed topology, distortion, or manufacturing checks. Cache complete solved component decompositions so a manufacturing repair does not solve unaffected components again.
+5. Unwrap each connected domain. Try measured curvature darts and balanced ARAP before introducing independent panels. Further partitions are justified by failed topology, distortion, or manufacturing checks. Continuous sections can cross triangle interiors; their shared attempt budget scales with the initial input size, bounded between 32 and 256, so early domains do not exhaust a fixed small budget before the legs. Manufacturing repair retains unchanged solved charts. Rejected chart unions can be reused across repair passes only while their face, vertex-coordinate and material-region identity remains unchanged.
 6. Validate actual manufacturing outlines and allowances. Store the resulting cuts with exact original-model provenance, geometry hashes, and separate reasons for additional seams. Confirming the candidate creates the cutting-library archive.
 
 ## Acceptance constraints
@@ -29,6 +29,22 @@ The design-cut task has a ten-minute deadline. Individual solver deadlines, memo
 
 ## Assembly and editing
 
+New surface-anchored pen and brush paths store world-space control points. Consecutive points follow a connected surface section through the anchors and their local normals; triangle intersections become barycentric cuts. Camera changes do not reproject these paths. Legacy lines without `surfaceAnchored` retain their original planar projection. A disconnected or ambiguous section fails instead of jumping to an unrelated sheet.
+
+Completed brush strokes fit their outer boundary to bounded cubic controls; holes remain exact and fitting is rejected near narrow hole bridges or invalid topology. Raw pointer samples are transient. Surface paint fitting reserves a 0.25 mm per-edit budget for contour approximation; freehand cut-line reduction uses a 0.5 mm world-space tolerance, independent of viewport zoom. The cutting workspace exposes area paint separately from freehand sewing lines.
+
+Opening a saved surface-painted polygon in the node editor prepares the same bounded compact contour as a draft. After cut acceptance or restoration, the editor follows the archive marking ID and source fingerprint to identify the original paint, including repeated archives. Missing, cyclic or mismatched provenance keeps the original contour. Cancellation preserves the saved polygon and its dependencies; confirmation uses the existing marking edit transaction. Existing cubic and spline contours are not fitted again, and reference-sourced markings retain their source editing path.
+
+Attached markings support `Ctrl+T` resize and rotation handles with synchronized numeric fields. `Enter` commits the edit and `Esc` discards the draft. A symmetric brush stroke saves and undoes both sides in one transaction; correspondence failures still require review.
+
+When editing an attached contour, node handles are displayed only where the current camera can see their surface positions. Occluded nodes retain their geometry and original indices; rotating the camera can reveal them. Hiding a handle never removes a node or changes the saved contour. New drawing-plane drafts retain their existing controls.
+
+Before accepting an unwrap candidate, the workspace displays actual UV-island boundaries on the original model at 50% opacity. Fractional material boundaries use trim barycentric provenance. Saved seams, section previews and candidate seams are clipped against the opaque model, including partial occlusion and perspective depth crossings, so back seams do not show through front surfaces. This preview does not commit the candidate or bypass its existing input-hash and review checks.
+
+Trimmed piece colors use the same exact barycentric fragments in GPU and Canvas previews. A partial binding never paints its whole original triangle. Mapping drafts show the current marking fragments without old trimmed material underneath; stale or inactive bindings also cannot supply selected-piece overlays. The model view supports zoom up to 3200% for small contour edits without changing physical dimensions.
+
+The cutting workspace's 2D preview focuses on a selected piece and retains all pieces in the picker. Selecting all pieces restores the overview and its combined dimensions. Screen outline width remains readable when zoomed out; these display changes do not alter geometry, millimetre dimensions or export scale.
+
 The separate assembly tab reconstructs the actual stored cut triangles. Missing or stale pieces leave real gaps. It validates model, marking and piece geometry before displaying the result; it does not substitute the original full model for missing cuts. It reconstructs saved geometry, not cloth tension or sewing deformation.
 
 The manufacturing overview lays out all selected outlines for the screen independently of actual-size print pagination. Pan and drag coalesce pointer movement into frame updates; a completed edit creates one undoable transaction.
@@ -36,3 +52,18 @@ The manufacturing overview lays out all selected outlines for the screen indepen
 ## Regression coverage
 
 Focused fixtures cover a tessellation-independent four-panel diamond, explicit seams, a developable cylinder, curvature darts, planar holes and dangling slits, occluded color layers, touching colors, tiny material islands, numerical retraces, full original-face coverage, archive restoration, and stale or missing assembly pieces. Runtime results are written to test-results/.
+
+As of 2026-10-18, focused component tests and a rebuilt hidden-desktop check pass for 2D selection focus, readable outlines and zoom-independent dimensions. The desktop check also measures every displayed outline against the SVG and its clipping ancestors in compact, expanded and refitted views.
+
+A real saved project with 98 source entries and one attached marking passed candidate calculation, confirmation, archive creation and independent export/import restoration after three user seams were saved. Its original 8,534 faces became 8,802 faces during seam insertion; the latest desktop candidate contains 168 pieces, including one yellow material piece and three mapped marking paths. Calculation took about 327 seconds. Independent checks found no missing original faces or strict barycentric range violations, and preserved the yellow area. Earlier failed builds and isolated inputs remain in the test artifacts.
+
+The larger continuous-section budget substantially reduces leg zigzags, and depth clipping removes back seams from front views. Local angular seams remain near the crotch, inner thighs and ankles; hands and feet still have dense boundaries. Passing area, distortion and coverage checks does not establish natural seam placement, success on every model, a minimum panel count or suitability for physical sewing. Candidates still require inspection and can be recomputed after adding deliberate sewing lines.
+
+For a short visual check after rebuilding, reuse an already accepted project in an isolated `.local/tests/` directory:
+
+```powershell
+$env:FPCAD_INSPECT_DATA_DIR = '<absolute path to the existing isolated test project>'
+node scripts/test-desktop.mjs --jobs 1 current-cutting-visual-inspect
+```
+
+This hidden-window check reads saved cut geometry without recomputing the model. It checks the overview, a colored piece, outline visibility and unchanged millimetre dimensions while zooming, then writes screenshots and a report under `test-results/current-cutting/`. It requires an isolated test directory and does not use the user workspace as test storage.

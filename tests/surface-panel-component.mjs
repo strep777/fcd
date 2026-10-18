@@ -52,12 +52,13 @@ await build({stdin:{contents:"export {default as SurfacePanel} from './apps/desk
  const {descriptor}=parse(await readFile(path,'utf8'));return {contents:compileScript(descriptor,{id:'component',inlineTemplate:true,templateOptions:{compilerOptions:{hoistStatic:false}}}).content,loader:'ts',resolveDir:dirname(path)};
 });}}]});
 const {SurfacePanel,useSession,createPinia}=await import(pathToFileURL(file).href);
+let mappingControls;
 const renderer=createRenderer({
  createElement:tag=>tag==='canvas'?new HostCanvas():new HostNode(tag),createText:text=>{const n=new HostNode('#text');n.textContent=text;return n;},createComment:text=>{const n=new HostNode('#comment');n.textContent=text;return n;},
  setText:(n,text)=>{n.textContent=text;},setElementText:(n,text)=>{n.textContent=text;},parentNode:n=>n.parentNode,nextSibling:n=>n.parentNode?.children[n.parentNode.children.indexOf(n)+1]??null,
  insert(n,parent,anchor){if(n.parentNode){const i=n.parentNode.children.indexOf(n);if(i>=0)n.parentNode.children.splice(i,1);}const i=anchor?parent.children.indexOf(anchor):-1;parent.children.splice(i<0?parent.children.length:i,0,n);n.parentNode=parent;},
  remove(n){if(n.parentNode){const i=n.parentNode.children.indexOf(n);if(i>=0)n.parentNode.children.splice(i,1);n.parentNode=null;}},
- patchProp(n,key,previous,value){n.attrs[key]=value;if(key==='value'){n.value=value;n._value=value;}if(key==='type')n.type=value;if(key==='checked')n.checked=value;}
+ patchProp(n,key,previous,value){n.attrs[key]=value;if(key==='value'){n.value=value;n._value=value;}if(key==='type')n.type=value;if(key==='checked')n.checked=value;},querySelector:selector=>selector==='#mapping-surface-controls'?mappingControls:null
 });
 function walk(node){return [node,...node.children.flatMap(walk)];}
 async function flush(){await nextTick();await Promise.resolve();await nextTick();}
@@ -69,6 +70,7 @@ function project(curved=false,existing=false){
 }
 async function mount(p){
  const pinia=createPinia(),store=useSession(pinia),root=new HostNode('root'),calls=[];
+ mappingControls=new HostNode('aside');mappingControls.parentNode=root;root.children.push(mappingControls);
  store.data={project:p,geometry:[],canUndo:false,canRedo:false,savedRevision:null,history:[],recovery:[],recent:[],jobs:[]};
  const reply=()=>({ok:true,data:{...JSON.parse(JSON.stringify(store.data)),project:{...JSON.parse(JSON.stringify(store.data.project)),revision:store.data.project.revision+1}}});
  window.fpcad={brushSurfaceMarking:async(...args)=>{calls.push({method:'brush',args});return reply();},editSurfaceMarking:async(...args)=>{calls.push({method:'edit',args});return reply();}};

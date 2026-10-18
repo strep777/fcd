@@ -204,6 +204,19 @@ function recoverNetwork(originals:Piece[],pixelMm:number,createId:()=>string,ima
   const failed=pieces.findIndex((p,i)=>!valid(p,i));if(failed<0)break;
   const measured=chains.filter(c=>c.owners.has(failed)&&c.raster);
   if(measured.length){
+   // The observed boundary remains the geometric source even when its
+   // compact curve misses the validation tube. Try its exact samples before
+   // revoking image evidence. Otherwise two unrelated imperfect curves can
+   // cause every correctly recovered corner of this owner to be discarded.
+   const exact=measured.filter(c=>c.sourceBoundary&&c.sourceBoundary.length>=2&&c.sourceBoundary.length<=2000&&c.nodes!==c.sourceBoundary);
+   const validOwners=pieces.flatMap((p,i)=>valid(p,i)?[i]:[]);
+   const originalFits=exact.map(c=>({c,nodes:c.nodes,curves:c.curves,holeFit:c.holeFit}));
+   if(exact.length){
+    for(const c of exact){c.nodes=c.sourceBoundary!;c.curves=[];c.holeFit=undefined;}
+    const candidate=assemble();
+    if(valid(candidate[failed],failed)&&validOwners.every(owner=>valid(candidate[owner],owner))&&!crossingChains().size){pieces=candidate;continue;}
+    for(const before of originalFits)Object.assign(before.c,{nodes:before.nodes,curves:before.curves,holeFit:before.holeFit});
+   }
    // A failed owner can contain many independent measured boundaries. Try a
    // bounded single-chain rollback before discarding all of that evidence.
    const sorted=[...measured].sort((a,b)=>a.raw.length-b.raw.length),trials=[...new Set([...sorted.slice(0,8),...sorted.slice(-8).reverse()])];

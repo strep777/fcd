@@ -11,7 +11,7 @@ function portion(s:Segment,start:number,end:number,id:()=>string):Segment{
 /** Replace only a source-certified corner interval. Every curve outside the
  * interval is retained exactly (cubic subsegments use exact endpoint derivatives).
  * In particular, discovering a sharp corner never refits another round end. */
-export function spliceSourceTips(base:{nodes:P[];curves:C[]},closed:boolean,windows:{from:P;to:P;tip:P;through?:P[]}[],id:()=>string){
+export function spliceSourceTips(base:{nodes:P[];curves:C[]},closed:boolean,windows:{from:P;to:P;tip:P;through?:P[]}[],id:()=>string,compactStations=false,sourcePoints:P[]=[]){
  const finite=(p:P)=>!!p&&Number.isFinite(p.xMm)&&Number.isFinite(p.yMm);let tips=0;
  if(!Array.isArray(base.nodes)||!Array.isArray(base.curves)||!Array.isArray(windows)||base.nodes.length<(closed?3:2)||base.nodes.length>2048||base.curves.length>512||windows.length>64||base.nodes.some(p=>!finite(p))||base.curves.some(c=>!c||!finite(c.c1)||!finite(c.c2))||windows.some(w=>!w||!finite(w.from)||!finite(w.to)||!finite(w.tip)||w.through!==undefined&&!Array.isArray(w.through)||(tips+=1+(w.through?.length??0))>64||w.through?.some(p=>!finite(p))))return;
  const segments:Segment[]=base.nodes.slice(0,closed?undefined:-1).map((a,i)=>{const b=base.nodes[(i+1)%base.nodes.length];return{a,b,c:base.curves.find(c=>c.startNodeId===a.id&&c.endNodeId===b.id)};}),count=segments.length;
@@ -41,6 +41,21 @@ export function spliceSourceTips(base:{nodes:P[];curves:C[]},closed:boolean,wind
  // Adjacent exact subsegments share one node identity, including the cycle seam.
  for(let i=1;i<output.length;i++){if(distance(output[i-1].b,output[i].a)>1e-6)return;output[i].a=output[i-1].b;}
  if(closed){if(distance(output.at(-1)!.b,output[0].a)>1e-6)return;output.at(-1)!.b=output[0].a;}
+ // A splice station is an implementation detail, not an observed corner.
+ // Remove a straight connector station only within half a native pixel;
+ // preserve all source vertices, inferred tips and every cubic exactly.
+ const protectedIds=new Set([...base.nodes,...windows.flatMap(w=>[w.tip,...w.through??[]])].map(p=>p.id));
+ let reduced=compactStations;while(reduced&&output.length>(closed?3:1)){reduced=false;for(let i=closed?0:1;i<output.length;i++){
+  const previous=(i+output.length-1)%output.length,a=output[previous],b=output[i];if(a.c||b.c||protectedIds.has(b.a.id))continue;
+  const dx=b.b.xMm-a.a.xMm,dy=b.b.yMm-a.a.yMm,length=dx*dx+dy*dy,t=length?((b.a.xMm-a.a.xMm)*dx+(b.a.yMm-a.a.yMm)*dy)/length:-1;
+  if(t<0||t>1||Math.hypot(b.a.xMm-a.a.xMm-t*dx,b.a.yMm-a.a.yMm-t*dy)>.5)continue;
+  // Removing a connector must not push an already represented source pixel
+  // outside its native-pixel corridor. Check both old legs independently;
+  // a distant inferred tip cannot mask a local increase of source error.
+  const segmentDistance=(p:P,u:P,v:P)=>{const x=v.xMm-u.xMm,y=v.yMm-u.yMm,length=x*x+y*y,t=length?Math.max(0,Math.min(1,((p.xMm-u.xMm)*x+(p.yMm-u.yMm)*y)/length)):0;return Math.hypot(p.xMm-u.xMm-t*x,p.yMm-u.yMm-t*y);};
+  if(sourcePoints.some(p=>{const before=Math.min(segmentDistance(p,a.a,b.a),segmentDistance(p,b.a,b.b));return before<=1.05&&segmentDistance(p,a.a,b.b)>Math.max(1,before+.025);}))continue;
+  a.b=b.b;output.splice(i,1);reduced=true;break;
+ }}
  const nodes=output.map(s=>s.a);if(!closed)nodes.push(output.at(-1)!.b);
  return{nodes,curves:output.filter(s=>s.c).map(s=>({...s.c!,startNodeId:s.a.id,endNodeId:s.b.id}))};
 }

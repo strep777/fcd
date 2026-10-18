@@ -3,7 +3,7 @@ import {MESH_FACES,MESH_VERTICES} from './limits';
 export type Bary=[number,number,number];
 export type FaceCut={faceId:string;a:Bary;b:Bary;owner:string};
 export type Child={face:Surface['faces'][number];triangle:[number,number][]};
-export const edgeKey=(a:string,b:string)=>[a,b].sort().join(':');
+export const edgeKey=(a:string,b:string)=>a<b?a+':'+b:b+':'+a;
 const cross=(a:number[],b:number[])=>a[0]*b[1]-a[1]*b[0];
 /** Test an edge in the original barycentric plane. Dividing by a skinny
  * child triangle's area amplifies harmless roundoff into a false interior
@@ -12,7 +12,7 @@ const onEdge=(p:number[],a:number[],b:number[])=>{const d=[b[0]-a[0],b[1]-a[1]],
 const weights=(p:number[],t:number[][]):Bary=>{const a=t[0],b=t[1],c=t[2],d=cross([b[0]-a[0],b[1]-a[1]],[c[0]-a[0],c[1]-a[1]]),v=cross([p[0]-a[0],p[1]-a[1]],[c[0]-a[0],c[1]-a[1]])/d,w=cross([b[0]-a[0],b[1]-a[1]],[p[0]-a[0],p[1]-a[1]])/d;return [1-v-w,v,w];};
 /** Insert constrained straight segments into triangles in their original barycentric plane.
  * Shared-edge intersections get one identity, so adjacent triangles remain watertight. */
-export function refineSurface(previous:Surface,cuts:FaceCut[],newId=()=>crypto.randomUUID()){
+export function refineSurface(previous:Surface,cuts:FaceCut[],newId:()=>string=()=>crypto.randomUUID()){
  if(cuts.length>100000)throw Error('RESOURCE_LIMIT');
  const byFace=new Map<string,FaceCut[]>();for(const c of cuts)byFace.set(c.faceId,[...(byFace.get(c.faceId)??[]),c]);
  const vertices=new Map(previous.vertices.map(v=>[v.id,v])),faces=new Map(previous.faces.map(f=>[f.id,f])),children=new Map<string,Child[]>(),created=new Map<string,string>(),edgePoints=new Map<string,{t:number;id:string}[]>(),splitEdges=new Map<string,Set<string>>(),owned=new Map<string,{a:string;b:string}[]>();

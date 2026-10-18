@@ -42,7 +42,7 @@ await check('heatmap isolates distortion from selected trims, paint and textures
  const f=await mount(p,{mode:'cutting',controls:false});try{
   f.props.selectedId=id('candidate');await flush();capture().onUnavailable();await flush();
   const before=JSON.stringify(f.store.data.project),display=capture();assert(display.surface,'normal canvas receives the original texture source');assert(display.lighting);
-  assert.deepEqual(display.markings.get(id('lower')).map(m=>m.color),['#2288cc','#e89935']);
+  assert.deepEqual(display.markings.get(id('lower')).map(m=>m.color),['#2299cc','#2288cc','#e89935'],'exact trim material, current paint and selected trim are separate overlays');
   const label=walk(f.root).find(n=>n.tag==='label'&&n.textContent==='Face distortion heatmap'),toggle=walk(label).find(n=>n.tag==='input');
   toggle.checked=true;toggle.dispatchEvent({type:'change'});await flush();
   for(const metric of ['distortion','areaError','edgeError','angleError']){
@@ -60,7 +60,7 @@ await check('parent camera orbit reuses GPU marking input while real material an
  const p=project();p.markings=[{id:id('orbit-paint'),name:'Orbit paint',color:'#2288cc',source:'surface',sourceHash:'',surfaceHash:'',surfaceId:id('surface'),topologyVersion:1,view:'front',offsetXmm:0,offsetYmm:0,paths:[],fragments:[{faceId:id('lower'),rings:[p.surfaceRun.bindings[0].trim.triangles[0].barycentric]}]}];
  const f=await mount(p,{mode:'cutting',controls:false});try{
   await f.click(f.button('Front'));f.props.selectedId=id('candidate');await flush();
-  const original=JSON.stringify(f.store.data.project),originalGeometry=JSON.stringify({surface:f.store.data.project.surface,pieces:f.store.data.project.pieces,bindings:f.store.data.project.bindings,surfaceRun:f.store.data.project.surfaceRun}),materials=capture().markings,camera={...capture().camera};assert.equal(materials.length,2);
+  const original=JSON.stringify(f.store.data.project),originalGeometry=JSON.stringify({surface:f.store.data.project.surface,pieces:f.store.data.project.pieces,bindings:f.store.data.project.bindings,surfaceRun:f.store.data.project.surfaceRun}),materials=capture().markings,camera={...capture().camera};assert.equal(materials.length,3);assert(materials.some(m=>m.id==='trim-material-'+id('candidate')));
   gpuMaterialAudit.orbitFrames=[];await f.event('onPointerdown',360,270,{button:1});
   for(let step=1;step<=5;step++){
    await f.event('onPointermove',360+step*12,270+step*4,{button:1});
@@ -73,7 +73,7 @@ await check('parent camera orbit reuses GPU marking input while real material an
   const label=walk(f.root).find(n=>n.tag==='label'&&n.textContent==='Face distortion heatmap'),toggle=walk(label).find(n=>n.tag==='input');
   toggle.checked=true;toggle.dispatchEvent({type:'change'});await flush();assert.equal(capture().markings.size,0,'Heatmap canvas must receive no material overlays');assert.equal(capture().lighting,false);
   toggle.checked=false;toggle.dispatchEvent({type:'change'});await flush();assert.strictEqual(capture().markings,materials,'Leaving the heatmap restores the same unchanged GPU material input');gpuMaterialAudit.heatmapRestoresMaterialReference=true;
-  f.props.selectedId='';await flush();const unselected=capture().markings;assert.notStrictEqual(unselected,materials);assert.equal(unselected.length,1);assert(!unselected.some(m=>m.id==='selected-cut'));
+  f.props.selectedId='';await flush();const unselected=capture().markings;assert.notStrictEqual(unselected,materials);assert.equal(unselected.length,2);assert(unselected.some(m=>m.id==='trim-material-'+id('candidate')));assert(!unselected.some(m=>m.id==='selected-cut'));
   f.props.selectedId=id('candidate');await flush();const selected=capture().markings;assert.notStrictEqual(selected,unselected);assert(selected.some(m=>m.id==='selected-cut'));gpuMaterialAudit.selectionRefreshesOverlay=true;
   assert.equal(JSON.stringify(f.store.data.project),original,'Camera, heatmap and cut selection must not change persistent project state');
   f.store.data.project.markings=[{...f.store.data.project.markings[0],color:'#dd5522'}];await flush();const repainted=capture().markings;assert.notStrictEqual(repainted,selected);assert.equal(repainted.find(m=>m.id===id('orbit-paint')).color,'#dd5522');assert(repainted.some(m=>m.id==='selected-cut'));gpuMaterialAudit.materialReplacementRefreshesInput=true;
@@ -83,12 +83,12 @@ await check('parent camera orbit reuses GPU marking input while real material an
  }finally{f.app.unmount();}
 });
 await check('empty parent GPU material input stays stable through orbit and heatmap, then refreshes for the first paint',async()=>{
- const p=project(),f=await mount(p,{mode:'cutting',controls:false});try{
+ const p=project(),paintTriangle=p.surfaceRun.bindings[0].trim.triangles[0].barycentric;p.surfaceRun=undefined;p.pieces=[];p.bindings=[];const f=await mount(p,{mode:'cutting',controls:false});try{
   await f.click(f.button('Front'));const empty=capture().markings;assert.equal(empty.length,0);
   await f.event('onPointerdown',360,270,{button:1});await f.event('onPointermove',400,285,{button:1});await f.event('onPointerup',400,285,{button:1});assert.strictEqual(capture().markings,empty,'A model without paint or cut selection must also reuse its empty GPU input');
   const label=walk(f.root).find(n=>n.tag==='label'&&n.textContent==='Face distortion heatmap'),toggle=walk(label).find(n=>n.tag==='input');toggle.checked=true;toggle.dispatchEvent({type:'change'});await flush();assert.equal(capture().markings.size,0);
   toggle.checked=false;toggle.dispatchEvent({type:'change'});await flush();assert.strictEqual(capture().markings,empty);
-  f.store.data.project.markings=[{id:id('first-paint'),name:'First paint',color:'#2288cc',source:'surface',sourceHash:'',surfaceHash:'',surfaceId:id('surface'),topologyVersion:1,view:'front',offsetXmm:0,offsetYmm:0,paths:[],fragments:[{faceId:id('lower'),rings:[p.surfaceRun.bindings[0].trim.triangles[0].barycentric]}]}];await flush();assert.notStrictEqual(capture().markings,empty);assert.equal(capture().markings.length,1);assert.equal(capture().markings[0].id,id('first-paint'));assert.equal(f.calls.length,0);assert.equal(f.store.data.project.revision,1);gpuMaterialAudit.emptyInputStableAndFirstPaintRefreshes=true;
+  f.store.data.project.markings=[{id:id('first-paint'),name:'First paint',color:'#2288cc',source:'surface',sourceHash:'',surfaceHash:'',surfaceId:id('surface'),topologyVersion:1,view:'front',offsetXmm:0,offsetYmm:0,paths:[],fragments:[{faceId:id('lower'),rings:[paintTriangle]}]}];await flush();assert.notStrictEqual(capture().markings,empty);assert.equal(capture().markings.length,1);assert.equal(capture().markings[0].id,id('first-paint'));assert.equal(f.calls.length,0);assert.equal(f.store.data.project.revision,1);gpuMaterialAudit.emptyInputStableAndFirstPaintRefreshes=true;
  }finally{f.app.unmount();}
 });
 const passed=checks.every(c=>c.passed);await writeFile('test-results/cut-selection-component.json',JSON.stringify({passed,verification:'Actual Vue candidate selection/render props; custom GPU host, not Electron pixels',checks,gpuMaterialAudit},null,2));console.log(JSON.stringify({passed,checks,gpuMaterialAudit}));if(!passed)process.exitCode=1;

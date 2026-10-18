@@ -76,15 +76,15 @@ async function mount(Component,props={}){
 const checks=[];
 for(const cm of [0,10,2.5]){
  const f=await mount(UnwrapTools);try{
-  await f.model(f.byLabel('Cut seam allowance cm'),cm);await f.click(f.button('Cut and compute pattern candidate'));
+  await f.model(f.byLabel('Cut seam allowance cm'),cm);await f.click(f.button('Compute & preview cut lines'));
   assert.deepEqual(f.calls.map(c=>c.method),['apply','unwrap']);assert.deepEqual(f.calls[0].args,['project',1,{type:'project.allowance',widthMm:cm*10}]);assert.deepEqual(f.calls[1].args.slice(0,2),['project',2]);assert.equal(f.store.data.project.defaultAllowanceMm,cm*10);
   checks.push({case:`${cm} cm allowance is saved in mm before computing with the new revision`,passed:true});
  }finally{f.app.unmount();}
 }
 {
  const f=await mount(UnwrapTools);try{
-  for(const invalid of [-1,10.01,NaN]){await f.model(f.byLabel('Cut seam allowance cm'),invalid);assert(f.button('Cut and compute pattern candidate').attrs.disabled);assert(f.button('Apply allowance').attrs.disabled);}
-  assert.equal(f.calls.length,0);await f.model(f.byLabel('Cut seam allowance cm'),2);f.reject();await f.click(f.button('Cut and compute pattern candidate'));assert.deepEqual(f.calls.map(c=>c.method),['apply']);assert.equal(f.store.data.project.revision,1);assert.equal(f.store.data.project.defaultAllowanceMm,10);
+  for(const invalid of [-1,10.01,NaN]){await f.model(f.byLabel('Cut seam allowance cm'),invalid);assert(f.button('Compute & preview cut lines').attrs.disabled);assert(f.button('Apply allowance').attrs.disabled);}
+  assert.equal(f.calls.length,0);await f.model(f.byLabel('Cut seam allowance cm'),2);f.reject();await f.click(f.button('Compute & preview cut lines'));assert.deepEqual(f.calls.map(c=>c.method),['apply']);assert.equal(f.store.data.project.revision,1);assert.equal(f.store.data.project.defaultAllowanceMm,10);
   checks.push({case:'invalid values cannot compute; rejected allowance leaves project intact and does not unwrap',passed:true});
  }finally{f.app.unmount();}
 }
@@ -94,7 +94,7 @@ for(const cm of [0,10,2.5]){
   assert(!f.button('Accept patterns and save to library (undoable)').attrs.disabled);
   await f.model(f.byLabel('Cut seam allowance cm'),2);assert(f.button('Accept patterns and save to library (undoable)').attrs.disabled);
   await f.click(f.button('Apply allowance'));assert(f.button('Accept patterns and save to library (undoable)').attrs.disabled,'saving the new allowance does not validate the old candidate');
-  await f.click(f.button('Cut and compute pattern candidate'));assert(!f.button('Accept patterns and save to library (undoable)').attrs.disabled);
+  await f.click(f.button('Compute & preview cut lines'));assert(!f.button('Accept patterns and save to library (undoable)').attrs.disabled);
   checks.push({case:'an edited allowance requires recomputing before the visible candidate can be accepted',passed:true});
  }finally{f.app.unmount();}
 }

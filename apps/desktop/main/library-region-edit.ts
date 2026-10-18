@@ -3,6 +3,8 @@ import {libraryRegionEditSchema,pieceSchema,type Project,type LibraryRegionEdit,
 import {edgeArcPoints} from '../../../packages/pattern/edit';
 import {surfaceSpline} from '../../../packages/surface/spline';
 import {drawingIssue} from '../../../packages/surface/drawing';
+import {compactPaintContour} from '../../../packages/surface/paint-contour';
+import {contourPiece} from '../../../packages/surface/shape-contour';
 import {DomainError} from './repository';
 import {analyze} from './worker';
 import {area,positive,clip,projectMarking,type XY} from './markings';
@@ -77,7 +79,8 @@ export async function editLibraryRegion(worker:string,project:Project,pieceId:st
   const outers=rings.filter(r=>area(r)>0),holes=rings.filter(r=>area(r)<0);if(outers.length!==1)throw new DomainError('MARKING_DISCONNECTED');
   if(rings.some(r=>r.length>2000)||holes.length>32)throw new DomainError('RESOURCE_LIMIT');
   const nodes=(ring:XY[])=>ring.map(([xMm,yMm])=>({id:randomUUID(),xMm,yMm}));
-  piece=pieceSchema.parse({...piece,nodes:nodes(outers[0]),holes:holes.map(nodes),curves:[],notches:[],edgeAllowances:[]});await validate();
+  const painted={nodes:nodes(outers[0]),holes:holes.map(nodes)},compact=edit.operations.some(op=>op.kind!=='pen')?contourPiece(compactPaintContour(painted),randomUUID):painted;
+  piece=pieceSchema.parse({...piece,nodes:compact.nodes,holes:compact.holes,curves:'curves' in compact?compact.curves:[],notches:[],edgeAllowances:[]});await validate();
  }
  const region={...old,piece},proposed={...project,pieces:project.pieces.map(p=>p.id===pieceId?piece:p),patternLibrary:project.patternLibrary!.map(r=>r.piece.id===pieceId?region:r)},markings:NonNullable<Project['markings']>=[];
  const sources=affectedSources(project,pieceId);

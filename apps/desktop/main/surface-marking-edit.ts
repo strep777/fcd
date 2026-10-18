@@ -1,5 +1,6 @@
 import {markingSchema, surfaceBrushSchema, type Marking, type Project} from '../../../packages/schema/index';
 import {sampleShapeContour} from '../../../packages/surface/shape-contour';
+import {compactPaintContour} from '../../../packages/surface/paint-contour';
 import {brushFootprint} from '../../../packages/surface/brush-footprint';
 import {DomainError} from './repository';
 import {area, clip, positive, staleMarkingIds, surfaceMarking, type XY} from './markings';
@@ -37,7 +38,7 @@ export async function brushSurfaceMarking(worker:string,project:Project,id:strin
  if(!old){
   const outers=brush.filter(r=>area(r)>0),holes=brush.filter(r=>area(r)<0),paint=stroke.paint!;
   if(outers.length!==1||brush.some(r=>r.length>2000)||holes.length>32)throw new DomainError('PROJECTION_LIMIT');
-  const marking=await surfaceMarking(worker,project,{...paint.frame,nodes:outers[0].map(([xMm,yMm])=>({xMm,yMm})),holes:holes.map(r=>r.map(([xMm,yMm])=>({xMm,yMm})))},paint.color,paint.name);
+  const marking=await surfaceMarking(worker,project,compactPaintContour({...paint.frame,nodes:outers[0].map(([xMm,yMm])=>({xMm,yMm})),holes:holes.map(r=>r.map(([xMm,yMm])=>({xMm,yMm})))},.25),paint.color,paint.name);
   return project.bindings?.some(b=>b.trim)?mappedMarking(worker,project,marking):marking;
  }
  const outer=sampleShapeContour(shape!);
@@ -48,5 +49,7 @@ export async function brushSurfaceMarking(worker:string,project:Project,id:strin
  // Never silently discard an island produced by an erasing stroke.
  if(outers.length!==1)throw new DomainError('MARKING_DISCONNECTED');
  if(rings.some(r=>r.length>2000)||holes.length>32)throw new DomainError('PROJECTION_LIMIT');
- return editSurfaceMarking(worker,project,old.id,{...(shape!.regions?{regions:shape!.regions}:{}),...(shape!.anchorFaceId?{anchorFaceId:shape!.anchorFaceId}:{}),origin:shape!.origin,axes:shape!.axes,nodes:outers[0].map(([xMm,yMm])=>({xMm,yMm})),holes:holes.map(r=>r.map(([xMm,yMm])=>({xMm,yMm})))});
+ // Leave room for polygon sampling and successive edits; a half-millimetre
+ // fit on every stroke can visibly accumulate error along unchanged edges.
+ return editSurfaceMarking(worker,project,old.id,compactPaintContour({...(shape!.regions?{regions:shape!.regions}:{}),...(shape!.anchorFaceId?{anchorFaceId:shape!.anchorFaceId}:{}),origin:shape!.origin,axes:shape!.axes,nodes:outers[0].map(([xMm,yMm])=>({xMm,yMm})),holes:holes.map(r=>r.map(([xMm,yMm])=>({xMm,yMm})))},.25));
 }
