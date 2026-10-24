@@ -45,7 +45,11 @@ try{
  const created=await page.evaluate(()=>window.fpcad.create({name:'描线结构与阴影重提取回归',unit:'mm'}));assert(created.ok);
  await page.reload();await workflow(page,'references');
  await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},resolve('tests/fixtures/character-front-back.jpg'));
- for(const label of ['双视图布局','参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0,'Extraction uses fixed defaults without obsolete parameter controls');
+ assert.equal(await page.getByLabel('双视图布局',{exact:true}).inputValue(),'front-left');
+ for(const label of ['参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0,'Extraction uses fixed defaults without obsolete parameter controls');
+ // This measured artwork has its known front view on the right. Preserve the
+ // independent pixel witnesses below while exercising the explicit layout UI.
+ await page.getByLabel('双视图布局',{exact:true}).selectOption('front-right');
  await page.getByRole('button',{name:'上传双视图并自动拆分',exact:true}).click();
  await waitForState(page,async()=>{const s=await window.fpcad.read(),failure=document.querySelector('.error-banner')?.textContent?.trim();if(failure)throw Error('UI upload failed: '+failure);return s.ok&&s.data.project.references?.length===2&&(s.data.project.patternLibrary?.length??0)>0;},undefined,{timeout:120000});
  const imported=(await read()).project;assert.equal(imported.references.find(r=>r.view==='front').width,666);assert.equal(imported.references.find(r=>r.view==='back').width,609);

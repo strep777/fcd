@@ -8,8 +8,8 @@ import {contourPiece} from '../../../packages/surface/shape-contour';
 import {DomainError} from './repository';
 import {analyze} from './worker';
 import {area,positive,clip,projectMarking,type XY} from './markings';
-import {refreshSavedModelMarkings} from './model-markings';
-import {placementSources,contextRegion,placementAnatomies} from '../../../packages/reference/placement-registration';
+import {refreshMetadataSourceMarkings,refreshSavedModelMarkings} from './model-markings';
+import {placementSources,contextRegion} from '../../../packages/reference/placement-registration';
 
 /** Automatic registration shares a frame across all pigments in a body part. */
 function affectedSources(project:Project,pieceId:string){
@@ -27,9 +27,9 @@ export async function refreshLibraryRegionMetadata(worker:string,project:Project
  if(existing)editableLibraryRegion(project,id);
  editableLibraryRegion(proposed,id);
  const sources=new Set([...affectedSources(project,id),...affectedSources(proposed,id)]),markings:NonNullable<Project['markings']>=[];
- for(const previous of project.markings?.filter(m=>m.sourcePieceId&&sources.has(m.sourcePieceId))??[]){const source=proposed.patternLibrary?.find(r=>r.piece.id===previous.sourcePieceId),context=previous.placement&&source&&placementAnatomies(source).some(a=>a.part===previous.placement!.part&&a.side===previous.placement!.side)?previous.placement:undefined;const next=await projectMarking(worker,proposed,previous.sourcePieceId!,previous.view,previous.offsetXmm,previous.offsetYmm,false,!!previous.placement,context);markings.push({...next,id:previous.id,source:previous.source,editMode:previous.editMode});}
+ for(const sourceId of sources)markings.push(...await refreshMetadataSourceMarkings(worker,proposed,project,sourceId));
  let models=project.modelLibrary??[];
- for(const sourceId of sources)models=await refreshSavedModelMarkings(worker,{...proposed,modelLibrary:models},sourceId,false,true);
+ for(const sourceId of sources)models=await refreshSavedModelMarkings(worker,{...proposed,modelLibrary:models},sourceId,false,true,undefined,project);
  // Reprojection preserves manual source edits and resets placement review.
  models=models.map(model=>({...model,markings:model.markings?.map(m=>{const previous=project.modelLibrary?.find(v=>v.id===model.id)?.markings?.find(v=>v.id===m.id);return previous?{...m,source:previous.source,editMode:previous.editMode}:m;})}));
  return {region,markings,models};

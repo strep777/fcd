@@ -39,7 +39,8 @@ try{
  checks.push({name:'advanced real-image sources have native-valid geometry, calibrated image coordinates and independent cropped views',...advancedMetrics});
  await page.reload();await chooseProject(page);await page.locator('.region-card').first().waitFor();assert.equal(await page.locator('.mode-switch').count(),0);
  assert.equal(await page.locator('.region-card path').first().getAttribute('vector-effect'),'non-scaling-stroke');
- for(const label of ['双视图布局','参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0);
+ assert.equal(await page.getByLabel('双视图布局',{exact:true}).inputValue(),'front-left');
+ for(const label of ['参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0);
  // A valid 2 px wide image cannot contain two accepted view crops. Exercise
  // rejection through the real picker/button, instead of a removed parameter.
  const codec=upng.default??upng,narrowImage=resolve(directory,'too-narrow-dual.png');await writeFile(narrowImage,Buffer.from(codec.encode([new Uint8Array(2*2*4).fill(255).buffer],2,2,0)));
@@ -48,7 +49,7 @@ try{
  const inputFailure=page.locator('.error-banner');await inputFailure.waitFor();assert.match(await inputFailure.innerText(),/参考图限|IMAGE_LIMIT/);
  await page.waitForFunction(()=>!document.querySelector('.auto-reference button.primary')?.disabled);
  for(const name of ['上传双视图并自动拆分','按当前标定重新拆分'])assert(await page.getByRole('button',{name,exact:true}).isEnabled());
- assert.equal(await page.getByRole('button',{name:'交换正面 / 背面并重新拆分',exact:true}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'交换正背并重新拆分',exact:true}).count(),1);
  assert(await page.getByRole('alert').isVisible());
  assert.deepEqual((await page.evaluate(()=>window.fpcad.read())).data.project,advanced);
  await inputFailure.getByRole('button',{name:'×',exact:true}).click();await page.locator('[aria-label="搜索花纹"]').fill('不存在的花纹');assert(await page.locator('.library-groups [role=status]').isVisible());await page.locator('[aria-label="搜索花纹"]').fill('');

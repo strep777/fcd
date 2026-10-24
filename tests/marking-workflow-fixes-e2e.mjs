@@ -34,8 +34,8 @@ try{
  await page.mouse.move(drop.x,drop.y,{steps:24});await page.mouse.move(drop.x+1,drop.y,{steps:2});await page.mouse.up();
  await changed(before.revision);const after=await read();assert.equal(after.markings.length,1);assert.equal(after.markings[0].surfaceShape.nodes.length,160);assert.deepEqual(after.patternLibrary,before.patternLibrary);
  checks.push('real mouse drag from library to model creates a placement without synthetic drag events');
- await workflow(page,'references');assert.equal(await page.getByLabel('双视图布局',{exact:true}).count(),0);assert.equal(await page.getByLabel('参考图内容',{exact:true}).count(),0);assert.equal(await page.getByLabel('参考高度 mm',{exact:true}).count(),0);
- checks.push('three extraction parameter controls removed');assert.deepEqual(errors,[]);
+ await workflow(page,'references');assert.equal(await page.getByLabel('双视图布局',{exact:true}).inputValue(),'front-left');assert.equal(await page.getByLabel('参考图内容',{exact:true}).count(),0);assert.equal(await page.getByLabel('参考高度 mm',{exact:true}).count(),0);
+ checks.push('layout selection remains explicit while obsolete extraction tuning controls stay removed');assert.deepEqual(errors,[]);
  await desktopScreenshot(app,page,{path:'test-results/marking-workflow-fixes.png'});
  await writeFile('test-results/marking-workflow-fixes.json',JSON.stringify({passed:true,checks,directory},null,2));console.log(checks.join('\n'));
 }finally{await app.close();}

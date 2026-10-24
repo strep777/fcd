@@ -1,5 +1,5 @@
 import {nativeSurfaceResponseSchema} from '../../../packages/surface/native-report';
-import {assertUserCutsClosed} from '../../../packages/surface/cut-path-contract';
+import {assertUserCutsValid} from '../../../packages/surface/cut-path-contract';
 import {designManufacturingOutline} from './design-outline';
 import {parentPort} from 'node:worker_threads';
 import {numericalTriangleArea} from '../../../packages/surface/numerical';
@@ -81,7 +81,7 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
  const session=createWorkerSession(worker,signal),solveStarted=performance.now();
  const nativeStats={calls:0,elapsedMs:0,cacheHits:0,groups:{} as Record<string,{calls:number;ms:number;faces:number}>,slow:[] as {phase:string;method:string;faces:number;ms:number}[]},nativeCache=new Map<string,{patches:SurfaceRun['bindings'][number]['report'][]}|{error:DomainError}>();let cachedVertices=0,solvePhase='initial';
  try{
- const sourceSurface=surface;validateSurface(sourceSurface);try{assertUserCutsClosed(sourceSurface);}catch{throw new DomainError('CUT_NOT_CLOSED');}const selected=scopeFaces(sourceSurface);if(!selected.length)throw new DomainError('EMPTY_CUT_SCOPE');
+ const sourceSurface=surface;validateSurface(sourceSurface);try{assertUserCutsValid(sourceSurface);}catch(error){throw new DomainError((error as Error).message);}const selected=scopeFaces(sourceSurface);if(!selected.length)throw new DomainError('EMPTY_CUT_SCOPE');
  if(selected.length!==surface.faces.length){const faces=new Set(selected.map(f=>f.id)),vertices=new Set(selected.flatMap(f=>f.vertices)),edges=new Set(selected.flatMap(f=>f.vertices.map((a,i)=>[a,f.vertices[(i+1)%3]].sort().join(':'))));surface={...surface,faces:selected,vertices:surface.vertices.filter(v=>vertices.has(v.id)),cutConstraints:surface.cutConstraints?.filter(c=>edges.has([c.a,c.b].sort().join(':'))),textureFaces:surface.textureFaces?.filter(f=>faces.has(f.faceId)),assembly:undefined,cutLines:undefined,cutBaseConstraints:undefined};}
  // Material boundaries subdivide input triangles; budget the source and each
  // native solve separately, while retaining the generated-mesh resource cap.

@@ -13,17 +13,17 @@
   <div class="saved-cut-list">
    <div v-for="line in lines" :key="line.id" :class="['saved-line',{active:selected===line.id||selected===line.mirroredFrom,disabled:!line.enabled}]">
     <input type="checkbox" :checked="line.enabled" :disabled="store.busy||!!line.mirroredFrom" :aria-label="(zh?'启用裁剪线 ':localize('Enable cut '))+line.name" @change="metadata(line,($event.target as HTMLInputElement).checked)">
-    <button class="select-cut" @click="choose(line)"><strong>{{line.name}}</strong><small>{{line.edges.length}} {{zh?'段 · 已保存':localize('edges · saved')}}{{line.kind!=='midline'&&!line.closed?(zh?' · 待闭合修复':localize(' · closure repair needed')):''}}{{line.mirroredFrom?(zh?' · 对称':localize(' · symmetric')):''}}</small></button>
+    <button class="select-cut" @click="choose(line)"><strong>{{line.name}}</strong><small>{{line.edges.length}} {{zh?'段 · 已保存':localize('edges · saved')}}{{line.kind!=='midline'?(line.closed?(zh?' · 闭合裁线':localize(' · closed cut')):(zh?' · 开放结构缝':localize(' · open seam'))):''}}{{line.mirroredFrom?(zh?' · 对称':localize(' · symmetric')):''}}</small></button>
     <button class="focus-cut" :aria-label="(zh?'聚焦裁剪线 ':localize('Focus cut '))+line.name" :title="zh?'在模型上查看':localize('Show on model')" @click="emit('focus',line.id)"><ToolIcon name="eye"/></button>
    </div>
    <div v-if="!lines.length" class="cut-lines-empty"><ToolIcon name="cut"/><small>{{search?(zh?'没有匹配的裁线。':localize('No matching cut lines.')):(zh?'在模型上绘制并保存裁线，或自动计算裁线预览。':localize('Draw and save lines on the model, or compute a cut preview.'))}}</small></div>
   </div>
   <div v-if="selectedLine" class="cut-line-editor">
    <label>{{zh?'裁剪线名称':localize('Cut line name')}}<input v-model="lineName" maxlength="120" @change="metadata(selectedLine,selectedLine.enabled,lineName)"></label>
-   <div class="two-col"><button :disabled="store.busy||selectedLine.kind==='midline'" @click="emit('draw',{kind:'pen',lineId:selectedLine.id})">{{pathWarning?(zh?'用钢笔修复闭合':localize('Repair closure with pen')):(zh?'编辑钢笔节点':localize('Edit pen nodes'))}}</button><button :disabled="store.busy||selectedLine.kind==='midline'&&mesh.cutScope?.side!=='full'" @click="remove(selectedLine)">{{zh?'删除裁剪线':localize('Delete cut line')}}</button></div>
+   <div class="two-col"><button :disabled="store.busy||selectedLine.kind==='midline'" @click="emit('draw',{kind:'pen',lineId:selectedLine.id})">{{pathWarning?(zh?'用钢笔修复路径':localize('Repair path with pen')):(zh?'编辑钢笔节点':localize('Edit pen nodes'))}}</button><button :disabled="store.busy||selectedLine.kind==='midline'&&mesh.cutScope?.side!=='full'" @click="remove(selectedLine)">{{zh?'删除裁剪线':localize('Delete cut line')}}</button></div>
    <template v-if="selectedLine.kind!=='midline'">
     <small v-if="pathWarning" class="cut-path-warning" role="status">{{pathWarning}}</small>
-    <small v-else>{{zh?'在模型上拖动钢笔节点调整闭合裁线，保存前可取消。':localize('Drag pen nodes on the model to edit the closed cut; cancel before saving.')}}</small>
+    <small v-else>{{zh?'在模型上拖动钢笔节点调整裁线；开放路径可制作结构缝或省道，保存前可取消。':localize('Drag pen nodes on the model to edit the cut. Open paths define seams or darts; cancel before saving.')}}</small>
    </template>
   </div>
   <details v-if="advanced" class="half-cut-settings">
@@ -45,6 +45,8 @@ import {computed,inject,ref,watch,useTemplateRef} from 'vue';
 import {useSession} from './store';
 import {useDraftHistory} from './modules/useDraftHistory';
 import ToolIcon from './ToolIcon.vue';
+import {issueMessages} from './i18n';
+import {assertCutEdges} from '../../../packages/surface/cut-path-contract';
 import type {CutLine,CutScope,Command} from '../../../packages/schema/index';
 const props=defineProps<{language:'zh'|'en';targetId?:string;toolsTarget?:string}>(),emit=defineEmits<{draw:[request:{kind:'pen'|'paint';lineId?:string}];focus:[lineId:string]}>(),store=useSession(),zh=computed(()=>props.language==='zh'),mesh=computed(()=>store.data.project?.surface);
 const advanced=inject('advancedMode',ref(false));
@@ -52,9 +54,9 @@ const search=ref(''),selected=ref(''),lineName=ref('');
 const selectedLine=computed(()=>mesh.value?.cutLines?.find(line=>line.id===selected.value));
 const scope=ref<CutScope>({side:'full',axis:'x',positionMm:0,closeMidline:true});
 const panel=useTemplateRef<HTMLElement>('panel');
-const drawingTools=[{kind:'paint',icon:'brushAdd',zh:'花纹画笔（涂区域）',en:'Paint markings (areas)'},{kind:'pen',icon:'pen',zh:'曲面钢笔（闭合裁线）',en:'Surface pen (closed cuts)'}] as const;
+const drawingTools=[{kind:'paint',icon:'brushAdd',zh:'花纹画笔（涂区域）',en:'Paint markings (areas)'},{kind:'pen',icon:'pen',zh:'曲面钢笔（裁线 / 省道）',en:'Surface pen (cuts / darts)'}] as const;
 const history=useDraftHistory(()=>scope.value,value=>{scope.value=value;},()=>!!panel.value?.getClientRects().length,()=>store.busy);
-const pathWarning=computed(()=>{const line=selectedLine.value;if(!line||line.kind==='midline')return '';if(line.kind!=='pen')return zh.value?'这条旧裁线需要用钢笔重新确认闭合路径。请在模型上修复后保存，原裁线会保留到保存成功。':localize('Confirm this legacy line as a closed pen path on the model. The original line stays until saving succeeds.');if(!line.closed)return zh.value?'此裁线尚未闭合。请在模型上用钢笔补足至少 3 个节点并确认闭合，原裁线会保留到保存成功。':localize('This cut is open. Repair it on the model with at least 3 pen nodes and confirm closure. The original stays until saving succeeds.');if(line.controlPoints.length<3)return zh.value?'闭合裁线至少需要 3 个节点；请在模型上补足节点后保存。':localize('A closed cut needs at least 3 nodes. Add nodes on the model before saving.');if(!line.projection)return zh.value?'这条旧裁线缺少钢笔编辑信息，请在模型上修复后保存。':localize('This legacy line is missing pen editing data. Repair it on the model before saving.');return '';});
+const pathWarning=computed(()=>{const line=selectedLine.value;if(!line||line.kind==='midline')return '';if(line.kind!=='pen')return zh.value?'这条旧裁线需要用钢笔重新确认路径。请在模型上修复后保存，原裁线会保留到保存成功。':localize('Confirm this legacy line as a pen path on the model. The original line stays until saving succeeds.');if(line.controlPoints.length<(line.closed?3:2))return line.closed?(zh.value?'闭合裁线至少需要 3 个节点；请在模型上补足节点后保存。':localize('A closed cut needs at least 3 nodes. Add nodes on the model before saving.')):(zh.value?'开放裁线至少需要 2 个节点；请在模型上补足节点后保存。':localize('An open cut needs at least 2 nodes. Add nodes on the model before saving.'));if(!line.projection)return zh.value?'这条旧裁线缺少钢笔编辑信息，请在模型上修复后保存。':localize('This legacy line is missing pen editing data. Repair it on the model before saving.');try{assertCutEdges(line.edges,line.closed);}catch(error){const code=(error as Error).message;return localize(issueMessages[code]?.[zh.value?0:1]??code);}return '';});
 const lines=computed(()=>mesh.value?.cutLines?.filter(l=>l.name.toLowerCase().includes(search.value.toLowerCase()))??[]),midlines=computed(()=>mesh.value?.cutLines?.filter(l=>l.kind==='midline')??[]);
 watch(()=>JSON.stringify(mesh.value?.cutScope),()=>{const s=mesh.value?.cutScope;history.reset(()=>{scope.value=structuredClone(s??{side:'full',axis:'x',positionMm:0,closeMidline:true});});},{immediate:true});
 watch(()=>mesh.value?.id,()=>{selected.value='';lineName.value='';});

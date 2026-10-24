@@ -5,6 +5,7 @@ export const messages={
 };
 export const issueMessages:Record<string,[string,string]>={
  CUT_NOT_CLOSED:['裁切线未形成有效闭环，请用钢笔闭合路径并修正交叉或断点后保存。','The cut is not a valid closed loop. Close it with the pen and fix crossings or gaps before saving.'],
+ CUT_PATH_INVALID:['开放裁线必须是一条连续路径，不能分叉或重走。请用钢笔调整节点后保存。','An open cut must form one continuous path without branches or retraced segments. Adjust the pen nodes before saving.'],
  CUT_PEN_REQUIRED:['用户裁切线只能使用钢笔制作，请在模型上用钢笔修改后保存。','User cut lines must be drawn with the pen. Edit the path on the model before saving.'],
  CUT_PATH_CHANGED:['裁切结果与钢笔预览不一致，已保留原状态。请调整节点后重试。','The cut differs from the pen preview. The original state is retained; adjust the nodes and retry.'],
  MODEL_SELECTION_EMPTY:['请选择有效的模型部位或顶点。','Select existing model regions or vertices.'],

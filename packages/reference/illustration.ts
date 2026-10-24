@@ -15,6 +15,7 @@ import {recoverDarkReflections} from './image-dark-materials';
 import {refineSourceMaterialOwnership} from './source-material-ownership';
 import {refineSmallBrightDetails} from './image-small-details';
 import {splitStrongPinkInstances} from './pink-instance-separators';
+import {splitFlatPigments} from './flat-pigments';
 export type PixelBox={minX:number;minY:number;maxX:number;maxY:number};
 export type IllustrationContext={part:BodyPart;side:BodySide;confidence:number};
 export type IllustrationRegion={part:BodyPart;side:BodySide;color:string;indices:number[];confidence:number;contexts?:IllustrationContext[]};
@@ -265,7 +266,9 @@ export function illustrationRegions(width:number,height:number,rgba:Uint8Array,e
  const refined=refineSourceMaterialOwnership(width,height,rgba,edgeRefined.regions,protectedPairs);
  const details=refineSmallBrightDetails(width,height,rgba,refined.regions);
  const foregroundPixels=occupied.length-edgeRefined.report.removedForegroundPixels-details.removed;
- return {regions:details.regions,bounds,partBounds,foregroundPixels,discardedPixels,recoveredShadowPixels,recoveredBluePixels,anatomical,palette:[...new Set(regions.map(r=>r.color))]};
+ const materials=splitFlatPigments(width,height,rgba,details.regions);
+ if(materials.length>500)throw Error('REGION_COMPLEXITY');
+ return {regions:materials,bounds,partBounds,foregroundPixels,discardedPixels,recoveredShadowPixels,recoveredBluePixels,anatomical,palette:[...new Set(materials.map(r=>r.color))]};
 }
 
 

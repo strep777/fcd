@@ -1,4 +1,4 @@
-import {assertUserCutsClosed} from '../../../packages/surface/cut-path-contract';
+import {assertUserCutsValid} from '../../../packages/surface/cut-path-contract';
 import {DomainError} from './repository';
 import type {Project,Surface,UnwrapOptions} from '../../../packages/schema/index';
 import {unwrapSurface} from './surface';
@@ -12,7 +12,7 @@ import {parentPort} from 'node:worker_threads';
 
 /** One worker owns the entire candidate calculation, including colored cuts and preview geometry. */
 export async function cutPreview(worker:string,surface:Surface,project:Project,options:UnwrapOptions,directory:string){
- try{assertUserCutsClosed(surface);}catch{throw new DomainError('CUT_NOT_CLOSED');}
+ try{assertUserCutsValid(surface);}catch(error){throw new DomainError((error as Error).message);}
  options={...options,partitionStrategy:options.partitionStrategy??'design'};
  parentPort?.postMessage({kind:'progress',value:{stage:'prepare'}});
  if(options.colorBoundaryCuts)project=await prepareCutMarkings(worker,project);

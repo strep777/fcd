@@ -1,12 +1,25 @@
 import {randomUUID} from 'node:crypto';
 import {expect,it} from 'vitest';
-import {assertClosedCutEdges,assertSameCutPath,assertUserCutsClosed,cutSegmentsWorld,type CutSegment} from '../../packages/surface/cut-path-contract';
+import {assertClosedCutEdges,assertCutEdges,assertCutTraversal,assertSameCutPath,assertUserCutsValid,cutSegmentsWorld,type CutSegment} from '../../packages/surface/cut-path-contract';
 import {parseObj} from '../../apps/desktop/main/surface';
 import type {CutLine} from '../../packages/schema/index';
 
 const p=(xMm:number,yMm=0,zMm=0)=>({xMm,yMm,zMm});
 const segment=(a:ReturnType<typeof p>,b:ReturnType<typeof p>):CutSegment=>({a,b});
 const ring=[{a:'a',b:'b'},{a:'b',b:'c'},{a:'c',b:'a'}];
+
+it('open seam graphs accept a single chain and reject branches, duplicate traversals and disconnected rings',()=>{
+ expect(()=>assertCutEdges([{a:'a',b:'b'}],false)).not.toThrow();
+ expect(()=>assertCutEdges([{a:'b',b:'c'},{a:'a',b:'b'}],false)).not.toThrow();
+ for(const edges of [[],ring,[{a:'a',b:'b'},{a:'b',b:'a'}],[{a:'a',b:'b'},{a:'b',b:'c'},{a:'b',b:'d'}],[{a:'a',b:'b'},{a:'c',b:'d'}],[{a:'x',b:'y'},...ring]])expect(()=>assertCutEdges(edges,false)).toThrow('CUT_PATH_INVALID');
+});
+
+it('pen traversal rejects an out-and-back trace even when its geometric coverage matches',()=>{
+ const saved=[segment(p(0),p(100))],draft=[...saved,segment(p(100),p(50))];
+ expect(()=>assertSameCutPath(draft,saved)).not.toThrow();
+ expect(()=>assertCutTraversal(draft,saved,false)).toThrow('CUT_PATH_INVALID');
+ expect(()=>assertCutTraversal([segment(p(0),p(50)),segment(p(50),p(100))],saved,false)).not.toThrow();
+});
 
 it('closed cut graph accepts subdivided rings and rejects dangling ends, branches and retraces',()=>{
  expect(()=>assertClosedCutEdges(ring)).not.toThrow();
@@ -49,9 +62,10 @@ it('generation rejects enabled broken user paths even when their stored closed f
  const surface=parseObj('v 0 0 0\nv 100 0 0\nv 0 100 0\nf 1 2 3');
  const [a,b,c]=surface.vertices.map(v=>v.id),line:CutLine={id:randomUUID(),name:'旧裁线',kind:'pen',enabled:true,closed:true,symmetric:false,controlPoints:[],tension:.5,edges:[{a,b},{a:b,b:c}]};
  surface.cutLines=[line];
- expect(()=>assertUserCutsClosed(surface)).toThrow('CUT_NOT_CLOSED');
- line.edges.push({a:c,b:a});expect(()=>assertUserCutsClosed(surface)).not.toThrow();
- line.closed=false;expect(()=>assertUserCutsClosed(surface)).toThrow('CUT_NOT_CLOSED');
- line.enabled=false;expect(()=>assertUserCutsClosed(surface)).not.toThrow();
- line.enabled=true;line.kind='midline';expect(()=>assertUserCutsClosed(surface)).not.toThrow();
+ expect(()=>assertUserCutsValid(surface)).toThrow('CUT_NOT_CLOSED');
+ line.edges.push({a:c,b:a});expect(()=>assertUserCutsValid(surface)).not.toThrow();
+ line.closed=false;expect(()=>assertUserCutsValid(surface)).toThrow('CUT_PATH_INVALID');
+ line.edges.pop();expect(()=>assertUserCutsValid(surface)).not.toThrow();
+ line.enabled=false;expect(()=>assertUserCutsValid(surface)).not.toThrow();
+ line.enabled=true;line.kind='midline';expect(()=>assertUserCutsValid(surface)).not.toThrow();
 });

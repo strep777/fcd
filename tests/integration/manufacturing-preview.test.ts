@@ -31,9 +31,9 @@ it('keeps common piece edits and allowance available in simple mode, then restor
  for(const text of ['新建轮廓','导入 SVG 纸样','复制']){expect(simple).not.toContain(text);expect(advanced).not.toContain(text);}
  for(const text of ['逐边拼接间距','拼接间距连接方式','轮廓、孔洞','布向角']){expect(simple).not.toContain(text);expect(advanced).toContain(text);}
 });
-it('simple cutting retains closed pen paths, saved cuts and computation while advanced restores scope and solver options',async()=>{
+it('simple cutting retains pen cuts and darts, saved cuts and computation while advanced restores scope and solver options',async()=>{
  const simple=await rendered(CuttingPage,false,{language:'zh'}),advanced=await rendered(CuttingPage,true,{language:'zh'});
- for(const text of ['裁切版型','曲面钢笔（闭合裁线）','已保存裁线','花纹画笔（涂区域）','自动计算裁线并预览'])expect(simple).toContain(text);
+ for(const text of ['裁切版型','曲面钢笔（裁线 / 省道）','已保存裁线','花纹画笔（涂区域）','自动计算裁线并预览'])expect(simple).toContain(text);
  for(const text of ['手绘裁线','手动切分点与切分线']){expect(simple).not.toContain(text);expect(advanced).not.toContain(text);}
  for(const text of ['半侧制版与中线围合','求解参数','展开算法']){expect(simple).not.toContain(text);expect(advanced).toContain(text);}
 });

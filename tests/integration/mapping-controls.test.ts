@@ -12,8 +12,48 @@ import {shapeWorld,surfaceDragShape} from '../../packages/surface/attached-edit'
 import {anatomicalPlacement} from '../../apps/desktop/main/anatomical-placement';
 import {placementMatchesModel} from '../../packages/reference/placement-review';
 import {parseObj} from '../../apps/desktop/main/surface';
+import {classifyModel} from '../../apps/desktop/main/model-anatomy';
+import {sculptSurface} from '../../apps/desktop/main/body-edit';
+import {modelPartAssignment} from '../../packages/reference/placement-context';
 const worker=resolve('target/release/fpcad-worker.exe');
 const commit=(r:Repository,c:Parameters<Repository['commit']>[0])=>r.commit(c,randomUUID(),'controls');
+it.each(['front','back'] as const)('confirming either character side manually keeps the same built-in limb (%s)',view=>{
+ const p=project();p.pieces=[];p.surface=generateSpecies(speciesDefaults('canine'));
+ for(const side of ['left','right'] as const){
+  const source={piece:rectangle(60,100),referenceId:randomUUID(),view,category:'arm',anatomy:{part:'arm' as const,side,confidence:.8,method:'silhouette-1' as const}};
+  p.patternLibrary=[source];const automatic=anatomicalPlacement(p,source),manual={...source,anatomy:{...source.anatomy,method:'manual' as const,confidence:1}};
+  p.patternLibrary=[manual];const confirmed=anatomicalPlacement(p,manual);
+  expect(confirmed.regions).toEqual(automatic.regions);expect(confirmed.targetCenter).toEqual(automatic.targetCenter);expect(confirmed.modelSide).toBe(side==='left'?'right':'left');
+ }
+});
+it.each(['front','back'] as const)('saving unrelated model classification retains the same physical limbs (%s)',view=>{
+ const p=project();p.pieces=[];p.surface=generateSpecies(speciesDefaults('canine'));const original=structuredClone(p.surface);
+ const assignments=[...new Set(original.faces.map(f=>f.region))].map(region=>({region,...modelPartAssignment(original,region)}));
+ const classified=classifyModel(original,'head'),partial=assignments.filter(a=>a.part==='arm').slice(0,1);expect(partial).toHaveLength(1);
+ for(const side of ['left','right'] as const){
+  const source={piece:rectangle(60,100),referenceId:randomUUID(),view,category:'arm',anatomy:{part:'arm' as const,side,confidence:1,method:'manual' as const}};p.patternLibrary=[source];p.surface=structuredClone(original);
+  const before=anatomicalPlacement(p,source);
+  for(const values of [assignments.map(a=>a.part==='tail'?{...a,part:'body' as const}:a),classified.assignments,partial]){
+   p.surface={...original,partAssignments:values};const after=anatomicalPlacement(p,source);
+   expect(after.regions).toEqual(before.regions);expect(after.targetCenter).toEqual(before.targetCenter);expect(after.modelSide).toBe(side);
+  }
+ }
+});
+it.each(['front','back'] as const)('sculpting a generated head preserves the convention when the arms are mapped again (%s)',view=>{
+ const p=project();p.pieces=[];p.surface=generateSpecies(speciesDefaults('canine'));const original=p.surface;
+ const head=original.faces.find(f=>f.region.includes('head'))!;expect(head).toBeDefined();const center=original.vertices.find(v=>v.id===head.vertices[0])!;
+ const edited=sculptSurface(original,{center,radiusMm:1,delta:{xMm:.01,yMm:0,zMm:0},mode:'move',strength:1});expect(edited.source).toBe('sculpt-1');expect(edited.sculpt!.originalSource).toBe('species-template-1');
+ for(const side of ['left','right'] as const){
+  const source={piece:rectangle(60,100),referenceId:randomUUID(),view,category:'arm',anatomy:{part:'arm' as const,side,confidence:1,method:'manual' as const}};p.patternLibrary=[source];p.surface=original;const before=anatomicalPlacement(p,source);
+  p.surface=edited;const after=anatomicalPlacement(p,source);expect(after.regions).toEqual(before.regions);expect(after.targetCenter).toEqual(before.targetCenter);expect(after.modelSide).toBe(before.modelSide);
+ }
+});
+it.each(['species-template-1','sculpt-1'] as const)('newly classified feet follow existing character sides on %s',source=>{
+ const mesh=parseObj('v -200 0 0\nv -100 0 0\nv -100 100 0\nv -200 100 0\nv 100 0 0\nv 200 0 0\nv 200 100 0\nv 100 100 0\ng torso\nf 1 2 3\nf 1 3 4\nf 5 6 7\nf 5 7 8');mesh.source=source;
+ if(source==='sculpt-1')mesh.sculpt={baseHash:'0'.repeat(64),originalSource:'species-template-1',mode:'move',affectedVertices:1};
+ const result=classifyModel(mesh,'body-feet',80),vertices=new Map(mesh.vertices.map(v=>[v.id,v]));expect(result.faceRegions).toHaveLength(4);
+ for(const {faceId,region} of result.faceRegions){const face=mesh.faces.find(f=>f.id===faceId)!,x=face.vertices.reduce((sum,id)=>sum+vertices.get(id)!.xMm/3,0),assignment=result.assignments.find(a=>a.region===region)!;expect(assignment.part).toBe('foot');expect(assignment.side).toBe(x<0?'right':'left');}
+});
 it('boundary parity removes subdivided shared triangle edges and retains real hole contours',()=>{
  const surface=parseObj('v 0 0 0\nv 10 0 0\nv 10 10 2\nv 0 10 1\nf 1 2 3\nf 1 3 4'),marking={surfaceId:surface.id,topologyVersion:surface.topologyVersion,fragments:[{faceId:surface.faces[0].id,rings:[[[1,0,0],[0,1,0],[0,0,1]]] as [number,number,number][][]},{faceId:surface.faces[1].id,rings:[[[1,0,0],[.5,.5,0],[0,1,0],[0,0,1]]] as [number,number,number][][]}]};
  const outline=markingSurfaceOutline(surface,marking);expect(outline).toHaveLength(4);expect(outline.some(line=>Math.abs(line.a.xMm-line.a.yMm)<1e-8&&Math.abs(line.b.xMm-line.b.yMm)<1e-8)).toBe(false);
@@ -21,11 +61,11 @@ it('boundary parity removes subdivided shared triangle edges and retains real ho
 });
 it('real front and back silhouette pigments preserve the screen side of each limb on built-in models',()=>{
  const p=userMappingFixture();if(!p)return;expect(p.surface!.source).toBe('species-template-1');let checked=0;
- for(const source of p.patternLibrary!.filter(r=>['arm','paw','ear','leg','foot'].includes(r.anatomy?.part??'')&&['left','right'].includes(r.anatomy?.side??''))){const placement=anatomicalPlacement(p,source),originalModel=structuredClone(p),manual=structuredClone(source);manual.anatomy!.method='manual';const direct=anatomicalPlacement(originalModel,manual);expect(placement.targetCenter.xMm).toBeCloseTo(-direct.targetCenter.xMm,6);expect(placement.modelSide).not.toBe(placement.side);const inferredSign=source.view==='front'?(source.anatomy!.side==='left'?1:-1):(source.anatomy!.side==='left'?-1:1);expect(Math.sign(placement.targetCenter.xMm)).toBe(inferredSign);checked++;}
+ for(const source of p.patternLibrary!.filter(r=>['arm','paw','ear','leg','foot'].includes(r.anatomy?.part??'')&&['left','right'].includes(r.anatomy?.side??''))){const placement=anatomicalPlacement(p,source),originalModel=structuredClone(p),manual=structuredClone(source);manual.anatomy!.method='manual';const direct=anatomicalPlacement(originalModel,manual);expect(placement.targetCenter.xMm).toBeCloseTo(direct.targetCenter.xMm,6);expect(placement.modelSide).not.toBe(placement.side);const inferredSign=source.view==='front'?(source.anatomy!.side==='left'?1:-1):(source.anatomy!.side==='left'?-1:1);expect(Math.sign(placement.targetCenter.xMm)).toBe(inferredSign);checked++;}
  expect(checked).toBeGreaterThan(25);
 });
 it('manual classifications and explicitly named imported model sides remain authoritative',async()=>{
- const p=project();p.pieces=[];p.surface=generateSpecies(speciesDefaults('canine'));p.surface.source='obj';const piece=rectangle(60,100);p.patternLibrary=[{piece,referenceId:randomUUID(),view:'front',category:'arm',anatomy:{part:'arm',side:'left',confidence:1,method:'silhouette-1'}}];for(const view of ['front','back'] as const){p.patternLibrary[0].view=view;const placement=anatomicalPlacement(p,p.patternLibrary[0]);expect(placement.modelSide).toBe('left');expect(placement.regions.every(region=>region.startsWith('arm-left'))).toBe(true);const mark=await projectMarking(worker,p,piece.id,view,0,0,false,true);expect(placementMatchesModel(p,mark)).toBe(true);}p.surface.source='species-template-1';p.patternLibrary[0].anatomy!.method='manual';expect(anatomicalPlacement(p,p.patternLibrary[0]).modelSide).toBe('left');
+ const p=project();p.pieces=[];p.surface=generateSpecies(speciesDefaults('canine'));p.surface.source='obj';const piece=rectangle(60,100);p.patternLibrary=[{piece,referenceId:randomUUID(),view:'front',category:'arm',anatomy:{part:'arm',side:'left',confidence:1,method:'silhouette-1'}}];for(const view of ['front','back'] as const){p.patternLibrary[0].view=view;const placement=anatomicalPlacement(p,p.patternLibrary[0]);expect(placement.modelSide).toBe('left');expect(placement.regions.every(region=>region.startsWith('arm-left'))).toBe(true);const mark=await projectMarking(worker,p,piece.id,view,0,0,false,true);expect(placementMatchesModel(p,mark)).toBe(true);}p.surface.source='species-template-1';p.patternLibrary[0].anatomy!.method='manual';expect(anatomicalPlacement(p,p.patternLibrary[0]).modelSide).toBe('right');p.surface.partAssignments=[{region:'arm-left',part:'arm',side:'left'},{region:'arm-right',part:'arm',side:'right'}];expect(anatomicalPlacement(p,p.patternLibrary[0]).modelSide).toBe('left');
 });
 it('surface boundaries follow a curved body rather than the floating source plane, and remove interior mesh edges',async()=>{
  const p=userMappingFixture()??project();if(!p.surface)p.surface=generateSpecies(speciesDefaults('canine'));p.pieces=[];p.bindings=[];

@@ -4,7 +4,7 @@ import {mapToSurface} from '../../../packages/surface/mapping';
 import {edgeKey,refineSurface,type FaceCut} from '../../../packages/surface/refine';
 import {planeSegments,projectedCurveSegments,scopeFaces} from '../../../packages/surface/cut-geometry';
 import {surfaceCurveSegments} from '../../../packages/surface/surface-curve';
-import {assertClosedCutEdges,assertSameCutPath,cutSegmentsWorld} from '../../../packages/surface/cut-path-contract';
+import {assertCutEdges,assertCutTraversal,cutSegmentsWorld} from '../../../packages/surface/cut-path-contract';
 import {remapRefinedMarkings} from './cut-points';
 import {markingFingerprint} from './markings';
 import {validateSurface} from './surface';
@@ -28,11 +28,11 @@ export async function editSurfaceCuts(worker:string,project:Project,command:CutC
  const replace=(id?:string)=>{if(!id)return randomUUID();const previous=resolveLine(id);if(previous.kind==='midline'&&surface.cutScope?.side!=='full')throw new DomainError('MIDLINE_SCOPE_ACTIVE');replacing=[previous.id,...lines.filter(l=>l.mirroredFrom===previous.id).map(l=>l.id)];return previous.id;};
  try{
   if(command.type==='surface.cutLine.delete'){const previous=resolveLine(command.lineId);if(previous.kind==='midline'&&surface.cutScope?.side!=='full')throw new DomainError('MIDLINE_SCOPE_ACTIVE');lines=lines.filter(l=>l.id!==previous.id&&l.mirroredFrom!==previous.id);}
-  else if(command.type==='surface.cutLine.meta'){const previous=resolveLine(command.lineId);if(command.enabled&&!previous.enabled)for(const line of lines.filter(l=>l.id===previous.id||l.mirroredFrom===previous.id)){if(line.kind==='midline')continue;if(!line.closed)throw new DomainError('CUT_NOT_CLOSED');assertClosedCutEdges(line.edges);}lines=lines.map(l=>l.id===previous.id?{...l,name:command.name.trim(),enabled:command.enabled}:l.mirroredFrom===previous.id?{...l,name:(command.name.trim()+' · 对称').slice(0,120),enabled:command.enabled}:l);}
+  else if(command.type==='surface.cutLine.meta'){const previous=resolveLine(command.lineId);if(command.enabled&&!previous.enabled)for(const line of lines.filter(l=>l.id===previous.id||l.mirroredFrom===previous.id)){if(line.kind==='midline')continue;assertCutEdges(line.edges,line.closed);}lines=lines.map(l=>l.id===previous.id?{...l,name:command.name.trim(),enabled:command.enabled}:l.mirroredFrom===previous.id?{...l,name:(command.name.trim()+' · 对称').slice(0,120),enabled:command.enabled}:l);}
   else if(command.type==='surface.curve'){
    if(command.kind!=='pen')throw new DomainError('CUT_PEN_REQUIRED');
-   if(!command.closed||command.controlPoints.length<3)throw new DomainError('CUT_NOT_CLOSED');
-   for(let i=0;i<command.controlPoints.length;i++)for(let j=0;j<i;j++){const a=command.controlPoints[i],b=command.controlPoints[j];if(Math.hypot(a.xMm-b.xMm,a.yMm-b.yMm,a.zMm-b.zMm)<1e-7)throw new DomainError('CUT_NOT_CLOSED');}
+   if(command.controlPoints.length<(command.closed?3:2))throw new DomainError(command.closed?'CUT_NOT_CLOSED':'CUT_PATH_INVALID');
+   for(let i=0;i<command.controlPoints.length;i++)for(let j=0;j<i;j++){const a=command.controlPoints[i],b=command.controlPoints[j];if(Math.hypot(a.xMm-b.xMm,a.yMm-b.yMm,a.zMm-b.zMm)<1e-7)throw new DomainError(command.closed?'CUT_NOT_CLOSED':'CUT_PATH_INVALID');}
    const id=replace(command.id),line:CutLine={id,name:command.name.trim(),kind:command.kind,enabled:true,closed:command.closed,symmetric:command.symmetric,regions:command.regions,controlPoints:command.controlPoints,...(command.surfaceAnchored?{surfaceAnchored:true}:{}),projection:command.projection,tension:command.tension,edges:[]};created.push(line);
    cuts.push(...(line.surfaceAnchored?surfaceCurveSegments(surface,line.controlPoints,line.closed,id,line.regions):projectedCurveSegments(surface,line.controlPoints,line.projection!,line.tension,line.closed,line.kind as 'pen'|'freehand',id,line.regions)));
    if(command.symmetric){const mirrorId=surface.cutLines.find(l=>l.mirroredFrom===id)?.id??randomUUID(),axis=surface.cutScope?.axis??'x',plane=surface.cutScope?.positionMm??0,index={x:0,y:1,z:2}[axis],key=(axis+'Mm') as 'xMm'|'yMm'|'zMm',points=line.controlPoints.map(p=>({...p,id:randomUUID(),[key]:2*plane-p[key]})),projection:CutProjection={origin:line.projection!.origin.map((n,i)=>i===index?2*plane-n:n) as [number,number,number],axes:line.projection!.axes.map(a=>a.map((n,i)=>i===index?-n:n)) as CutProjection['axes']},mirror={...line,id:mirrorId,name:(line.name+' · 对称').slice(0,120),mirroredFrom:id,symmetric:false,controlPoints:points,projection};created.push(mirror);cuts.push(...(line.surfaceAnchored?surfaceCurveSegments(surface,points,line.closed,mirrorId,line.regions):projectedCurveSegments(surface,points,projection,line.tension,line.closed,line.kind as 'pen'|'freehand',mirrorId,line.regions)));}
@@ -53,8 +53,8 @@ export async function editSurfaceCuts(worker:string,project:Project,command:CutC
   const refinedVertices=new Map(refined.surface.vertices.map(v=>[v.id,v]));
   for(const line of created){
    const edges=[...new Map((refined.owned.get(line.id)??[]).map(e=>[edgeKey(e.a,e.b),e])).values()];
-   assertClosedCutEdges(edges);
-   assertSameCutPath(cutSegmentsWorld(surface,cuts.filter(c=>c.owner===line.id)),edges.map(e=>({a:refinedVertices.get(e.a)!,b:refinedVertices.get(e.b)!})));
+   assertCutEdges(edges,line.closed);
+   assertCutTraversal(cutSegmentsWorld(surface,cuts.filter(c=>c.owner===line.id)),edges.map(e=>({a:refinedVertices.get(e.a)!,b:refinedVertices.get(e.b)!})),line.closed);
   }
   for(const line of created){line.edges=[...new Map((refined.owned.get(line.id)??[]).map(e=>[edgeKey(e.a,e.b),e])).values()];if(!line.edges.length)throw Error('INVALID_CUT');if(line.kind==='section'){const counts=new Map<string,number>();for(const e of line.edges)for(const id of [e.a,e.b])counts.set(id,(counts.get(id)??0)+1);line.closed=[...counts.values()].every(n=>n===2);}lines.push(cutLineSchema.parse(line));}
   if(command.type==='surface.cutScope'&&command.scope.side!=='full')for(const [i,edges] of cutComponents([...new Map((refined.owned.get('midline')??[]).map(e=>[edgeKey(e.a,e.b),e])).values()]).entries()){const old=surface.cutLines.filter(l=>l.kind==='midline')[i];lines.push({id:old?.id??randomUUID(),name:old?.name??('中线边界 '+(i+1)),kind:'midline',enabled:command.scope.closeMidline,closed:false,symmetric:false,controlPoints:[],tension:1,section:{axis:command.scope.axis,positionMm:command.scope.positionMm},edges});}

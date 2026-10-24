@@ -20,10 +20,22 @@ export function assertClosedCutEdges(edges:{a:string;b:string}[]){
   for(const [u,v] of [[a,b],[b,a]]){const n=neighbors.get(u)??new Set<string>();n.add(v);neighbors.set(u,n);}}
  if(edges.length<3||[...neighbors.values()].some(n=>n.size!==2))throw Error('CUT_NOT_CLOSED');
 }
-export function assertUserCutsClosed(surface:Surface){
+/** Open seams have exactly two ends and one connected chain. A closed flag
+ * still promises rings; it cannot conceal gaps, branches or retraced edges. */
+export function assertCutEdges(edges:{a:string;b:string}[],closed:boolean){
+ if(closed){assertClosedCutEdges(edges);return;}
+ const neighbors=new Map<string,Set<string>>(),seen=new Set<string>();
+ for(const {a,b} of edges){const key=[a,b].sort().join(':');if(a===b||seen.has(key))throw Error('CUT_PATH_INVALID');seen.add(key);
+  for(const [u,v] of [[a,b],[b,a]]){const adjacent=neighbors.get(u)??new Set<string>();adjacent.add(v);neighbors.set(u,adjacent);}}
+ const ends=[...neighbors].filter(([,adjacent])=>adjacent.size===1);
+ if(ends.length!==2||[...neighbors.values()].some(adjacent=>adjacent.size>2))throw Error('CUT_PATH_INVALID');
+ const reached=new Set<string>(),pending=[ends[0][0]];
+ while(pending.length){const id=pending.pop()!;if(reached.has(id))continue;reached.add(id);for(const next of neighbors.get(id)!)if(!reached.has(next))pending.push(next);}
+ if(reached.size!==neighbors.size)throw Error('CUT_PATH_INVALID');
+}
+export function assertUserCutsValid(surface:Surface){
  for(const line of surface.cutLines??[])if(line.enabled&&line.kind!=='midline'){
-  if(!line.closed)throw Error('CUT_NOT_CLOSED');
-  assertClosedCutEdges(line.edges);
+  assertCutEdges(line.edges,line.closed);
  }
 }
 /** Compare complete line coverage, not just endpoints or a few probe points.
@@ -45,4 +57,12 @@ export function assertSameCutPath(draft:CutSegment[],saved:CutSegment[],toleranc
   return false;
  });
  if(!covers(draft,saved)||!covers(saved,draft))throw Error('CUT_PATH_CHANGED');
+}
+/** Coverage alone cannot distinguish one traversal from an out-and-back path.
+ * Both pen projectors emit one segment per traversed surface interval. */
+export function assertCutTraversal(draft:CutSegment[],saved:CutSegment[],closed:boolean){
+ assertSameCutPath(draft,saved);
+ const length=(segments:CutSegment[])=>segments.reduce((sum,{a,b})=>sum+Math.hypot(...axes.map(axis=>b[axis]-a[axis])),0);
+ const drafted=length(draft),stored=length(saved);
+ if(Math.abs(drafted-stored)>Math.max(1e-5,drafted*1e-9))throw Error(closed?'CUT_NOT_CLOSED':'CUT_PATH_INVALID');
 }

@@ -5,10 +5,11 @@ import {computed,ref,watch} from 'vue';
 import {useDraftHistory} from './modules/useDraftHistory';
 import {useSession} from './store';
 import {modelPartLabel} from './modules/model-labels';
-import {bodyParts,partName,sideName,namedPart} from '../../../packages/reference/body-parts';
+import {bodyParts,partName,sideName} from '../../../packages/reference/body-parts';
+import {modelPartAssignment} from '../../../packages/reference/placement-context';
 import type {BodyPart,BodySide} from '../../../packages/reference/body-parts';
 const props=defineProps<{language:'zh'|'en'}>(),store=useSession(),zh=computed(()=>props.language==='zh'),kind=ref<''|'body'|'body-feet'|'head'|'paw'|'foot'>(''),boundary=ref<number>(),modelSide=ref<BodySide>('unknown');
-const surface=computed(()=>store.data.project?.surface),groups=computed(()=>[...new Set(surface.value?.faces.map(f=>f.region)??[])].map(region=>({region,...(surface.value?.partAssignments?.find(a=>a.region===region)??namedPart(region))}))),unclassified=computed(()=>groups.value.filter(g=>g.part==='unknown').length);
+const surface=computed(()=>store.data.project?.surface),groups=computed(()=>[...new Set(surface.value?.faces.map(f=>f.region)??[])].map(region=>({region,...modelPartAssignment(surface.value!,region)}))),unclassified=computed(()=>groups.value.filter(g=>g.part==='unknown').length);
 const historyPanel=ref<HTMLElement>(),history=useDraftHistory(()=>({kind:kind.value,boundary:boundary.value,side:modelSide.value}),v=>{kind.value=v.kind;boundary.value=v.boundary;modelSide.value=v.side;},()=>!!historyPanel.value?.getClientRects().length,()=>store.busy);
 watch(()=>JSON.stringify([surface.value?.id,surface.value?.partAssignments]),()=>history.reset(()=>{kind.value='';boundary.value=undefined;modelSide.value='unknown';}));
 async function classify(){const p=store.data.project,selectedKind=kind.value;if(p&&selectedKind)await store.run(()=>window.fpcad.apply(p.id,p.revision,{type:'surface.classify',kind:selectedKind,...(selectedKind==='paw'||selectedKind==='foot'?{side:modelSide.value}:{}),...(selectedKind==='body-feet'&&Number.isFinite(boundary.value)?{footBoundaryMm:boundary.value}:{})}));}

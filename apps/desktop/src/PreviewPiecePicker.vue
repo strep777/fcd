@@ -3,7 +3,7 @@
 import {localize} from './localization';
 
 import {usePatternContext} from './modules/patternEditorContext';
-const {language,previewPieces,selectedId,selectPiece,fit,mappedPoint}=usePatternContext();
-function choose(event:Event){const id=(event.target as HTMLSelectElement).value;selectPiece(id);if(!id){mappedPoint.value=null;fit();}}
+const {language,previewPieces,selectedId,selectPiece}=usePatternContext();
+function choose(event:Event){selectPiece((event.target as HTMLSelectElement).value);}
 </script>
 <style scoped>.preview-piece-picker{display:flex;gap:5px;align-items:center;min-width:0;font-size:10px}.preview-piece-picker select{max-width:160px;min-width:65px;width:auto;padding:4px}</style>

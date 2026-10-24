@@ -33,9 +33,9 @@ import PreviewPiecePicker from './PreviewPiecePicker.vue';
 import PatternDirection from './PatternDirection.vue';
 import {usePatternContext} from './modules/patternEditorContext';
 const advanced=inject('advancedMode',ref(false));
-const {measureMm,language,t,stage,selectedId,choiceIds,draftClosed,tool,draft,preview,svg,view,viewportSize,zoomPercent,scaleRuler,previewBounds,snap,holeTarget,paper,measurement,mappedPoint,candidateMode,shownMarkings,shownPieces,previewPaper,paperSize,fmt,label,cutPath,cachedPiecePath,cachedAnchor,poly,allNodes,cancel,changeTool,changePreviewTool,rectangle,circle,finish,down,move,up,zoom,zoomBy,setZoomPercent,fit,focusSelection,transform}=usePatternContext();
+const {measureMm,language,t,stage,selectedId,choiceIds,draftClosed,tool,draft,preview,svg,view,resizeViewport,zoomPercent,scaleRuler,previewBounds,snap,holeTarget,paper,measurement,mappedPoint,candidateMode,shownMarkings,shownPieces,previewPaper,paperSize,fmt,label,cutPath,cachedPiecePath,cachedAnchor,poly,allNodes,cancel,changeTool,changePreviewTool,rectangle,circle,finish,down,move,up,zoom,zoomBy,setZoomPercent,fit,focusSelection,transform}=usePatternContext();
 let resizeObserver:ResizeObserver|undefined;
-onMounted(()=>{if(svg.value){resizeObserver=new ResizeObserver(()=>{if(svg.value)viewportSize.value={width:svg.value.clientWidth||800,height:svg.value.clientHeight||600};});resizeObserver.observe(svg.value);}});
+onMounted(()=>{if(svg.value){resizeObserver=new ResizeObserver(()=>{if(svg.value)resizeViewport(svg.value.clientWidth,svg.value.clientHeight);});resizeObserver.observe(svg.value);}});
 onUnmounted(()=>resizeObserver?.disconnect());
 watch([advanced,tool],([value,current])=>{if(!value&&current==='node'){cancel();tool.value='select';}});
 </script>

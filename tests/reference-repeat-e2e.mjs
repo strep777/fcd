@@ -11,7 +11,8 @@ try{
  await page.waitForFunction(()=>!!window.fpcad);
  assert((await page.evaluate(()=>window.fpcad.create({name:'重复双视图上传回归',unit:'mm'}))).ok);
  await page.reload();await chooseProject(page);await workflow(page,'references');
- for(const label of ['双视图布局','参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0,'Extraction uses fixed defaults without obsolete parameter controls');
+ assert.equal(await page.getByLabel('双视图布局',{exact:true}).inputValue(),'front-left');
+ for(const label of ['参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0,'Extraction uses fixed defaults without obsolete parameter controls');
  const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data.project;};
  for(let n=0;n<3;n++){
   const alternate=n===1;await app.evaluate(({dialog},file)=>dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]}),resolve(alternate?'tests/fixtures/character-blue-white-front-back.png':'tests/fixtures/character-front-back.jpg'));
@@ -20,6 +21,6 @@ try{
   if(alternate){const undo=await page.evaluate(async()=>{const p=(await window.fpcad.read()).data.project;return window.fpcad.undo(p.id,p.revision);});assert(undo.ok,JSON.stringify(undo));assert.deepEqual((await read()).references,before.references);assert.deepEqual((await read()).patternLibrary,before.patternLibrary);const redo=await page.evaluate(async()=>{const p=(await window.fpcad.read()).data.project;return window.fpcad.redo(p.id,p.revision);});assert(redo.ok,JSON.stringify(redo));assert.deepEqual((await read()).references,after.references);assert.deepEqual((await read()).patternLibrary,after.patternLibrary);report.checks.push({name:'One undo/redo restores the complete previous/current dual-view source set'});await page.reload();await chooseProject(page);await workflow(page,'references');}
  }
  const before=await read(),r=await page.evaluate(async()=>{const p=(await window.fpcad.read()).data.project;return window.fpcad.splitAllReferences(p.id,p.revision,1800,6,true,'simple','character');});assert(r.ok,JSON.stringify(r));assert.equal((await read()).revision,before.revision+1);
- assert.equal(await page.getByRole('button',{name:'交换正面 / 背面并重新拆分',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'按当前标定重新拆分',exact:true}).count(),1);
+ assert.equal(await page.getByRole('button',{name:'交换正背并重新拆分',exact:true}).count(),1);assert.equal(await page.getByRole('button',{name:'按当前标定重新拆分',exact:true}).count(),1);
  assert(await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows().every(w=>!w.isVisible())));report.passed=true;console.log(JSON.stringify(report));
 }catch(e){report.error=String(e);throw e;}finally{await writeFile('test-results/reference-repeat.json',JSON.stringify(report,null,2));await app.close();}

@@ -47,6 +47,13 @@ transactions, while retaining legitimate historical solver compatibility.
 
 新增状态回归套件：
 
+- `integration/open-seam-patterns.test.ts`：真实工作进程验证两点开放裁线、平面分片、圆筒展开、毫米面积、花纹对应、候选接受、撤销重做和无效路径的失败完整性。
+- `integration/flat-pigments.test.ts`：同色系硬边分色、连续渐变、明暗阴影和细小噪点，检查完整提取结果和像素归属。
+- `integration/library-metadata-registration.test.ts`：分类修正、缺少目标部位、未定侧、多部位合并、失效依赖和活动／保存模型的手工编辑保护。
+- `integration/pattern-preview-independent.test.ts`：候选与已保存几何隔离、全部裁片总览、选中裁片消失及预览窗口尺寸变化。
+- `node tests/reference-view-controls-component.mjs`：执行真实提取页组件，检查双视图顺序、单张图朝向、普通重提取与显式交换正背，以及忙碌状态下的控件；IPC 和相邻面板使用隔离夹具。
+- `node --import ./tests/desktop-child-process.mjs tests/reference-candidate-controls-e2e.mjs`：隐藏 WebView2 中点击正背控件、重提取和交换，使用真实展开候选检查切边隔离与二维预览适配，保存截图及项目不变检查结果。
+- `node tests/current-brush-component.mjs`：曲面钢笔开放／闭合切换、两点开放缝、局部草稿撤销重做、保存失败保留和已存路径检查。
 - `integration/delayed-activity.test.ts`、`integration/dialog-activity-transport.test.ts`、`integration/native-dialog-state.test.ts`：区分操作锁与可见加载，检查连续文件选择、取消、异常、并发对话框、监听注册和卸载计时器。
 - `integration/output-dialog-order.test.ts`：导出位置全部确认后才计算和写入，取消第二次选择保留保存修订、历史与文件状态。
 - `loading-lifecycle-e2e.mjs`：隐藏的真实 Tauri / WebView2 验证打开、另存为、图片与模型导入、导出在选择期间不显示加载，实际文件处理期间显示活动动画，并检查取消、重复点击和失败后重试。结果位于 `test-results/loading-lifecycle/`。

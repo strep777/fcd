@@ -11,8 +11,11 @@ function pngCenter(bytes){const decoded=pngCodec.decode(Uint8Array.from(bytes).b
 async function texturePixel(phase,kind){
  const handle=await page.waitForFunction(({kind,expected})=>{
   const canvas=document.querySelector('.surface-view canvas.surface-canvas,canvas.surface-view');if(!canvas||!Number(canvas.dataset.frame))return false;
-  let pixel;if(kind==='webgl'){if(canvas.dataset.backend!=='webgl')return false;const gl=canvas.getContext('webgl');if(!gl||gl.isContextLost())return false;pixel=new Uint8Array(4);gl.readPixels(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);}else{if(canvas.dataset.backend==='webgl')return false;const ctx=canvas.getContext('2d');if(!ctx)return false;pixel=ctx.getImageData(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1).data;}
-  return pixel[3]===expected[3]&&expected.slice(0,3).every((value,index)=>Math.abs(pixel[index]-value)<50)?{pixel:[...pixel],width:canvas.width,height:canvas.height,frame:canvas.dataset.frame}:false;
+  // The imported quad's shared triangle edge crosses the exact center. Sample
+  // the known solid texture interior, away from the fallback's mesh stroke.
+  const x=Math.floor(canvas.width/2)+17,y=Math.floor(canvas.height/2)+11;
+  let pixel;if(kind==='webgl'){if(canvas.dataset.backend!=='webgl')return false;const gl=canvas.getContext('webgl');if(!gl||gl.isContextLost())return false;pixel=new Uint8Array(4);gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);}else{if(canvas.dataset.backend==='webgl')return false;const ctx=canvas.getContext('2d');if(!ctx)return false;pixel=ctx.getImageData(x,y,1,1).data;}
+  return pixel[3]===expected[3]&&expected.slice(0,3).every((value,index)=>Math.abs(pixel[index]-value)<50)?{pixel:[...pixel],sample:{x,y},width:canvas.width,height:canvas.height,frame:canvas.dataset.frame}:false;
  },{kind,expected:textureSourceSample.rgba});const evidence=await handle.jsonValue();await handle.dispose();assert(evidence.pixel.slice(0,3).every((value,index)=>Math.abs(value-textureSourceSample.rgba[index])<50),phase+' must retain the independently decoded imported PNG center');assert.equal(evidence.pixel[3],textureSourceSample.rgba[3]);textureLifecycle.push({phase,kind,expected:textureSourceSample.rgba,...evidence});
 }
 try{

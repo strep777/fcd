@@ -3,7 +3,7 @@
   <aside class="cutting-sidebar inspector">
    <div class="cutting-sidebar-heading">
     <h2>{{language==='zh'?'裁切版型':localize('Cut patterns')}}</h2>
-    <p>{{language==='zh'?'选择部件，用钢笔绘制闭合裁线，再计算展开版型。':localize('Choose parts, draw closed cuts with the pen, then unwrap the patterns.')}}</p>
+    <p>{{language==='zh'?'选择部件，用钢笔绘制裁线或省道，再计算展开版型。':localize('Choose parts, draw cuts or darts with the pen, then unwrap the patterns.')}}</p>
    </div>
    <div id="cutting-parts" class="cutting-parts-host"/>
    <SurfaceCutPanel tools-target="#cutting-drawing-tools" :language="language" :target-id="targetId" @draw="emit('draw',$event)" @focus="emit('focus',$event)"/>
