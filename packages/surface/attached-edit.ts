@@ -3,6 +3,7 @@ import {pointBounds} from '../pattern/edit';
 import {placedPoint} from '../reference/placement-transform';
 import {drawingIssue} from './drawing';
 import {mapShapeContour,pieceContour,sampleShapeContour} from './shape-contour';
+import {boxIndex,type Box} from './spatial';
 
 export type Shape=NonNullable<Marking['surfaceShape']>;
 export type Point={xMm:number;yMm:number};
@@ -69,14 +70,29 @@ export function editableShape(surface:Surface,marking:Marking,frame:CutProjectio
   const contour=mapShapeContour(pieceContour(source),map);
   return {...(marking.placement?{regions:[...marking.placement.regions]}:{}),origin:[0,0,0],axes:[[sign,0,0],[0,1,0],[0,0,sign]],...contour};
  }
+ // Accepted reference decals no longer depend on a live library source. Their
+ // saved fragments still use the original projection; the orbiting camera is
+ // not a valid reconstruction plane (it may even be edge-on to the decal).
+ if(marking.source==='cut-library'&&['projected','source-manual'].includes(marking.editMode??'')){
+  const sign=marking.view==='front'?1:-1;
+  frame={origin:[0,0,0],axes:[[sign,0,0],[0,1,0],[0,0,sign]]};
+ }
  const vertices=new Map(surface.vertices.map(v=>[v.id,v])),faces=new Map(surface.faces.map(f=>[f.id,f])),segments:{a:Point;b:Point}[]=[];
  const area=(r:Point[])=>r.reduce((sum,p,i)=>sum+p.xMm*r[(i+1)%r.length].yMm-r[(i+1)%r.length].xMm*p.yMm,0)/2;
  for(const fragment of marking.fragments){const face=faces.get(fragment.faceId);if(!face)throw Error('MARKING_EDIT_FRAME');const triangle=face.vertices.map(id=>vertices.get(id)!);const projectedRings=fragment.rings.map(r=>r.map(w=>shapePoint(frame,{xMm:w.reduce((s,v,i)=>s+v*triangle[i].xMm,0),yMm:w.reduce((s,v,i)=>s+v*triangle[i].yMm,0),zMm:w.reduce((s,v,i)=>s+v*triangle[i].zMm,0)})));for(let ringIndex=0;ringIndex<projectedRings.length;ringIndex++){let ring=projectedRings[ringIndex];const nesting=projectedRings.filter((other,i)=>i!==ringIndex&&insideRings([other],ring[0])).length;if(Math.abs(area(ring))<1e-8)throw Error('MARKING_EDIT_FRAME');if((area(ring)>0)!==(nesting%2===0))ring=ring.reverse();for(let i=0;i<ring.length;i++)segments.push({a:ring[i],b:ring[(i+1)%ring.length]});}}
- if(!segments.length||segments.length>3000)throw Error('MARKING_EDIT_FRAME');
- const extent=Math.max(1,...segments.flatMap(s=>[Math.abs(s.a.xMm),Math.abs(s.a.yMm)])),eps=extent*1e-7,key=(p:Point)=>Math.round(p.xMm/eps)+','+Math.round(p.yMm/eps),edges=new Map<string,{a:Point;b:Point}>(),endpoints=segments.flatMap(s=>[s.a,s.b]);
- for(const segment of segments){const dx=segment.b.xMm-segment.a.xMm,dy=segment.b.yMm-segment.a.yMm,length=dx*dx+dy*dy;if(length<eps*eps)continue;const splits=[0,1];for(const p of endpoints){const t=((p.xMm-segment.a.xMm)*dx+(p.yMm-segment.a.yMm)*dy)/length;if(t>1e-9&&t<1-1e-9&&Math.abs((p.xMm-segment.a.xMm)*dy-(p.yMm-segment.a.yMm)*dx)<eps*Math.sqrt(length))splits.push(t);}splits.sort((a,b)=>a-b);for(let i=1;i<splits.length;i++){const at=(t:number)=>({xMm:segment.a.xMm+dx*t,yMm:segment.a.yMm+dy*t}),a=at(splits[i-1]),b=at(splits[i]),ka=key(a),kb=key(b);if(ka===kb)continue;const edge=ka+'>'+kb,reverse=kb+'>'+ka;if(edges.has(reverse))edges.delete(reverse);else if(edges.has(edge))throw Error('MARKING_EDIT_FRAME');else edges.set(edge,{a,b});}}
+ if(!segments.length||segments.length>300000)throw Error('MARKING_EDIT_FRAME');
+ const extent=segments.reduce((n,s)=>Math.max(n,Math.abs(s.a.xMm),Math.abs(s.a.yMm)),1),eps=extent*1e-7,key=(p:Point)=>Math.round(p.xMm/eps)+','+Math.round(p.yMm/eps),edges=new Map<string,{a:Point;b:Point}>(),endpoints=segments.flatMap(s=>[s.a,s.b]);
+ // Query only endpoints near this segment, then apply the same exact tests.
+ // Dense triangulation must not turn a four-corner decal into quadratic work.
+ const endpointIndex=boxIndex(endpoints.map(p=>[p.xMm,p.yMm,p.xMm,p.yMm] as Box));
+ for(const segment of segments){const dx=segment.b.xMm-segment.a.xMm,dy=segment.b.yMm-segment.a.yMm,length=dx*dx+dy*dy;if(length<eps*eps)continue;const splits=[0,1],near=endpointIndex.query([Math.min(segment.a.xMm,segment.b.xMm)-eps,Math.min(segment.a.yMm,segment.b.yMm)-eps,Math.max(segment.a.xMm,segment.b.xMm)+eps,Math.max(segment.a.yMm,segment.b.yMm)+eps]);for(const index of near){const p=endpoints[index],t=((p.xMm-segment.a.xMm)*dx+(p.yMm-segment.a.yMm)*dy)/length;if(t>1e-9&&t<1-1e-9&&Math.abs((p.xMm-segment.a.xMm)*dy-(p.yMm-segment.a.yMm)*dx)<eps*Math.sqrt(length))splits.push(t);}splits.sort((a,b)=>a-b);for(let i=1;i<splits.length;i++){const at=(t:number)=>({xMm:segment.a.xMm+dx*t,yMm:segment.a.yMm+dy*t}),a=at(splits[i-1]),b=at(splits[i]),ka=key(a),kb=key(b);if(ka===kb)continue;const edge=ka+'>'+kb,reverse=kb+'>'+ka;if(edges.has(reverse))edges.delete(reverse);else if(edges.has(edge))throw Error('MARKING_EDIT_FRAME');else edges.set(edge,{a,b});}}
  const outgoing=new Map<string,{a:Point;b:Point}>();for(const edge of edges.values()){if(outgoing.has(key(edge.a)))throw Error('MARKING_EDIT_FRAME');outgoing.set(key(edge.a),edge);}const rings:Point[][]=[];
- while(outgoing.size){const start=outgoing.values().next().value!,ring:Point[]=[];let edge=start;for(let n=0;n<=edges.size;n++){ring.push(edge.a);outgoing.delete(key(edge.a));if(key(edge.b)===key(start.a))break;const next=outgoing.get(key(edge.b));if(!next)throw Error('MARKING_EDIT_FRAME');edge=next;}if(ring.length<3||ring.length>2000||drawingIssue(ring))throw Error('MARKING_EDIT_FRAME');rings.push(ring);}
+ while(outgoing.size){const start=outgoing.values().next().value!,ring:Point[]=[];let edge=start;for(let n=0;n<=edges.size;n++){ring.push(edge.a);outgoing.delete(key(edge.a));if(key(edge.b)===key(start.a))break;const next=outgoing.get(key(edge.b));if(!next)throw Error('MARKING_EDIT_FRAME');edge=next;}
+  // Remove only numerical collinearity left by source triangulation, never a
+  // curved or measured corner. The editable-node budget applies to the outline,
+  // not to all of its internal triangle edges.
+  const outline=ring.filter((b,i)=>{const a=ring[(i+ring.length-1)%ring.length],c=ring[(i+1)%ring.length],x=c.xMm-a.xMm,y=c.yMm-a.yMm,l=x*x+y*y,t=l?((b.xMm-a.xMm)*x+(b.yMm-a.yMm)*y)/l:0;return l<=eps*eps||t<=0||t>=1||Math.abs((b.xMm-a.xMm)*y-(b.yMm-a.yMm)*x)>eps*Math.sqrt(l);});
+  if(outline.length<3||outline.length>2000||drawingIssue(outline))throw Error('MARKING_EDIT_FRAME');rings.push(outline);}
  const outers=rings.filter(r=>area(r)>0),holes=rings.filter(r=>area(r)<0);if(outers.length!==1)throw Error('MARKING_DISCONNECTED');if(holes.length>32||holes.some(h=>!insideRings([outers[0]],h[0])))throw Error('MARKING_EDIT_FRAME');
- return {origin:[...frame.origin],axes:frame.axes.map(a=>[...a]) as CutProjection['axes'],nodes:outers[0],...(holes.length?{holes}:{})};
+ return {...(marking.placement?{regions:[...marking.placement.regions]}:{}),origin:[...frame.origin],axes:frame.axes.map(a=>[...a]) as CutProjection['axes'],nodes:outers[0],...(holes.length?{holes}:{})};
 }

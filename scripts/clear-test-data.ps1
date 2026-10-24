@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\')
 $legacyProfile = [IO.Path]::GetFullPath((Join-Path $env:APPDATA 'FurryPatternCAD'))
 # Safe by default: never infer that the user's workspace is test data.
-$targets = @('.local\tests','.local\auto-reference-fixture.json','.local\npm-cache','.local\electron-cache','.local\dependency-audit-before.json','target\debug','test-results') | ForEach-Object { [IO.Path]::GetFullPath((Join-Path $taskRoot $_)) }
+$targets = @('.local\tests','.local\auto-reference-fixture.json','.local\npm-cache','.local\dependency-audit-before.json','target\debug','test-results') | ForEach-Object { [IO.Path]::GetFullPath((Join-Path $taskRoot $_)) }
 if ($GeneratedOnly -and $IncludeLegacyProfile) { throw 'GeneratedOnly cannot include a user profile.' }
 $targets += @('.local\runtime-probe.mjs','.local\write-final-audit.mjs') | ForEach-Object { [IO.Path]::GetFullPath((Join-Path $taskRoot $_)) }
 $targets += @('.local\contour-evidence','.local\contour-debug.ts','.local\contour-evidence.mjs','.local\contour-evidence.ts','.local\cut-resume-build.mjs','.local\cut-resume-debug.mjs','.local\cut-resume-debug.ts','.local\cut-resume-project.json') | ForEach-Object { [IO.Path]::GetFullPath((Join-Path $taskRoot $_)) }

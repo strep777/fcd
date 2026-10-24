@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -6,8 +6,8 @@ import {desktopArgs,executablePath} from './desktop-launch.mjs';
 import {hiddenWindowId} from './desktop-window.mjs';
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {workflow} from './ui-navigation.mjs';
-const manifest=JSON.parse(await readFile('test-results/current-cutting/section-trial-visual-workflows.json','utf8')),directory=await mkdtemp(resolve('.local/tests/section-budget-visual-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[],evidence=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
+const manifest=JSON.parse(await readFile('test-results/current-cutting/section-trial-visual-workflows.json','utf8')),directory=await mkdtemp(resolve('.local/tests/section-budget-visual-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[],evidence=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data.project;};
 try{
  await hiddenWindowId(app,page);await page.setViewportSize({width:1920,height:1080});await page.waitForFunction(()=>!!window.fpcad);assert((await page.evaluate(()=>window.fpcad.create({name:'独立裁线视觉检查',unit:'mm'}))).ok);

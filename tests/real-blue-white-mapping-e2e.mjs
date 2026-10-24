@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import {auditSourcePartition} from './real-source-partition-audit.mjs';
 import {assertBlueWhiteSourceAnchors,assertReviewedBlueWhitePartition} from './real-blue-white-source-anchors.mjs';
 import {mappingCoverage,collarCoverage,assertBlueWhiteCoverage,assertActualPigmentFeatures} from './real-mapping-coverage-audit.mjs';
@@ -9,14 +9,14 @@ import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
 import {workflow} from './ui-navigation.mjs';
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {auditRuntime,auditMappedProject,recordLatestInput,sha256,testedArtifacts} from './real-mapping-fixture-audit.mjs';
-const directory=await mkdtemp(resolve('.local/tests/real-blue-white-mapping-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
+const directory=await mkdtemp(resolve('.local/tests/real-blue-white-mapping-')),env={...process.env,FPCAD_DATA_DIR:directory};
 const imagePath=resolve('tests/fixtures/character-blue-white-front-back.png'),fixturePath=resolve('.local/tests/real-mapping-cut/blue-white-project-latest.json'),output=resolve('test-results/real-blue-white-mapping');
 const artifacts=await testedArtifacts(executablePath,process.env.FPCAD_TEST_APP_DIR),worker=artifacts.nativeWorker.path;
 const report={time:new Date().toISOString(),testedBuild,artifacts,directory,imagePath,imageSha256:sha256(await readFile(imagePath)),layout:'front-left',heightMm:1800,measurementAssumption:'1800 mm is an automated test calibration assumption, not a user body measurement',reviewAssumption:'placement.reviewed=true is applied only to the saved cutting test fixture; automated placement remains unreviewed in the actual project',checks:[],errors:[],passed:false};
 await mkdir(output,{recursive:true});const helpers=await auditRuntime(directory);
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow();page.setDefaultTimeout(45000);page.on('pageerror',e=>report.errors.push(e.message));
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow();page.setDefaultTimeout(45000);page.on('pageerror',e=>report.errors.push(e.message));
 try{
- assert.equal(resolve(await app.evaluate(({app})=>app.getAppPath())),artifacts.applicationDirectory,'Audit must read the actual launched app, never shared dist');
+ assert.equal(resolve(await app.evaluate(({host})=>host.getAppPath())),artifacts.applicationDirectory,'Audit must read the actual launched app, never shared dist');
  await page.setViewportSize({width:1440,height:1000});await page.waitForFunction(()=>!!window.fpcad);
  await app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});},imagePath);
  const result=await page.evaluate(async parameters=>{
@@ -37,7 +37,7 @@ try{
  for(const [view,label]of[['front','正面'],['back','背面'],['side','左侧']]){await panel.getByRole('button',{name:label,exact:true}).click();await desktopScreenshot(app,panel,{path:resolve(output,view+'.png')});}
  assertBlueWhiteCoverage(report.coverage,report.collarCoverage);report.navyChecks=await assertActualPigmentFeatures(project,worker,helpers,[{view:'front',x:332,y:603,part:'leg',side:'right',color:'#0c2f68',coreBounds:{left:316,top:553,right:348,bottom:653},minimumCorePixels:500},{view:'front',x:521,y:603,part:'leg',side:'left',color:'#0c2f68',coreBounds:{left:505,top:553,right:537,bottom:653},minimumCorePixels:500},{view:'back',x:167,y:604,part:'leg',side:'left',color:'#0d2f64',coreBounds:{left:151,top:554,right:183,bottom:654},minimumCorePixels:500},{view:'back',x:362,y:606,part:'leg',side:'right',color:'#0d2f64',coreBounds:{left:346,top:556,right:378,bottom:656},minimumCorePixels:500}]);report.checks.push({name:'Four actual navy teardrops retain source pixels and substantial correctly sided leg projection area',passed:true});report.checks.push({name:'Both arms, legs, black outer ears and collar cover actual projected material area, unioning overlaps and preserving holes',passed:true});
  await workflow(page,'references');await desktopScreenshot(app,page,{path:resolve(output,'source-contours.png')});
- assert.deepEqual(report.errors,[]);assert(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().every(w=>!w.isVisible())));
+ assert.deepEqual(report.errors,[]);assert(await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows().every(w=>!w.isVisible())));
  const fixture=structuredClone(project);for(const m of fixture.markings)if(m.placement)m.placement.reviewed=true;await mkdir('.local/tests/real-mapping-cut',{recursive:true});const bytes=Buffer.from(JSON.stringify(fixture));await writeFile(fixturePath,bytes);report.fixturePath=fixturePath;report.fixtureSha256=sha256(bytes);report.nativeWorkerSha256=artifacts.nativeWorker.sha256;report.mainSha256=artifacts.main.sha256;report.surfaceWorkerSha256=artifacts.surfaceWorker.sha256;report.passed=true;
  report.frozenEvidenceDirectory=resolve('test-results/real-blue-white-mapping-'+report.fixtureSha256.slice(0,12));await writeFile(resolve(output,'report.json'),JSON.stringify(report,null,2)+'\n');await cp(output,report.frozenEvidenceDirectory,{recursive:true});report.screenshots=await Promise.all(['front','back','side','source-contours'].map(async view=>{const path=resolve(report.frozenEvidenceDirectory,view+'.png');return {view,path,sha256:sha256(await readFile(path))};}));
  await recordLatestInput('blueWhite',{fixturePath,fixtureSha256:report.fixtureSha256,imagePath,imageSha256:report.imageSha256,testedBuild,artifacts,frozenEvidenceDirectory:report.frozenEvidenceDirectory,screenshots:report.screenshots,mainSha256:report.mainSha256,surfaceWorkerSha256:report.surfaceWorkerSha256,nativeWorkerSha256:report.nativeWorkerSha256,layout:report.layout,measurementAssumption:report.measurementAssumption,reviewAssumption:report.reviewAssumption,autoPlacementReport:report.autoPlacementReport,eligibleSources:report.eligibleSources,audit:report.audit,sourcePartition:report.sourcePartition,passed:true});

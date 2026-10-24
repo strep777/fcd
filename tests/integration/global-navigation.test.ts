@@ -14,7 +14,7 @@ import * as i18n from '../../apps/desktop/src/i18n';
 import {project} from '../fixtures';
 import type {Response,Session} from '../../packages/schema/index';
 
-// Execute the actual SFC setup in Vue's renderer; no Electron, GPU or DOM is needed.
+// Execute the actual SFC setup in Vue's renderer; no desktop host, GPU or DOM is needed.
 const descriptor=parse(readFileSync('apps/desktop/src/App.vue','utf8')).descriptor;
 const script=compileScript(descriptor,{id:'global-navigation-audit'});
 const compiled=transformSync(script.content,{loader:'ts',format:'cjs'}).code,loaded={exports:{} as any};

@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -7,8 +7,8 @@ import {workflow,surfaceCoordinates} from './ui-navigation.mjs';
 import {waitForState} from './wait-state.mjs';
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 
-const directory=await mkdtemp(resolve('.local/tests/complex-source-drop-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),errors=[],checks=[];
+const directory=await mkdtemp(resolve('.local/tests/complex-source-drop-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),errors=[],checks=[];
 page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(20000);
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data.project;};
 const changed=before=>waitForState(page,async n=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision>n;},before,{timeout:60000});
@@ -46,7 +46,7 @@ try{
  let real=await page.evaluate(async piece=>{let p=(await window.fpcad.read()).data.project;const vertices=[[-900,-900],[900,-900],[900,900],[-900,900]].map(([xMm,yMm])=>({id:crypto.randomUUID(),xMm,yMm,zMm:0})),surface={id:crypto.randomUUID(),source:'obj',topologyVersion:1,vertices,faces:[[0,1,2],[0,2,3]].map(ids=>({id:crypto.randomUUID(),vertices:ids.map(i=>vertices[i].id),region:'body'}))};let r=await window.fpcad.apply(p.id,p.revision,{type:'surface.set',surface});if(!r.ok)return r;p=r.data.project;return window.fpcad.apply(p.id,p.revision,{type:'library.region.put',region:{piece,referenceId:p.references[0].id,view:'front',category:'body'}});},legacy);assert(real.ok,JSON.stringify(real));
  await page.reload();await workflow(page,'mapping');await page.locator('.surface-panel').getByRole('button',{name:'正面',exact:true}).click();const realCard=page.locator('.mapping-page .region-card').last(),realTransfer=await page.evaluateHandle(()=>new DataTransfer()),realDrop=await surfaceCoordinates(page,0,0),xs=legacy.nodes.map(n=>n.xMm),ys=legacy.nodes.map(n=>n.yMm),realAnchor={xMm:(Math.min(...xs)+Math.max(...xs))/2,yMm:(Math.min(...ys)+Math.max(...ys))/2};
  await realCard.dispatchEvent('dragstart',{dataTransfer:realTransfer});await realTransfer.evaluate((t,{id,anchor})=>{t.setData('application/x-fpcad-region',id);t.setData('application/x-fpcad-anchor',JSON.stringify(anchor));},{id:legacy.id,anchor:realAnchor});await page.locator('.surface-view').dispatchEvent('drop',{dataTransfer:realTransfer,clientX:realDrop.x,clientY:realDrop.y});await realCard.dispatchEvent('dragend',{dataTransfer:realTransfer});await realTransfer.dispose();await changed(real.data.project.revision);const attached=(await read()).markings.at(-1);assert.equal(attached.surfaceShape.curves.length,318);assert.equal(attached.surfaceShape.holes.length,6);assert(attached.fragments.length);assert.deepEqual((await read()).patternLibrary.find(r=>r.piece.id===legacy.id).piece,legacy);await desktopScreenshot(app,page,{path:'test-results/complex-real-source-drop.png'});checks.push('Actual legacy character contour with 318 curves and six holes attaches through the same public drag-and-drop UI');
- assert.equal(await page.locator('.error-banner').count(),0);assert.deepEqual(errors,[]);assert(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().every(w=>!w.isVisible())));
+ assert.equal(await page.locator('.error-banner').count(),0);assert.deepEqual(errors,[]);assert(await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows().every(w=>!w.isVisible())));
  await desktopScreenshot(app,page,{path:'test-results/complex-source-drop.png'});
 }catch(error){errors.push(String(error));await desktopScreenshot(app,page,{path:'test-results/complex-source-drop-failure.png'}).catch(()=>{});throw error;}
 finally{await writeFile('test-results/complex-source-drop.json',JSON.stringify({passed:checks.length===6&&!errors.length,testedBuild,directory,checks,errors},null,2));await app.close();}

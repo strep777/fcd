@@ -52,10 +52,10 @@ function inspect(p:Project,run:SurfaceRun){
 
 it.each([false,true])('coalescing preserves an inset material and saved user seam (seam=%s)',async seam=>{
  const p=project();p.pieces=[];p.defaultAllowanceMm=0;p.surface=parseObj('v -100 0 0\nv 0 0 0\nv 100 0 0\nv -100 100 0\nv 0 100 0\nv 100 100 0\nf 1 2 5\nf 1 5 4\nf 2 3 6\nf 2 6 5');
- if(seam){const [a,b]=[p.surface.vertices[1],p.surface.vertices[4]];p.surface.cutConstraints=[{a:a.id,b:b.id,locked:true}];p.surface.cutLines=[{id:randomUUID(),name:'Saved user seam',kind:'pen',enabled:true,closed:false,symmetric:false,tension:0,controlPoints:[{...a},{...b}],projection:frame,surfaceAnchored:true,edges:[{a:a.id,b:b.id}]}];}
+ if(seam){const points=[1,4,3,0].map(i=>p.surface!.vertices[i]),edges=points.map((a,i)=>({a:a.id,b:points[(i+1)%points.length].id}));p.surface.cutConstraints=edges.map(e=>({...e,locked:true}));p.surface.cutLines=[{id:randomUUID(),name:'Saved closed user seam',kind:'pen',enabled:true,closed:true,symmetric:false,tension:1,controlPoints:points.map(v=>({...v})),projection:frame,surfaceAnchored:true,edges}];}
  p.markings=[await surfaceMarking(worker,p,{...frame,nodes:[[-50,20],[50,20],[50,80],[-50,80]].map(([xMm,yMm])=>({xMm,yMm}))},'#e5bb32','Inset across seam')];const before=structuredClone(p),candidate=await cutPreview(worker,p.surface,p,{partitionStrategy:'design',method:'arap',automaticCuts:true,colorBoundaryCuts:true},assets),checked=inspect(p,candidate.run);
  expect(p).toEqual(before);expect(candidate.run.pieces).toHaveLength(seam?4:2);expect(checked.colorAreas['#e5bb32']).toBeCloseTo(6000,5);expect(checked.colorAreas['#eceae5']).toBeCloseTo(14000,5);
- if(seam){expect(checked.panels.every(p=>p.maxX<=1e-6||p.minX>=-1e-6)).toBe(true);expect(candidate.run.designCutReport!.userSeams).toBe(1);expect(candidate.run.cutEdges).toEqual([[p.surface.cutConstraints![0].a,p.surface.cutConstraints![0].b]]);}
+ if(seam){expect(checked.panels.every(p=>p.maxX<=1e-6||p.minX>=-1e-6)).toBe(true);expect(candidate.run.designCutReport!.userSeams).toBe(1);expect(candidate.run.cutEdges).toEqual(p.surface.cutConstraints!.map(e=>[e.a,e.b]));}
  const ready={...p,pieces:candidate.run.pieces,bindings:candidate.run.bindings,markings:candidate.markings};expect((await analyze(worker,ready)).flatMap(g=>g.issues.filter(i=>i.severity==='error'))).toEqual([]);
  mkdirSync(output,{recursive:true});writeFileSync(resolve(output,`independent-coalescing-seam-${seam}.json`),JSON.stringify(checked,null,2));
 },30000);

@@ -51,7 +51,7 @@ it('opens the interior pyramid apex on the section boundary instead of isolating
  const mesh=grid(2);for(const v of mesh.vertices)v.zMm=Math.max(0,20*(1-Math.max(Math.abs(v.xMm-40)/40,Math.abs(v.yMm-40)/40)));
  const apex=mesh.vertices.find(v=>v.xMm===40&&v.yMm===40)!,before=structuredClone(mesh),result=section.sectionDesignDomain(mesh,mesh.faces.filter(f=>f.region==='design:#bb8822'),randomUUID);
  expect(result).toBeDefined();expect(mesh).toEqual(before);validateSurface(result!.surface);
- const axis=(['xMm','yMm','zMm'] as const)[result!.plane.axis];expect(Math.abs(apex[axis]-result!.plane.position)).toBeLessThan(1e-9);
+ expect(Math.abs(result!.plane.normal.reduce((sum,n,i)=>sum+n*[apex.xMm,apex.yMm,apex.zMm][i],0)-result!.plane.position)).toBeLessThan(1e-9);
  expect(result!.owned.get('design-section')!.some(e=>e.a===apex.id||e.b===apex.id)).toBe(true);
  for(const part of result!.parts.filter(p=>p.some(f=>f.vertices.includes(apex.id)))){
   const edges=new Map<string,number>();for(const f of part)f.vertices.forEach((a,i)=>{const key=[a,f.vertices[(i+1)%3]].sort().join(':');edges.set(key,(edges.get(key)??0)+1);});

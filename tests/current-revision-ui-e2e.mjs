@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {DatabaseSync,backup} from 'node:sqlite';
 import {createHash} from 'node:crypto';
@@ -19,8 +19,8 @@ const hash=v=>createHash('sha256').update(JSON.stringify(canonical(v))).digest('
 function databaseHash(path){const db=new DatabaseSync(path,{readOnly:true}),h=createHash('sha256');try{for(const r of db.prepare('SELECT id,state FROM sessions ORDER BY id').iterate())h.update(JSON.stringify(r));for(const r of db.prepare('SELECT digest,json FROM resources ORDER BY digest').iterate())h.update(JSON.stringify(r));return h.digest('hex');}finally{db.close();}}
 const userPath=resolve('.local/workspace/workspace.sqlite'),userBefore=databaseHash(userPath),directory=await mkdtemp(resolve('.local/tests/current-revision-ui-')),source=new DatabaseSync(userPath,{readOnly:true});try{await backup(source,resolve(directory,'workspace.sqlite'));}finally{source.close();}
 const copy=new DatabaseSync(resolve(directory,'workspace.sqlite'));try{const row=copy.prepare('SELECT id,state FROM sessions').all().find(r=>JSON.parse(r.state).id===frozen.id&&JSON.parse(r.state).revision===frozen.revision);assert(row,'The read-only backup must contain the exact current revision-9 project');copy.prepare("INSERT OR REPLACE INTO settings VALUES('active',?)").run(row.id);}finally{copy.close();}
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
+const env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
 let report={passed:false,directory,hidden:true,userReadOnly:true,userBefore,frozenInputHash:hash(frozen),checks,errors};
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data;},settle=()=>page.evaluate(()=>new Promise(ok=>requestAnimationFrame(()=>requestAnimationFrame(ok))));
 async function phase(stage){report.stage=stage;await writeFile(resolve(output,'progress.json'),JSON.stringify({...report,checks},null,2));console.log(stage);}

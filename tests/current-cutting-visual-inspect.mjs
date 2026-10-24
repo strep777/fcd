@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {realpath,readFile,writeFile} from 'node:fs/promises';
@@ -10,8 +10,8 @@ import {workflow} from './ui-navigation.mjs';
 import {focusLegacyPaintCamera} from './legacy-paint-camera.mjs';
 const root=await realpath(resolve('.local/tests')),directory=await realpath(resolve(process.env.FPCAD_INSPECT_DATA_DIR??'.'));
 assert(directory.startsWith(root+sep),'Visual inspection must use an existing isolated test project');
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[];
+const env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[];
 page.setDefaultTimeout(30000);page.on('pageerror',e=>errors.push(e.message));
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok);return r.data.project;};
 const outlineBounds=async()=>page.locator('#cutting-pattern-viewport svg.canvas').evaluate(svg=>{

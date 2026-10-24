@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
 import {writeFile} from 'node:fs/promises';
-import {mount,fixtureProject,capture,flush,id} from './surface-viewport-host.mjs';
+import {mount,fixtureProject,capture,flush,id,walk} from './surface-viewport-host.mjs';
 const checks=[];
 async function check(name,run){try{await run();checks.push({case:name,passed:true});}catch(e){checks.push({case:name,passed:false,error:e.stack});}}
 const rects=[{x:0,y:0,width:720,height:540},{x:190,y:74,width:1080,height:420},{x:32,y:215,width:380,height:620}];
+await check('display menu height follows the actual model stage and wrapped navigation without changing project state',async()=>{
+ const f=await mount(fixtureProject(),{mode:'cutting',controls:false});try{
+  const stage=walk(f.root).find(n=>n.attrs.class==='surface-stage'),options=walk(f.root).find(n=>n.attrs.class==='display-options'),menu=options.children.find(n=>n.tag==='div'),before=JSON.stringify(f.store.data);
+  let bottom=540,anchorBottom=90;stage.getBoundingClientRect=()=>({top:0,bottom});options.getBoundingClientRect=()=>({top:60,bottom:anchorBottom});options.open=true;
+  options.attrs.onToggle();await flush();assert.equal(menu.attrs.style.maxHeight,'436px');
+  bottom=310;anchorBottom=124;window.dispatchEvent(new Event('resize'));await flush();assert.equal(menu.attrs.style.maxHeight,'172px','heatmap/toolbar growth reduces the menu to available space');
+  options.open=false;bottom=540;window.dispatchEvent(new Event('resize'));await flush();assert.equal(menu.attrs.style.maxHeight,'172px','a hidden menu does not keep recalculating');
+  assert.equal(JSON.stringify(f.store.data),before);assert.equal(f.calls.length,0);
+ }finally{f.app.unmount();}
+});
 for(const rect of rects)await check(`${rect.width}x${rect.height}: actual controls select vertices/parts, Shift toggles, empty hit clears`,async()=>{
  const f=await mount(fixtureProject(),{rect});try{
   await f.click(f.button('Front'));
@@ -73,4 +83,4 @@ await check('switching projects at an equal revision cancels the old model drag 
   await f.event('onPointerup',x+45,y);assert.equal(f.calls.length,0,'old drag must not submit to a different project with the same revision');assert.deepEqual(f.store.data.project,replacement);assert.equal(capture().surface.id,replacement.surface.id);
  }finally{f.app.unmount();}
 });
-const passed=checks.every(c=>c.passed);await writeFile('test-results/model-viewport-component.json',JSON.stringify({passed,verification:'Actual Vue SFC handlers and stores; custom DOM/GPU host, not Electron pixels',checks},null,2));console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;
+const passed=checks.every(c=>c.passed);await writeFile('test-results/model-viewport-component.json',JSON.stringify({passed,verification:'Actual Vue SFC handlers and stores; custom DOM/GPU host, not WebView2 pixels',checks},null,2));console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;

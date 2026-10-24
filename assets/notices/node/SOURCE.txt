@@ -1,0 +1,3 @@
+Node.js v24.19.0 bundled Windows runtime
+License source: https://raw.githubusercontent.com/nodejs/node/v24.19.0/LICENSE
+Update this notice when upgrading the bundled runtime.

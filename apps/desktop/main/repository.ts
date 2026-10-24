@@ -1,8 +1,10 @@
+import {sewingQualityFailure} from '../../../packages/surface/sewing-quality';
+import {withPatternSpacing} from '../../../packages/manufacturing/pattern-spacing';
 import {archiveCut,activateCut,archivedPlacementMatches} from './cutting-library';
 import {resizeProject,transformProject} from './resize-project';
 import {mapPiece} from '../../../packages/pattern/edit';
 import {placementMatchesModel} from '../../../packages/reference/placement-review';
-import {cutColorHash} from './surface';
+import {cutColorHash,pieceGeometryHash} from './surface';
 import {staleMarkingIds,markingFingerprint} from './markings';
 import {workflowNodes} from '../../../packages/workflow/nodes';
 import {materialInUse} from '../../../packages/manufacturing/dependencies';
@@ -42,10 +44,28 @@ export class Repository {
   transaction<T>(fn:()=>T):T{this.db.exec('BEGIN IMMEDIATE');try{const r=fn();this.db.exec('COMMIT');return r;}catch(e){this.db.exec('ROLLBACK');throw e;}}
   get sessionId():string|null{return this.db.prepare("SELECT value FROM settings WHERE key='active'").get()?.value as string ?? null;}
   row(){const id=this.sessionId;return id?this.db.prepare('SELECT * FROM sessions WHERE id=?').get(id):undefined;}
+  projectMetadata(){const id=this.sessionId,row=id?this.db.prepare("SELECT json_extract(state,'$.name') AS name,destination FROM sessions WHERE id=?").get(id):undefined;return row?{name:String(row.name),destination:row.destination as string|null}:null;}
   snapshot():Project|null{const row=this.row();return row?this.readState(row.state as string):null;}
-  private storeResource(value:unknown){const json=JSON.stringify(value),digest=hash(json);this.db.prepare('INSERT OR IGNORE INTO resources(digest,json) VALUES(?,?)').run(digest,json);return 'sqlite-resource:'+digest;}
+  private storeResource(value:unknown){
+    const json=JSON.stringify(value),digest=hash(json),reference='sqlite-resource:'+digest;
+    // Existing assets still require an exact content check on every call.
+    // Avoid binding their large JSON into an INSERT that can only be ignored.
+    if(!this.db.prepare('SELECT 1 FROM resources WHERE digest=?').get(digest)){
+      const inserted=this.db.prepare('INSERT OR IGNORE INTO resources(digest,json) VALUES(?,?)').run(digest,json);
+      if(inserted.changes)return reference;
+    }
+    if(!this.db.prepare('SELECT 1 FROM resources WHERE digest=? AND json=?').get(digest,json))throw new DomainError('RESOURCE_INTEGRITY');
+    return reference;
+  }
   private readResource(value:unknown):unknown{if(typeof value!=='string'||!value.startsWith('sqlite-resource:'))return value;if(!/^sqlite-resource:[a-f0-9]{64}$/.test(value))throw new DomainError('RESOURCE_INTEGRITY');const digest=value.slice(16),row=this.db.prepare('SELECT json FROM resources WHERE digest=?').get(digest);if(!row||hash(row.json as string)!==digest)throw new DomainError('RESOURCE_INTEGRITY');return JSON.parse(row.json as string);}
-  private storeState(project:Project){const image=(r:NonNullable<Project['references']>[number])=>({...r,...(r.sheet?.png?{sheet:{...r.sheet,png:this.storeResource(r.sheet.png)}}:{}),png:this.storeResource(r.png),...(r.resources?{resources:{...r.resources,source:{...r.resources.source,data:this.storeResource(r.resources.source.data)},proxy:{...r.resources.proxy,png:this.storeResource(r.resources.proxy.png)},thumbnail:{...r.resources.thumbnail,png:this.storeResource(r.resources.thumbnail.png)}}}:{})});return JSON.stringify({...project,...(project.surface?{surface:this.storeResource(project.surface)}:{}),...(project.cuttingLibrary?{cuttingLibrary:project.cuttingLibrary.map(e=>({...e,surface:this.storeResource(e.surface),run:this.storeResource(e.run),markings:this.storeResource(e.markings)}))}:{}),...(project.modelLibrary?{modelLibrary:project.modelLibrary.map(m=>({...m,surface:this.storeResource(m.surface)}))}:{}),...(project.references?{references:project.references.map(image)}:{})});}
+  private storeState(project:Project){
+    // Share only values successfully written and verified during this call.
+    // Every later serialization must check the database resources again.
+    const stored=new Map<unknown,string>();
+    const resource=(value:unknown)=>{const previous=stored.get(value);if(previous!==undefined)return previous;const reference=this.storeResource(value);stored.set(value,reference);return reference;};
+    const image=(r:NonNullable<Project['references']>[number])=>({...r,...(r.sheet?.png?{sheet:{...r.sheet,png:resource(r.sheet.png)}}:{}),png:resource(r.png),...(r.resources?{resources:{...r.resources,source:{...r.resources.source,data:resource(r.resources.source.data)},proxy:{...r.resources.proxy,png:resource(r.resources.proxy.png)},thumbnail:{...r.resources.thumbnail,png:resource(r.resources.thumbnail.png)}}}:{})});
+    return JSON.stringify({...project,...(project.surface?{surface:resource(project.surface)}:{}),...(project.cuttingLibrary?{cuttingLibrary:project.cuttingLibrary.map(e=>({...e,surface:resource(e.surface),run:resource(e.run),markings:resource(e.markings)}))}:{}),...(project.modelLibrary?{modelLibrary:project.modelLibrary.map(m=>({...m,surface:resource(m.surface)}))}:{}),...(project.references?{references:project.references.map(image)}:{})});
+  }
   private readState(state:string):Project{const resources=new Map<string,unknown>(),resource=(value:unknown)=>{if(typeof value==='string'&&value.startsWith('sqlite-resource:')){if(resources.has(value))return resources.get(value);const r=this.readResource(value);resources.set(value,r);return r;}return this.readResource(value);};const p=JSON.parse(state);p.surface=resource(p.surface);if(p.cuttingLibrary)p.cuttingLibrary=p.cuttingLibrary.map((e:Record<string,unknown>)=>({...e,surface:resource(e.surface),run:resource(e.run),markings:resource(e.markings)}));if(p.modelLibrary)p.modelLibrary=p.modelLibrary.map((m:Record<string,unknown>)=>({...m,surface:resource(m.surface)}));if(p.references)p.references=p.references.map((r:NonNullable<Project['references']>[number])=>({...r,...(r.sheet?.png?{sheet:{...r.sheet,png:resource(r.sheet.png)}}:{}),png:resource(r.png),...(r.resources?{resources:{...r.resources,source:{...r.resources.source,data:resource(r.resources.source.data)},proxy:{...r.resources.proxy,png:resource(r.resources.proxy.png)},thumbnail:{...r.resources.thumbnail,png:resource(r.resources.thumbnail.png)}}}:{})}));return parseProject(p);}
   activate(id:string){const target=this.db.prepare('SELECT state FROM sessions WHERE id=?').get(id);if(!target)throw new DomainError('PROJECT_MISSING');try{this.readState(String(target.state));}catch{throw new DomainError('PROJECT_INVALID');}this.db.prepare("INSERT OR REPLACE INTO settings VALUES('active',?)").run(id);this.startupNotice=undefined;}
   recent(){return this.db.prepare("SELECT id,json_extract(state,'$.name') AS name,json_extract(state,'$.revision') AS revision FROM sessions WHERE json_valid(state) ORDER BY rowid DESC LIMIT 100").all().map(r=>({sessionId:String(r.id),name:String(r.name),revision:Number(r.revision)}));}
@@ -93,11 +113,11 @@ export class Repository {
   create(name:string){const now=new Date().toISOString();return this.open({schemaVersion:2,id:randomUUID(),name,unit:'mm',revision:0,createdAt:now,updatedAt:now,pieces:[]},null);}
   open(project:Project,destination:string|null){
     const parsed=projectSchema.parse(project),sid=randomUUID();
-    this.transaction(()=>{this.db.prepare('INSERT INTO sessions(id,state,saved_revision,destination) VALUES(?,?,?,?)').run(sid,this.storeState(parsed),destination?parsed.revision:null,destination);this.db.prepare("INSERT OR REPLACE INTO settings VALUES('active',?)").run(sid);this.checkpointWithinTransaction();});
+    this.transaction(()=>{const state=this.storeState(parsed);this.db.prepare('INSERT INTO sessions(id,state,saved_revision,destination) VALUES(?,?,?,?)').run(sid,state,destination?parsed.revision:null,destination);this.db.prepare("INSERT OR REPLACE INTO settings VALUES('active',?)").run(sid);this.checkpointStateWithinTransaction(sid,parsed.revision,state);});
     this.startupNotice=undefined;return parsed;
   }
   assertRevision(id:string,revision:number){const p=this.db.prepare("SELECT json_extract(state,'$.id') AS projectId,json_extract(state,'$.revision') AS revision FROM sessions WHERE id=?").get(this.sessionId??'');if(!p||p.projectId!==id)throw new DomainError('PROJECT_MISMATCH');if(p.revision!==revision)throw new DomainError('REVISION_CONFLICT');}
-  commit(command:Command,requestId:string,fingerprint:string,withinTransaction?:()=>void){
+  commit(command:Command,requestId:string,fingerprint:string,withinTransaction?:(checkpoint:()=>void)=>void){
     return this.transaction(()=>{
       const before=this.snapshot();if(!before)throw new DomainError('PROJECT_MISSING');const after=structuredClone(before);
       saveActiveModel(after);
@@ -152,9 +172,24 @@ export class Repository {
           after.markings=command.type==='model.activate'?model.markings??[]:[];
           if(command.type==='model.activate'){after.pieces.push(...model.pieces??[]);after.seams=[...(after.seams??[]),...(model.seams??[])];}
           after.surfaceRun=undefined;after.previewMarkings=undefined;after.nesting=undefined;
+          if(command.type==='model.activate'){
+            // Restore display provenance only. Loading an archive would replace
+            // the model's current edits and could bless an expired dependency.
+            const mesh=after.surface!,digest=hash(JSON.stringify(mesh)),colors=cutColorHash(after),pieces=new Map((model.pieces??[]).map(p=>[p.id,p])),bindings=new Map((after.bindings??[]).map(b=>[b.pieceId,b]));
+            const matches=after.cuttingLibrary?.filter(entry=>{
+              const run=entry.run;if(!run.accepted||entry.surface.id!==mesh.id||run.sourceHash!==digest||hash(JSON.stringify(entry.surface))!==digest||!run.pieces.length||run.pieces.length!==(model.pieces?.length??0)||run.bindings.length!==(after.bindings?.length??0)||pieces.size!==run.pieces.length||bindings.size!==run.bindings.length)return false;
+              if(run.pieces.some(p=>{
+                const current=pieces.get(p.id),material=after.materials?.find(m=>m.id===current?.materialId);
+                return !current||JSON.stringify(p)!==JSON.stringify(material?{...current,material:material.name}:current);
+              }))return false;
+              return run.bindings.every(b=>{const piece=pieces.get(b.pieceId);return !!piece&&b.surfaceId===mesh.id&&b.topologyVersion===mesh.topologyVersion&&b.surfaceHash===digest&&b.geometryHash===pieceGeometryHash(piece)&&(b.colorHash===undefined||b.colorHash===colors)&&JSON.stringify(b)===JSON.stringify(bindings.get(b.pieceId));});
+            });
+            if(matches?.length===1){after.surfaceRun=structuredClone(matches[0].run);after.activeCutId=matches[0].id;}
+          }
         }
         if(command.type==='model.delete')after.modelLibrary=after.modelLibrary?.filter(m=>m.id!==model.id);
       }else if(command.type==='project.allowance')after.defaultAllowanceMm=command.widthMm;
+      else if(command.type==='patterns.allowance')Object.assign(after,withPatternSpacing(after,command.widthMm,command.join));
       else if(command.type==='material.put'){const list=after.materials??[],old=list.find(m=>m.id===command.material.id);if(old&&command.material.version!==old.version+1||!old&&command.material.version!==1)throw new DomainError('MATERIAL_VERSION');after.materials=[...list.filter(m=>m.id!==command.material.id),command.material];for(const piece of after.pieces)if(piece.materialId===command.material.id)piece.material=command.material.name;}
       else if(command.type==='material.delete'){if(materialInUse(after,command.materialId))throw new DomainError('MATERIAL_IN_USE');if(!after.materials?.some(m=>m.id===command.materialId))throw new DomainError('ENTITY_MISSING');after.materials=after.materials.filter(m=>m.id!==command.materialId);}
       else if(command.type==='marking.put'){const list=after.markings??[],i=list.findIndex(m=>m.id===command.marking.id);if(i<0)list.push(command.marking);else list[i]=command.marking;after.markings=list;}
@@ -210,7 +245,13 @@ export class Repository {
       else if(command.type==='cutting.activate')activateCut(after,command.entryId);
       else if(command.type==='cutting.delete'){if(after.activeCutId===command.entryId)throw new DomainError('CUT_LIBRARY_ACTIVE');if([...(after.markings??[]),...(after.modelLibrary??[]).flatMap(model=>model.markings??[])].some(m=>m.source==='cut-library'&&m.cutLibraryId===command.entryId))throw new DomainError('CUT_LIBRARY_DEPENDENCY');if(!after.cuttingLibrary?.some(e=>e.id===command.entryId))throw new DomainError('ENTITY_MISSING');after.cuttingLibrary=after.cuttingLibrary.filter(e=>e.id!==command.entryId);if(after.activeCutId===command.entryId)after.activeCutId=undefined;}
       else if(command.type==='unwrap.candidate'){after.surfaceRun={...command.run,inputHash:cutCandidateInputHash(after)};after.previewMarkings=command.markings;}
-      else if(command.type==='unwrap.accept'){const run=after.surfaceRun;if(!run||run.accepted||!after.surface||run.sourceHash!==hash(JSON.stringify(after.surface))||run.inputHash!==cutCandidateInputHash(after))throw new DomainError('STALE_RESULT');const candidateMarkings=after.previewMarkings??after.markings??[];if(candidateMarkings.some(m=>m.placement&&!m.placement.reviewed))throw new DomainError('AUTOMATIC_PLACEMENT_REVIEW');if(candidateMarkings.some(m=>m.inference&&!m.inference.reviewed))throw new DomainError('INFERRED_MARKING_REVIEW');const removed=new Set(after.bindings?.filter(b=>b.surfaceId===after.surface!.id).map(b=>b.pieceId));
+      else if(command.type==='unwrap.accept'){const run=after.surfaceRun;if(!run||run.accepted||!after.surface||run.sourceHash!==hash(JSON.stringify(after.surface))||run.inputHash!==cutCandidateInputHash(after))throw new DomainError('STALE_RESULT');
+        const candidateMarkings=after.previewMarkings??after.markings??[],candidatePieces=new Map(run.pieces.map(p=>[p.id,p]));
+        // Candidate fragments can differ from the live sources after exact
+        // reprojection. Validate the dependencies that will actually be committed.
+        const candidateColorHash=run.bindings.some(b=>b.colorHash!==undefined)?cutColorHash({...after,markings:candidateMarkings}):undefined;
+        if(run.bindings.some(b=>{const piece=candidatePieces.get(b.pieceId);return !piece||b.surfaceHash!==run.sourceHash||b.geometryHash!==pieceGeometryHash(piece)||b.colorHash!==undefined&&b.colorHash!==candidateColorHash;}))throw new DomainError('STALE_RESULT');
+        if(sewingQualityFailure(after.surface,run))throw new DomainError('UNWRAP_DISTORTION');if(candidateMarkings.some(m=>m.placement&&!m.placement.reviewed))throw new DomainError('AUTOMATIC_PLACEMENT_REVIEW');if(candidateMarkings.some(m=>m.inference&&!m.inference.reviewed))throw new DomainError('INFERRED_MARKING_REVIEW');const removed=new Set(after.bindings?.filter(b=>b.surfaceId===after.surface!.id).map(b=>b.pieceId));
         if(after.seams?.some(s=>removed.has(s.a.pieceId)||removed.has(s.b.pieceId)))throw new DomainError('SEAM_DEPENDENCY');
         if(after.markings?.some(m=>m.locked&&m.paths.some(path=>removed.has(path.pieceId))))throw new DomainError('MARKING_LOCKED');
         after.pieces=after.pieces.filter(p=>!removed.has(p.id));after.seams=after.seams?.filter(s=>!removed.has(s.a.pieceId)&&!removed.has(s.b.pieceId));
@@ -244,7 +285,8 @@ export class Repository {
       this.db.prepare('INSERT INTO commands VALUES(?,?,?,?,?)').run(sid,cursor+1,beforeState,afterState,command.type);
       this.write(after,command.type,cursor+1,afterState);
       this.db.prepare('INSERT INTO requests VALUES(?,?,?,?)').run(sid,requestId,fingerprint,afterState);
-      withinTransaction?.();
+      let checkpointActive=true;
+      try{withinTransaction?.(()=>{if(!checkpointActive)throw new Error('CHECKPOINT_TRANSACTION_CLOSED');this.checkpointStateWithinTransaction(sid,after.revision,afterState);});}finally{checkpointActive=false;}
       return after;
     });
   }
@@ -259,9 +301,11 @@ export class Repository {
     const state=this.storeState(next);this.write(next,redo?'redo':'undo',redo?cursor+1:cursor-1,state);if(requestId)this.db.prepare('INSERT INTO requests VALUES(?,?,?,?)').run(this.sessionId!,requestId,fingerprint!,state);return next;
   });}
   checkpoint(){if(this.sessionId)this.transaction(()=>this.checkpointWithinTransaction());}
-  checkpointWithinTransaction(){const p=this.snapshot();if(!p)return;const s=this.storeState(p);this.db.prepare('INSERT OR REPLACE INTO recovery VALUES(?,?,?,?)').run(this.sessionId!,p.revision,s,hash(s));this.db.prepare('DELETE FROM recovery WHERE session_id=? AND revision NOT IN (SELECT revision FROM recovery WHERE session_id=? ORDER BY revision DESC LIMIT 10)').run(this.sessionId!,this.sessionId!);}
+  checkpointWithinTransaction(){const p=this.snapshot();if(p)this.checkpointStateWithinTransaction(this.sessionId!,p.revision,this.storeState(p));}
+  // Only reuse state serialized and resource-checked by the current transaction.
+  private checkpointStateWithinTransaction(sid:string,revision:number,state:string){this.db.prepare('INSERT OR REPLACE INTO recovery VALUES(?,?,?,?)').run(sid,revision,state,hash(state));this.db.prepare('DELETE FROM recovery WHERE session_id=? AND revision NOT IN (SELECT revision FROM recovery WHERE session_id=? ORDER BY revision DESC LIMIT 10)').run(sid,sid);}
   restore(revision:number){const r=this.db.prepare('SELECT * FROM recovery WHERE session_id=? AND revision=?').get(this.sessionId!,revision);if(!r||hash(r.state as string)!==r.checksum)throw new DomainError('RECOVERY_INVALID');const restored=this.readState(r.state as string);
-    this.transaction(()=>{const current=this.snapshot()!;const cursor=Number(this.row()!.cursor);restored.revision=current.revision+1;restored.updatedAt=new Date().toISOString();this.db.prepare('DELETE FROM commands WHERE session_id=? AND sequence>?').run(this.sessionId!,cursor);this.db.prepare('INSERT INTO commands VALUES(?,?,?,?,?)').run(this.sessionId!,cursor+1,this.storeState(current),this.storeState(restored),'recovery.restore');this.write(restored,'recovery.restore',cursor+1);this.checkpointWithinTransaction();});
+    this.transaction(()=>{const current=this.snapshot()!;const sid=this.sessionId!,cursor=Number(this.row()!.cursor);restored.revision=current.revision+1;restored.updatedAt=new Date().toISOString();const state=this.storeState(restored);this.db.prepare('DELETE FROM commands WHERE session_id=? AND sequence>?').run(sid,cursor);this.db.prepare('INSERT INTO commands VALUES(?,?,?,?,?)').run(sid,cursor+1,this.storeState(current),state,'recovery.restore');this.write(restored,'recovery.restore',cursor+1,state);this.checkpointStateWithinTransaction(sid,restored.revision,state);});
   }
   markSaved(destination:string,revision:number){this.db.prepare('UPDATE sessions SET destination=?,saved_revision=? WHERE id=?').run(destination,revision,this.sessionId!);}
   status(){const row=this.row();const sid=this.sessionId;return {canUndo:!!row&&Number(row.cursor)>0,canRedo:!!row&&!!this.db.prepare('SELECT 1 FROM commands WHERE session_id=? AND sequence=?').get(sid!,Number(row.cursor)+1),savedRevision:row?.saved_revision as number|null??null,recovery:sid?this.db.prepare('SELECT revision FROM recovery WHERE session_id=? ORDER BY revision DESC').all(sid).map(r=>Number(r.revision)):[],history:sid?this.db.prepare('SELECT revision,type FROM events WHERE session_id=? ORDER BY revision DESC LIMIT 30').all(sid).map(r=>({revision:Number(r.revision),type:String(r.type)})):[]};}

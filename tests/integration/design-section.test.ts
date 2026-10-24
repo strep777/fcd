@@ -7,7 +7,14 @@ function cylinder():Surface{const vertices:Surface['vertices']=[],faces:Surface[
 it('cuts a cylinder through original triangle interiors with a straight physical section and exact coverage',()=>{
  const mesh=cylinder(),before=structuredClone(mesh),result=sectionDesignDomain(mesh,mesh.faces,randomUUID);expect(result).toBeDefined();expect(mesh).toEqual(before);validateSurface(result!.surface);expect(result!.parts).toHaveLength(2);
  const ids=new Set(result!.parts.flat().map(f=>f.id));expect(ids.size).toBe(result!.surface.faces.length);
- const original=new Set(mesh.vertices.map(v=>v.id)),created=result!.surface.vertices.filter(v=>!original.has(v.id));expect(created.length).toBeGreaterThan(0);const key=(['xMm','yMm','zMm'] as const)[result!.plane.axis];for(const v of created)expect(Math.abs(v[key]-result!.plane.position)).toBeLessThan(1e-7);
+ const original=new Set(mesh.vertices.map(v=>v.id)),created=result!.surface.vertices.filter(v=>!original.has(v.id));expect(created.length).toBeGreaterThan(0);for(const v of created)expect(Math.abs(result!.plane.normal.reduce((sum,n,i)=>sum+n*[v.xMm,v.yMm,v.zMm][i],0)-result!.plane.position)).toBeLessThan(1e-7);
  for(const children of result!.children.values()){const sum=children.reduce((sum,c)=>{const[a,b,d]=c.triangle;return sum+((b[0]-a[0])*(d[1]-a[1])-(b[1]-a[1])*(d[0]-a[0]))/1e6;},0);expect(sum).toBeCloseTo(1,10);}
 });
 it('has no side effects when a component is too small for a physical section',()=>{const mesh=cylinder();mesh.faces=mesh.faces.slice(0,2);const before=structuredClone(mesh);expect(sectionDesignDomain(mesh,mesh.faces,randomUUID)).toBeUndefined();expect(mesh).toEqual(before);});
+it('a posed tubular limb gets a longitudinal section in its own frame',()=>{
+ const mesh=cylinder(),angle=.71,c=Math.cos(angle),s=Math.sin(angle);
+ mesh.vertices=mesh.vertices.map(v=>({...v,xMm:c*v.xMm+s*v.yMm,yMm:-s*v.xMm+c*v.yMm,zMm:v.zMm}));
+ const result=sectionDesignDomain(mesh,mesh.faces,randomUUID)!;expect(result).toBeDefined();expect(result.parts).toHaveLength(2);validateSurface(result.surface);
+ const normal=result.plane.normal;expect(Math.abs(normal[0]*s+normal[1]*c)).toBeLessThan(.1);
+ const original=new Set(mesh.vertices.map(v=>v.id));for(const v of result.surface.vertices.filter(v=>!original.has(v.id)))expect(Math.abs(normal[0]*v.xMm+normal[1]*v.yMm+normal[2]*v.zMm-result.plane.position)).toBeLessThan(1e-7);
+});

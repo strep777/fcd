@@ -1,6 +1,7 @@
 import type {Marking,Surface} from '../schema/index';
 import {shapePoint,type Shape,type Point} from './attached-edit';
 import {projectionFaces} from './projection-scope';
+import {decalChart} from './decal-chart';
 import {sampleShapeContour} from './shape-contour';
 import {triangleWeights} from './triangles';
 import {boxIndex,boxesOverlap,type Box} from './spatial';
@@ -26,7 +27,8 @@ function subtractConvex(ring:Point[],clip:Point[]):Point[][]{
 export function previewFragments(surface:Surface,shape:Shape,budget=2000000):Marking['fragments']|undefined{
  const outer=sampleShapeContour(shape),rings=[outer,...shape.holes??[]],scope=projectionFaces(surface,shape);
  const box=(points:Point[]):Box=>[Math.min(...points.map(p=>p.xMm)),Math.min(...points.map(p=>p.yMm)),Math.max(...points.map(p=>p.xMm)),Math.max(...points.map(p=>p.yMm))];
- const bounds=box(outer),vertices=new Map(surface.vertices.map(v=>[v.id,{point:shapePoint(shape,v),depth:shape.axes[2].reduce((s,n,i)=>s+n*([v.xMm,v.yMm,v.zMm][i]-shape.origin[i]),0)}]));
+ const chart=decalChart(surface,shape);
+ const bounds=box(outer),vertices=new Map(surface.vertices.map(v=>[v.id,{point:chart?.get(v.id)??shapePoint(shape,v),depth:chart?0:shape.axes[2].reduce((s,n,i)=>s+n*([v.xMm,v.yMm,v.zMm][i]-shape.origin[i]),0)}]));
  const faces=surface.faces.filter(f=>!scope||scope.has(f.id)).map(face=>{
   const v=face.vertices.map(id=>vertices.get(id)!),triangle=v.map(v=>v.point),depth=v.map(v=>v.depth);
   return {face,triangle,depth,box:box(triangle),det:area(triangle)};

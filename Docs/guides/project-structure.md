@@ -9,7 +9,8 @@ fcd/
 ├── package.json                # 应用依赖与开发命令
 ├── 启动新版FurryCAD.bat         # 准备依赖、构建并启动当前源码
 ├── apps/desktop/
-│   ├── main/                   # Electron 服务、持久化、工作线程
+│   ├── src-tauri/              # Tauri 窗口、权限和原生宿主
+│   ├── main/                   # Node.js 后台、持久化、工作线程
 │   └── src/                    # Vue 界面与编辑交互
 ├── packages/                   # 按领域划分的共享逻辑
 ├── crates/
@@ -42,7 +43,7 @@ fcd/
 | 本机助手与配置 | `main/assistant-bridge.ts`、`main/assistant-settings.ts` |
 | 原生几何算法 | `crates/geometry-core/src/`；协议入口在 `crates/worker/src/main.rs` |
 
-表中的 `main/` 和 `src/` 均相对于 `apps/desktop/`。主流程为：渲染端 → preload API → 主进程请求队列与修订检查 → 领域服务/工作进程 → Repository 事务 → 统一会话状态。
+表中的 `main/` 和 `src/` 均相对于 `apps/desktop/`。主流程为：渲染端 → Tauri command 与私有后台管道 → 主进程请求队列与修订检查 → 领域服务/工作进程 → Repository 事务 → 统一会话状态。
 
 ## 本地内容的边界
 
@@ -51,7 +52,7 @@ fcd/
 | `node_modules/`、`.tools/` | npm 依赖与本地工具链 | 不提交；保留可用工具链 |
 | `target/`、`target-*/` | Rust 编译缓存 | 不提交；可以重新编译生成 |
 | `dist/` | 桌面应用构建产物 | 不提交；由构建脚本生成 |
-| `release/` | 本地发布包与 latest 指针 | 不提交；分发时复制完整发布目录 |
+| `apps/desktop/src-tauri/target/release/bundle/` | Tauri 安装包 | 不提交；分发 NSIS 安装程序 |
 | `.local/workspace/` | 用户工作库 | 保留和备份，不当作缓存清理 |
 | `.local/tests/`、`test-results/` | 隔离测试数据与输出 | 不提交；按维护脚本清理 |
 | `tests/fixtures/`、`assets/` | 回归样本与生产资源 | 属于源码，保持引用和许可证完整 |

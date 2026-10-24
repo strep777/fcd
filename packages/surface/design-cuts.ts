@@ -1,6 +1,7 @@
 import type {Surface,Marking} from '../schema/index';
-import {refineSurface,edgeKey,type Bary,type FaceCut} from './refine';
+import {refineSurface,edgeKey,type Bary,type FaceCut,type Child} from './refine';
 import {completePlanarSeams} from './complete-planar-seams';
+import {garmentSections} from './garment-sections';
 export type MaterialFace={faceId:string;barycentric:[Bary,Bary,Bary];color:string};
 /** Compose a refined station with its original material triangle. Plane/edge
  * arithmetic can put an exact boundary station a few ulps outside [0, 1].
@@ -9,6 +10,16 @@ export function composeMaterialStation([u,v]:[number,number],parent:[Bary,Bary,B
  const unit=(raw:number[]):Bary=>{const tolerance=64*Number.EPSILON,sum=raw.reduce((s,n)=>s+n,0);if(raw.some(n=>!Number.isFinite(n)||n< -tolerance||n>1+tolerance)||Math.abs(sum-1)>tolerance)throw Error('INVALID_CUT');const bounded=raw.map(n=>Math.max(0,Math.min(1,n))),total=bounded.reduce((s,n)=>s+n,0);return bounded.map(n=>n/total) as Bary;};
  const weights=unit([1-(u+v)/1000,u/1000,v/1000]);
  return unit([0,1,2].map(k=>weights.reduce((sum,n,i)=>sum+n*parent[i][k],0)));
+}
+/** A proposed section is optional. Reject unsafe stations before changing any
+ * provenance, so the solver can split along existing mesh edges instead. */
+export function refineMaterialProvenance(provenance:Map<string,MaterialFace>,children:Map<string,Child[]>){
+ const next=new Map(provenance);
+ for(const [parent,rows] of children){const source=provenance.get(parent);if(!source)throw Error('STALE_BINDING');
+  next.delete(parent);
+  for(const child of rows){let barycentric:MaterialFace['barycentric'];try{barycentric=child.triangle.map(point=>composeMaterialStation(point,source.barycentric)) as MaterialFace['barycentric'];}catch(error){if(error instanceof Error&&error.message==='INVALID_CUT')return;throw error;}next.set(child.face.id,{...source,barycentric});}
+ }
+ return next;
 }
 const contains=(p:number[],ring:Bary[])=>{let inside=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a[2]>p[1])!==(b[2]>p[1])&&p[0]<(b[1]-a[1])*(p[1]-a[2])/(b[2]-a[2])+a[1])inside=!inside;}return inside;};
 /** Material boundaries subdivide triangles before flattening. Anatomical labels
@@ -23,6 +34,7 @@ export function materialCutMesh(source:Surface,markings:Marking[],newId=()=>cryp
  return openMaterialMesh(refined.surface,provenance,newId,allowTopologyCuts);
 }
 export function openMaterialMesh(source:Surface,provenance:Map<string,MaterialFace>,newId=()=>crypto.randomUUID(),allowTopologyCuts=true){
+ if(allowTopologyCuts){const sections=garmentSections(source,newId);if(sections){const updated=refineMaterialProvenance(provenance,sections.children);if(updated){source=sections.surface;provenance=updated;}}}
  const mesh={...source,assembly:undefined,textures:undefined,textureFaces:undefined,cutLines:undefined,cutBaseConstraints:undefined,faces:source.faces.map(f=>({...f,region:'design:'+provenance.get(f.id)!.color}))};
  const completed=allowTopologyCuts?completePlanarSeams(mesh):{surface:mesh,seams:0},opened=openDesignSeams(completed.surface,newId),topology=necessaryTopologyCuts(opened),surface=allowTopologyCuts&&topology.edges.length?openDesignSeams({...opened,cutConstraints:topology.edges.map(e=>({...e,locked:true}))},newId):opened;
  return {surface,provenance,topologySeams:allowTopologyCuts?topology.seams+completed.seams:0,materialDomains:topology.domains};

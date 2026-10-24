@@ -10,3 +10,5 @@ __pycache__/
 *.py[cod]
 /.idea
 /.codex
+
+apps/desktop/src-tauri/gen/

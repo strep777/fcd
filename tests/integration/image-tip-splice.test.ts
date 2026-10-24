@@ -17,8 +17,8 @@ function fixture():Geometry{
  return{nodes,curves:[curve('AB','A','B',[20,8],[30,43]),curve('BC','B','C',[50,55],[60,2]),curve('DE','D','E',[90+k,20],[100,30-k]),curve('EF','E','F',[100,30+k],[90+k,40])]};
 }
 function source(base:Geometry,index:number,t:number){const a=base.nodes[index],b=base.nodes[(index+1)%base.nodes.length],c=base.curves.find(c=>c.startNodeId===a.id&&c.endNodeId===b.id);return c?at(a,c.c1,c.c2,b,t):mix(a,b,t);}
-function run(base:Geometry,closed:boolean,windows:Parameters<typeof spliceSourceTips>[2]){
- const before=structuredClone({base,windows});let serial=0;const result=spliceSourceTips(base,closed,windows,()=>`fresh-${++serial}`);expect({base,windows}).toEqual(before);return result;
+function run(base:Geometry,closed:boolean,windows:Parameters<typeof spliceSourceTips>[2],compactStations=false){
+ const before=structuredClone({base,windows});let serial=0;const result=spliceSourceTips(base,closed,windows,()=>`fresh-${++serial}`,compactStations);expect({base,windows}).toEqual(before);return result;
 }
 function outside(base:Geometry,result:Geometry){
  let maximum=0;
@@ -35,6 +35,20 @@ function outside(base:Geometry,result:Geometry){
 
 it.each([false,true])('preserves outside cubics and an unrelated round end in closed=%s',closed=>{
  const base=fixture(),tip=p('tip',25,18),result=run(base,closed,[{from:source(base,0,.25),to:source(base,0,.75),tip}]);expect(result).toBeDefined();expect(result!.nodes.filter(p=>p.id===tip.id)).toHaveLength(1);outside(base,result!);
+});
+
+it.each([false,true])('compact source splice preserves a real line/cubic corner away from its window in closed=%s',closed=>{
+ const base=fixture(),old=base.curves.find(c=>c.id==='DE')!;
+ // CD enters D horizontally, while DE leaves vertically: this is an actual
+ // prescribed 90-degree source corner, unrelated to the AB tip window.
+ old.c1=p(old.c1.id,90,25);const before=structuredClone(old),a=base.nodes.find(n=>n.id==='D')!,b=base.nodes.find(n=>n.id==='E')!;
+ const result=run(base,closed,[{from:source(base,0,.25),to:source(base,0,.75),tip:p('tip',25,18)}],true);expect(result).toBeDefined();
+ const now=result!.curves.find(c=>c.startNodeId==='D'&&c.endNodeId==='E');expect(now).toBeDefined();
+ expect([now!.c1.xMm,now!.c1.yMm]).toEqual([before.c1.xMm,before.c1.yMm]);expect([now!.c2.xMm,now!.c2.yMm]).toEqual([before.c2.xMm,before.c2.yMm]);
+ const atD=result!.nodes.findIndex(n=>n.id==='D'),previous=result!.nodes[(atD+result!.nodes.length-1)%result!.nodes.length],corner=result!.nodes[atD];
+ const incoming={xMm:corner.xMm-previous.xMm,yMm:corner.yMm-previous.yMm},outgoing={xMm:now!.c1.xMm-corner.xMm,yMm:now!.c1.yMm-corner.yMm};
+ expect(Math.abs(Math.atan2(incoming.xMm*outgoing.yMm-incoming.yMm*outgoing.xMm,incoming.xMm*outgoing.xMm+incoming.yMm*outgoing.yMm))).toBeCloseTo(Math.PI/2,12);
+ for(let j=0;j<=64;j++)expect(gap(at(a,before.c1,before.c2,b,j/64),at(a,now!.c1,now!.c2,b,j/64))).toBeLessThan(1e-12);
 });
 
 it('splices a window crossing the closed start without moving the other round end',()=>{

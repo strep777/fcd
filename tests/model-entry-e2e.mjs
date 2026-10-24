@@ -1,7 +1,7 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {assertSurfaceRendered,surfacePixels,frontFace,waitSurfacePaint} from './surface-renderer.mjs';
-import {chooseProject} from './ui-navigation.mjs';
-import {_electron as electron} from 'playwright';
+import {chooseProject,waitForIdle} from './ui-navigation.mjs';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -11,12 +11,12 @@ import {Document,NodeIO} from '@gltf-transform/core';
 
 const started=Date.now();
 const directory=await mkdtemp(resolve('.local/tests/model-entry-'));
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const launch=()=>electron.launch({args:desktopArgs,executablePath,env});
+const env={...process.env,FPCAD_DATA_DIR:directory};
+const launch=()=>desktop.launch({args:desktopArgs,executablePath,env});
 let app=await launch(),page=await app.firstWindow();const errors=[],checks=[];
 const watchErrors=()=>{page.on('pageerror',error=>errors.push(error.message));page.on('console',message=>{if(message.text().includes('[Vue warn]'))errors.push(message.text());});};watchErrors();
 const read=async()=>{const response=await page.evaluate(()=>window.fpcad.read());assert(response.ok,JSON.stringify(response));return response.data.project;};
-const idle=()=>page.waitForFunction(()=>!(/处理中|Working/.test(document.querySelector('.app-shell>footer')?.textContent??'')));
+const idle=()=>waitForIdle(page);
 const create=async name=>{const response=await page.evaluate(name=>window.fpcad.create({name,unit:'mm'}),name);assert(response.ok,JSON.stringify(response));await page.reload();await chooseProject(page);};
 const chooseFile=path=>app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});},path);
 const source=()=>page.getByRole('dialog',{name:'创建 / 导入模型',exact:true});
@@ -33,6 +33,8 @@ try{
  await page.setViewportSize({width:1000,height:680});
  const bounds=await chooser.boundingBox();assert(bounds.x>=0&&bounds.y>=0&&bounds.x+bounds.width<=1000&&bounds.y+bounds.height<=680);
  for(let i=0;i<8;i++){await page.keyboard.press('Tab');assert(await chooser.evaluate(dialog=>dialog.contains(document.activeElement)));}
+ for(let i=0;i<8;i++){await page.keyboard.press('Shift+Tab');assert(await chooser.evaluate(dialog=>dialog.contains(document.activeElement)));}
+ await page.evaluate(()=>document.activeElement?.blur());await page.keyboard.press('Tab');assert(await chooser.evaluate(dialog=>dialog.contains(document.activeElement)),'Tab must recover focus if the hidden native modal leaves body active');
  await desktopScreenshot(app,page,{path:'test-results/model-entry-choices.png'});
  checks.push('source choices fit a narrow window and keyboard focus stays inside the native modal');
  const original=await read();
@@ -43,7 +45,7 @@ try{
  for(const value of ['','0','-1','10001']){await input.fill(value);assert(await importButton.isDisabled());assert(await chooser.getByRole('alert').isVisible());}
  assert.equal(await app.evaluate(()=>globalThis.__modelEntryOpenCalls),0);
  await input.fill('1');await importButton.click();
- await chooser.getByRole('status').filter({hasText:'未选择文件'}).waitFor();await idle();assert.deepEqual(await read(),original);
+ await chooser.getByRole('status').filter({hasText:'未选择文件'}).waitFor();await idle();assert.deepEqual(await read(),original);assert(await chooser.evaluate(dialog=>dialog.contains(document.activeElement)),'File-picker cancellation must return focus to an enabled chooser control');
  assert.equal(await app.evaluate(()=>globalThis.__modelEntryOpenCalls),1);
  await page.keyboard.press('Escape');await chooser.waitFor({state:'hidden'});assert.deepEqual(await read(),original);
  checks.push('invalid scales and underlying save/undo shortcuts are blocked; file-picker cancellation leaves project and choices usable');
@@ -58,7 +60,7 @@ try{
  await importButton.click();await page.waitForFunction(()=>document.querySelector('.model-source-dialog input')?.disabled);
  assert(await page.locator('.surface-empty>button').isDisabled());assert(await chooser.getByRole('button',{name:'取消',exact:true}).isDisabled());
  await page.keyboard.press('Escape');assert(await chooser.isVisible());
- await chooser.getByRole('button',{name:'正在导入…',exact:true}).evaluate(button=>{button.click();button.click();});
+ assert(await importButton.isDisabled());assert.equal(await chooser.getByRole('button',{name:'正在导入…',exact:true}).count(),0,'choosing a file must not claim import processing has started');await importButton.evaluate(button=>{button.click();button.click();});
  assert.equal(await app.evaluate(()=>globalThis.__modelEntryOpenCalls),1);
  await app.evaluate(()=>globalThis.__modelEntryResolveOpen());await chooser.getByRole('status').filter({hasText:'未选择文件'}).waitFor();await idle();assert.deepEqual(await read(),original);
  checks.push('pending import blocks duplicate requests, settings edits, background entry and modal cancellation until the native picker settles');

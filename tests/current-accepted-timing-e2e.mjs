@@ -1,5 +1,5 @@
 // Diagnose the already accepted real project. No surface.unwrap request is made.
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {DatabaseSync,backup} from 'node:sqlite';
 import {createHash} from 'node:crypto';
@@ -20,7 +20,7 @@ const baselineHash=dbHash(sourcePath),userBefore=dbHash(userPath),directory=awai
 const source=new DatabaseSync(sourcePath,{readOnly:true});let baseline,sessionId;
 try{const row=source.prepare('SELECT id,state FROM sessions').all().find(r=>JSON.parse(r.state).id==='ce1cbbfb-e59a-46ca-8227-c45f278a03fa');assert(row);sessionId=row.id;baseline=JSON.parse(row.state);assert(baseline.surfaceRun.accepted&&baseline.pieces.length===175);await backup(source,resolve(directory,'workspace.sqlite'));}finally{source.close();}
 let priority='below-normal';try{setPriority(0,constants.priority.PRIORITY_BELOW_NORMAL);}catch(error){priority=String(error);}
-const env={...process.env,FPCAD_DATA_DIR:directory,FPCAD_PROFILE:'1'};delete env.ELECTRON_RUN_AS_NODE;
+const env={...process.env,FPCAD_DATA_DIR:directory,FPCAD_PROFILE:'1'};
 let app,page,cdp;const rows=[],errors=[],mainLog=[];const report={passed:false,directory,sourcePath,hidden:true,noUnwrap:true,priority,userBefore,baselineHash,rows,errors};
 const save=()=>writeFile(resolve(output,'report.json'),JSON.stringify(report,null,2));
 function installUiTrace(){
@@ -36,12 +36,14 @@ async function tab(stage){await page.locator('.workflow-nav>button[data-stage="'
 async function choose(){const picker=page.locator('.project-picker');if(await picker.isVisible())await page.locator('.project-card[data-session-id="'+sessionId+'"]').click();await visibleIdle();}
 async function revision(expected){await page.waitForFunction(expected=>document.querySelector('.project-title span')?.textContent==='/ R'+expected,expected,{timeout:180000});await visibleIdle();}
 try{
- const launchAt=performance.now();app=await electron.launch({args:desktopArgs,executablePath,env});page=await app.firstWindow();report.launchToWindowMs=performance.now()-launchAt;app.process().stdout?.on('data',b=>mainLog.push({at:new Date().toISOString(),stream:'stdout',text:String(b)}));app.process().stderr?.on('data',b=>mainLog.push({at:new Date().toISOString(),stream:'stderr',text:String(b)}));page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(180000);await hiddenWindowId(app,page);await page.setViewportSize({width:1920,height:1080});cdp=await page.context().newCDPSession(page);await cdp.send('Performance.enable');await page.addInitScript(installUiTrace);await page.evaluate(installUiTrace);
+ const launchAt=performance.now();app=await desktop.launch({args:desktopArgs,executablePath,env});page=await app.firstWindow();report.launchToWindowMs=performance.now()-launchAt;app.process().stdout?.on('data',b=>mainLog.push({at:new Date().toISOString(),stream:'stdout',text:String(b)}));app.process().stderr?.on('data',b=>mainLog.push({at:new Date().toISOString(),stream:'stderr',text:String(b)}));page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(180000);await hiddenWindowId(app,page);await page.setViewportSize({width:1920,height:1080});cdp=await page.context().newCDPSession(page);await cdp.send('Performance.enable');await page.addInitScript(installUiTrace);await page.evaluate(installUiTrace);
  await timed('startup-to-project-picker',async()=>{await page.locator('.project-picker,.workflow-nav').first().waitFor();return page.evaluate(()=>({body:document.body.innerText.slice(-1000),task:document.querySelector('.task-activity')?.textContent}));});
  await timed('open-existing-accepted-project',choose);
  await timed('tab-mapping-and-accepted-seams',()=>tab('mapping'));
  const initial=await timed('read-compact-renderer',compact);assert(initial.accepted&&initial.pieces===175&&initial.revision===baseline.revision);
- await timed('transport-read-and-JSON-parse',()=>page.evaluate(async()=>{const t=performance.now(),raw=await window.fpcadTransport.read(),received=performance.now();const parsed=JSON.parse(raw),end=performance.now();return{transportMs:received-t,jsonParseMs:end-received,rawCharacters:raw.length,ok:parsed.ok,revision:parsed.data.project.revision};}));
+ // This diagnostic times only JSON parsing. Functional reads above/below use
+ // desktopClient and include image-table restoration before exposing data.
+ await timed('transport-read-and-JSON-parse',()=>page.evaluate(async()=>{const t=performance.now(),raw=await window.fpcadTransport.read(),received=performance.now();const wire=JSON.parse(raw),end=performance.now(),parsed=wire.format==='fpcad-response-images/1'?wire.response:wire;return{transportMs:received-t,jsonParseMs:end-received,rawCharacters:raw.length,wireFormat:wire.format??'plain-json',includesImageRestoration:false,ok:parsed.ok,revision:parsed.data.project.revision};}));
  let full;await timed('read-project-returned-over-CDP',async()=>{full=await page.evaluate(async()=>{const t=performance.now(),r=await window.fpcad.read();window.__lastAcceptedApiMs=performance.now()-t;if(!r.ok)throw Error(r.error.code);return r.data.project;});return{rendererApiMs:await page.evaluate(()=>window.__lastAcceptedApiMs),revision:full.revision,pieces:full.pieces.length};});
  await timed('test-project-JSON-serialization-only',async()=>{const text=JSON.stringify(full);return{characters:text.length,sha256:createHash('sha256').update(text).digest('hex')};});full=undefined;
  await timed('tab-cutting',()=>tab('cutting'));

@@ -1,12 +1,12 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {chooseProject} from './ui-navigation.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {executablePath,desktopArgs} from './desktop-launch.mjs';
-const directory=await mkdtemp(resolve('.local/tests/simple-markings-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
+const directory=await mkdtemp(resolve('.local/tests/simple-markings-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
  await page.setViewportSize({width:1440,height:960});await page.waitForFunction(()=>!!window.fpcad);
  await page.evaluate(()=>window.fpcad.create({name:'用户双视图简单模式',unit:'mm'}));

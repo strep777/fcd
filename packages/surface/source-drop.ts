@@ -11,5 +11,5 @@ export function sourceSurfaceShape(source:Piece,position:{xMm:number;yMm:number;
  const contour=pieceContour(source);
  if(contour.nodes.length<3||(!contour.curves?.length&&drawingIssue(contour.nodes))||holes.some(ring=>ring.length<3||drawingIssue(ring)))throw Error('INVALID_GEOMETRY');
  const bounds=pointBounds(sampleShapeContour(contour)),cx=anchor?.xMm??(bounds.minX+bounds.maxX)/2,cy=anchor?.yMm??(bounds.minY+bounds.maxY)/2;if(!Number.isFinite(cx)||!Number.isFinite(cy)||cx<bounds.minX||cx>bounds.maxX||cy<bounds.minY||cy>bounds.maxY)throw Error('INVALID_GEOMETRY');const map=(p:{xMm:number;yMm:number})=>({xMm:p.xMm-cx,yMm:p.yMm-cy});
- return {...mapShapeContour(contour,map),origin:[position.xMm,position.yMm,position.zMm],axes:frame.axes.map(axis=>[...axis]) as CutProjection['axes']};
+ return {wrap:true,...mapShapeContour(contour,map),origin:[position.xMm,position.yMm,position.zMm],axes:frame.axes.map(axis=>[...axis]) as CutProjection['axes']};
 }

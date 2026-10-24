@@ -41,7 +41,10 @@ it('a dropped source cannot jump to a disconnected surface with the same part la
   for(const triangle of [[0,1,2],[0,2,3]])faces.push({id:randomUUID(),vertices:triangle.map(i=>ids[i]) as [string,string,string],region:'arm-left'});
  }
  p.surface={id:randomUUID(),topologyVersion:1,source:'obj',vertices,faces};
- const source=rectangle(160,40),position={xMm:20,yMm:30,zMm:100};
+ const oversized=rectangle(160,40),position={xMm:20,yMm:30,zMm:100},before=structuredClone(p);
+ const oversizedShape=surfaceDragShape({...sourceSurfaceShape(oversized,position,frame),regions:['arm-left']},{xMm:0,yMm:0},position,[0,0,1],'arm-left',faces[0].id);
+ await expect(surfaceMarking(worker,p,oversizedShape,oversized.color,'Oversized disconnected arm sheet')).rejects.toThrow('INCOMPLETE_SURFACE_WRAP');expect(p).toEqual(before);
+ const source=rectangle(30,40);
  const original=sourceSurfaceShape(source,position,frame);
  const shape=surfaceDragShape({...original,regions:['arm-left']},{xMm:0,yMm:0},position,[0,0,1],'arm-left',faces[0].id);
  const saved=await surfaceMarking(worker,p,shape,source.color,'One disconnected arm sheet');p.markings=[saved];
@@ -52,10 +55,12 @@ it('a dropped source cannot jump to a disconnected surface with the same part la
 });
 
 const actualPath=resolve('test-results/current-task/real-cut-project.json');
-(existsSync(actualPath)?it:it.skip)('the actual region17 source dropped on an arm has no remote torso/leg fragments',async()=>{
+(existsSync(actualPath)?it:it.skip)('the measured region17 source refuses an incomplete shoulder wrap while a fitting arm probe remains local',async()=>{
  const input=JSON.parse(readFileSync(actualPath,'utf8')) as Project;
  const source=input.patternLibrary!.find(r=>r.view==='front'&&r.piece.name.endsWith('/ 17'))!.piece;
  const p={...structuredClone(input),pieces:[],bindings:[],markings:[]} as Project,mesh=p.surface!;
+ const sourceBefore=structuredClone(source),sourceWidth=Math.max(...source.nodes.map(n=>n.xMm))-Math.min(...source.nodes.map(n=>n.xMm)),sourceHeight=Math.max(...source.nodes.map(n=>n.yMm))-Math.min(...source.nodes.map(n=>n.yMm));
+ expect(sourceWidth).toBeCloseTo(87.02534275446988,8);expect(sourceHeight).toBeCloseTo(86.0759493670887,8);
  const vertices=new Map(mesh.vertices.map(v=>[v.id,v])),normals=surfaceCornerNormals(mesh),evidence=[];
  const faceData=mesh.faces.map(face=>({face,t:face.vertices.map(id=>vertices.get(id)!)}));
  const observed=(position:{xMm:number;yMm:number;zMm:number},region:string)=>{
@@ -73,20 +78,27 @@ const actualPath=resolve('test-results/current-task/real-cut-project.json');
    {name:'shoulder',target:[...candidates].sort((a,b)=>Math.abs(a.position.xMm)-Math.abs(b.position.xMm))[0]},
    {name:'side silhouette',target:[...candidates].filter(v=>Math.abs(v.position.xMm)>250&&Math.abs(v.position.xMm)<700).sort((a,b)=>a.position.zMm-b.position.zMm)[0]}
   ];
-  for(const {name,target}of targets)for(const grab of ['center','lower']as const){expect(target).toBeDefined();
+  const shoulder=targets.find(t=>t.name==='shoulder')!.target;expect(shoulder).toBeDefined();
+  const shoulderNormal=[0,1,2].map(axis=>normals.get(shoulder.face.id)!.reduce((s,n)=>s+n[axis]/3,0)) as [number,number,number],lowerAnchor={xMm:(Math.min(...source.nodes.map(n=>n.xMm))+Math.max(...source.nodes.map(n=>n.xMm)))/2,yMm:Math.min(...source.nodes.map(n=>n.yMm))+20};
+  const originalOversized=sourceSurfaceShape(source,shoulder.position,frame,lowerAnchor),oversized=surfaceDragShape({...originalOversized,regions:[region]},{xMm:0,yMm:0},shoulder.position,shoulderNormal,region,shoulder.face.id),unchanged=structuredClone(p);
+  expect(Math.max(...oversized.nodes.map(n=>n.xMm))-Math.min(...oversized.nodes.map(n=>n.xMm))).toBeCloseTo(sourceWidth,8);expect(Math.max(...oversized.nodes.map(n=>n.yMm))-Math.min(...oversized.nodes.map(n=>n.yMm))).toBeCloseTo(sourceHeight,8);
+  await expect(surfaceMarking(worker,p,oversized,source.color,source.name)).rejects.toThrow('INCOMPLETE_SURFACE_WRAP');expect(p).toEqual(unchanged);
+  for(const {name,target}of targets.filter(t=>t.name==='middle'))for(const grab of ['center']as const){expect(target).toBeDefined();
   const normal=[0,1,2].map(axis=>normals.get(target.face.id)!.reduce((s,n)=>s+n[axis]/3,0)) as [number,number,number];
-  // This is the current dropSource business chain, preserving calibrated size.
-  const anchor=grab==='lower'?{xMm:(Math.min(...source.nodes.map(n=>n.xMm))+Math.max(...source.nodes.map(n=>n.xMm)))/2,yMm:Math.min(...source.nodes.map(n=>n.yMm))+20}:undefined;
-  const original=sourceSurfaceShape(source,target.position,frame,anchor);
+  // Explicitly resize this locality probe; the measured original-size rejection
+  // above remains a separate contract and never shrinks the library source.
+  const original=transformShape(sourceSurfaceShape(source,target.position,frame),20/sourceWidth,20/sourceWidth);
+  expect(Math.max(...original.nodes.map(n=>n.xMm))-Math.min(...original.nodes.map(n=>n.xMm))).toBeCloseTo(20,8);
   const shape=surfaceDragShape({...original,regions:[region]},{xMm:0,yMm:0},target.position,normal,region,target.face.id);
   const saved=await surfaceMarking(worker,p,shape,source.color,source.name);
   const changed={...shape,...moveContourNode(shape,0,{xMm:shape.nodes[0].xMm+2,yMm:shape.nodes[0].yMm+2})};
   p.markings=[saved];const edited=await editSurfaceMarking(worker,p,saved.id,changed),draft=previewFragments(mesh,changed);
-  evidence.push({region,target:name,grab,targetFace:target.face.id,position:target.position,normal,shape,savedParts:parts(mesh,saved.fragments),editedParts:parts(mesh,edited.fragments),draftParts:draft&&parts(mesh,draft),editedNodeWorld:shapeWorld(changed,changed.nodes[0])});
+  evidence.push({region,target:name,grab,originalSizeMm:{width:sourceWidth,height:sourceHeight},oversizedShoulderRejected:true,localityProbeWidthMm:20,targetFace:target.face.id,position:target.position,normal,shape,savedParts:parts(mesh,saved.fragments),editedParts:parts(mesh,edited.fragments),draftParts:draft&&parts(mesh,draft),editedNodeWorld:shapeWorld(changed,changed.nodes[0])});
   }
  }
  const output=resolve('test-results/current-task-2');mkdirSync(output,{recursive:true});writeFileSync(resolve(output,'source-region17-locality.json'),JSON.stringify(evidence,null,2));
  for(const e of evidence){expect(e.savedParts,`${e.region} original drop`).toEqual([e.region]);expect(e.editedParts,`${e.region} edited drop`).toEqual([e.region]);expect(e.draftParts,`${e.region} live node draft`).toEqual([e.region]);}
+ expect(evidence).toHaveLength(2);expect(source).toEqual(sourceBefore);
 },120000);
 
 it('shrinking an attachment can leave the original picked triangle while staying on its connected sheet',async()=>{

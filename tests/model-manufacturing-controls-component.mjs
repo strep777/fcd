@@ -6,7 +6,7 @@ import {resolve,dirname,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 // Actual Vue rendering and handlers run under a custom renderer. DOM/IPC
-// substitutes allow component behavior coverage without launching Electron.
+// substitutes allow component behavior coverage without launching WebView2.
 class HostNode {
  get ownerDocument(){return document;}
  constructor(tag=''){this.tag=tag;this.tagName=tag.toUpperCase();this.children=[];this.parentNode=null;this.attrs={};this.style={};this.listeners=new Map();this.value='';this.defaultValue='';this.type='';this.nodeType=1;}
@@ -65,7 +65,7 @@ async function mount(Component,props={}){
  store.data={project:project(),geometry:[],canUndo:false,canRedo:false,savedRevision:null,history:[],recovery:[],recent:[],jobs:[]};
  let fail=false;
  const reply=()=>({ok:true,data:{...JSON.parse(JSON.stringify(store.data)),project:{...JSON.parse(JSON.stringify(store.data.project)),revision:store.data.project.revision+1}}});
- window.fpcad={onSurfaceProgress:()=>()=>{},apply:async(...args)=>{calls.push({method:'apply',args});if(fail)return {ok:false,error:{code:'TEST_REJECTED'}};const response=reply();if(args[2].type==='project.allowance')response.data.project.defaultAllowanceMm=args[2].widthMm;return response;},unwrapSurface:async(...args)=>{calls.push({method:'unwrap',args});return reply();}};
+ window.fpcad={onSurfaceProgress:()=>()=>{},apply:async(...args)=>{calls.push({method:'apply',args});if(fail)return {ok:false,error:{code:'TEST_REJECTED'}};const response=reply();if(args[2].type==='patterns.allowance')response.data.project.defaultAllowanceMm=args[2].widthMm;return response;},unwrapSurface:async(...args)=>{calls.push({method:'unwrap',args});return reply();}};
  const app=renderer.createApp({render:()=>h(Component,{language:'en',...props})});app.use(pinia);app.mount(root);await flush();
  const byLabel=label=>{const n=walk(root).find(n=>n.attrs['aria-label']===label);assert(n,'missing control: '+label);return n;};
  const button=text=>{const n=walk(root).find(n=>n.tag==='button'&&n.textContent===text);assert(n,'missing button: '+text);return n;};
@@ -76,15 +76,15 @@ async function mount(Component,props={}){
 const checks=[];
 for(const cm of [0,10,2.5]){
  const f=await mount(UnwrapTools);try{
-  await f.model(f.byLabel('Cut seam allowance cm'),cm);await f.click(f.button('Compute & preview cut lines'));
-  assert.deepEqual(f.calls.map(c=>c.method),['apply','unwrap']);assert.deepEqual(f.calls[0].args,['project',1,{type:'project.allowance',widthMm:cm*10}]);assert.deepEqual(f.calls[1].args.slice(0,2),['project',2]);assert.equal(f.store.data.project.defaultAllowanceMm,cm*10);
+  await f.model(f.byLabel('Joining spacing size cm'),cm);await f.click(f.button('Compute & preview cut lines'));
+  assert.deepEqual(f.calls.map(c=>c.method),['apply','unwrap']);assert.deepEqual(f.calls[0].args,['project',1,{type:'patterns.allowance',widthMm:cm*10}]);assert.deepEqual(f.calls[1].args.slice(0,2),['project',2]);assert.equal(f.store.data.project.defaultAllowanceMm,cm*10);
   checks.push({case:`${cm} cm allowance is saved in mm before computing with the new revision`,passed:true});
  }finally{f.app.unmount();}
 }
 {
  const f=await mount(UnwrapTools);try{
-  for(const invalid of [-1,10.01,NaN]){await f.model(f.byLabel('Cut seam allowance cm'),invalid);assert(f.button('Compute & preview cut lines').attrs.disabled);assert(f.button('Apply allowance').attrs.disabled);}
-  assert.equal(f.calls.length,0);await f.model(f.byLabel('Cut seam allowance cm'),2);f.reject();await f.click(f.button('Compute & preview cut lines'));assert.deepEqual(f.calls.map(c=>c.method),['apply']);assert.equal(f.store.data.project.revision,1);assert.equal(f.store.data.project.defaultAllowanceMm,10);
+  for(const invalid of [-1,10.01,NaN]){await f.model(f.byLabel('Joining spacing size cm'),invalid);assert(f.button('Compute & preview cut lines').attrs.disabled);assert(f.button('Apply joining spacing').attrs.disabled);}
+  assert.equal(f.calls.length,0);await f.model(f.byLabel('Joining spacing size cm'),2);f.reject();await f.click(f.button('Compute & preview cut lines'));assert.deepEqual(f.calls.map(c=>c.method),['apply']);assert.equal(f.store.data.project.revision,1);assert.equal(f.store.data.project.defaultAllowanceMm,10);
   checks.push({case:'invalid values cannot compute; rejected allowance leaves project intact and does not unwrap',passed:true});
  }finally{f.app.unmount();}
 }
@@ -92,8 +92,8 @@ for(const cm of [0,10,2.5]){
  const f=await mount(UnwrapTools);try{
   f.store.data.project={...f.store.data.project,surfaceRun:{algorithm:'lscm-arap-1',accepted:false,pieces:[],bindings:[]}};await flush();
   assert(!f.button('Accept patterns and save to library (undoable)').attrs.disabled);
-  await f.model(f.byLabel('Cut seam allowance cm'),2);assert(f.button('Accept patterns and save to library (undoable)').attrs.disabled);
-  await f.click(f.button('Apply allowance'));assert(f.button('Accept patterns and save to library (undoable)').attrs.disabled,'saving the new allowance does not validate the old candidate');
+  await f.model(f.byLabel('Joining spacing size cm'),2);assert(f.button('Accept patterns and save to library (undoable)').attrs.disabled);
+  await f.click(f.button('Apply joining spacing'));assert(f.button('Accept patterns and save to library (undoable)').attrs.disabled,'saving the new allowance does not validate the old candidate');
   await f.click(f.button('Compute & preview cut lines'));assert(!f.button('Accept patterns and save to library (undoable)').attrs.disabled);
   checks.push({case:'an edited allowance requires recomputing before the visible candidate can be accepted',passed:true});
  }finally{f.app.unmount();}
@@ -124,5 +124,5 @@ for(const grainRad of [undefined,Math.PI/2,0]){
   checks.push({case:`direction arrows preserve fur and ${grainRad===undefined?'unknown':grainRad===0?'matching':'separate'} fabric direction`,passed:true});
  }finally{f.app.unmount();}
 }
-await writeFile('test-results/model-manufacturing-controls-component.json',JSON.stringify({passed:true,verification:'Vue custom renderer component handlers; no Electron display verification',checks},null,2));
+await writeFile('test-results/model-manufacturing-controls-component.json',JSON.stringify({passed:true,verification:'Vue custom renderer component handlers; no WebView2 display verification',checks},null,2));
 console.log(JSON.stringify({passed:true,verification:'Vue component logic',checks}));

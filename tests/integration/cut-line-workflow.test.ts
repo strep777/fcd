@@ -29,6 +29,54 @@ function intersection(a:Vec2[],b:Vec2[]){
  }
  return ring;
 }
+/** Independent even-odd scanline oracle. All boundary crossings divide x into
+ * slabs whose vertical covered lengths are linear, so midpoint integration is
+ * exact. Unlike fragment counts or total area alone, this detects moved holes,
+ * missing/excess paint and overlapping owners after arbitrary subdivision. */
+function markingCoverage(expected:Vec2[][][],actual:Vec2[][][]){
+ const edges=[...expected,...actual].flatMap(rings=>rings.flatMap(ring=>ring.map((a,i)=>[a,ring[(i+1)%ring.length]]))),xs=edges.flatMap(([a])=>[a[0]]);
+ const cross2=(a:Vec2,b:Vec2)=>a[0]*b[1]-a[1]*b[0];
+ for(let i=0;i<edges.length;i++)for(let j=i+1;j<edges.length;j++){
+  const [a,b]=edges[i],[c,d]=edges[j],ab:Vec2=[b[0]-a[0],b[1]-a[1]],cd:Vec2=[d[0]-c[0],d[1]-c[1]],ac:Vec2=[c[0]-a[0],c[1]-a[1]],denominator=cross2(ab,cd);
+  if(Math.abs(denominator)<1e-16)continue;const t=cross2(ac,cd)/denominator,u=cross2(ac,ab)/denominator;if(t>=0&&t<=1&&u>=0&&u<=1)xs.push(a[0]+t*ab[0]);
+ }
+ const boundaries=[...new Set(xs)].sort((a,b)=>a-b),result={expectedArea:0,actualArea:0,missingArea:0,extraArea:0,overlapArea:0};
+ for(let i=1;i<boundaries.length;i++){
+  const width=boundaries[i]-boundaries[i-1];if(width<=1e-14)continue;const x=(boundaries[i]+boundaries[i-1])/2,events:{y:number;expected:number;actual:number}[]=[];
+  for(const [groups,kind] of [[expected,'expected'],[actual,'actual']] as const)for(const rings of groups){
+   const ys=rings.flatMap(ring=>ring.flatMap((a,j)=>{const b=ring[(j+1)%ring.length];return (a[0]>x)!==(b[0]>x)?[a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0])]:[];})).sort((a,b)=>a-b);
+   expect(ys.length%2,'closed rings must have even scanline crossings').toBe(0);
+   ys.forEach((y,j)=>events.push({y,expected:kind==='expected'?(j%2?-1:1):0,actual:kind==='actual'?(j%2?-1:1):0}));
+  }
+  events.sort((a,b)=>a.y-b.y);let expectedCount=0,actualCount=0,previous=events[0]?.y??0;
+  for(const event of events){
+   const area=(event.y-previous)*width;if(expectedCount>0)result.expectedArea+=area;if(actualCount>0)result.actualArea+=area;if(expectedCount>0&&actualCount===0)result.missingArea+=area;if(actualCount>0&&expectedCount===0)result.extraArea+=area;if(actualCount>1)result.overlapArea+=area*(actualCount-1);
+   expectedCount+=event.expected;actualCount+=event.actual;previous=event.y;
+  }
+ }
+ return result;
+}
+function verifyMarkingCoverage(surface:NonNullable<ReturnType<typeof project>['surface']>,markings:ReturnType<typeof project>['markings'],overlays:ReturnType<typeof cutAssemblyMarkings>){
+ const vertices=new Map(surface.vertices.map(v=>[v.id,[v.xMm,v.yMm,v.zMm] as Vec3])),faces=new Map(surface.faces.map(f=>[f.id,f])),expected=new Map<string,Vec2[][][]>(),actual=new Map<string,Vec2[][][]>();
+ for(const marking of markings??[])for(const fragment of marking.fragments)expected.set(fragment.faceId,[...(expected.get(fragment.faceId)??[]),fragment.rings.map(r=>r.map(w=>[w[1],w[2]] as Vec2))]);
+ for(const overlay of overlays){
+  const face=faces.get(overlay.faceId);expect(face,overlay.faceId).toBeDefined();const source=face!.vertices.map(id=>vertices.get(id)!),ab=subtract(source[1],source[0]),ac=subtract(source[2],source[0]),normal=cross(ab,ac),normalSquared=dot(normal,normal);
+  const rings=overlay.rings.map(ring=>ring.map(point=>{const ap=subtract(point,source[0]);expect(Math.abs(dot(ap,normal))/Math.sqrt(normalSquared),overlay.faceId).toBeLessThanOrEqual(1e-6);const u=dot(cross(ap,ac),normal)/normalSquared,v=dot(cross(ab,ap),normal)/normalSquared;expect([1-u-v,u,v].every(w=>Number.isFinite(w)&&w>=-1e-9&&w<=1+1e-9),overlay.faceId).toBe(true);return [u,v] as Vec2;}));
+  actual.set(overlay.faceId,[...(actual.get(overlay.faceId)??[]),rings]);
+ }
+ for(const faceId of new Set([...expected.keys(),...actual.keys()])){
+  const coverage=markingCoverage(expected.get(faceId)??[],actual.get(faceId)??[]);expect(coverage.actualArea,faceId).toBeCloseTo(coverage.expectedArea,8);
+  for(const error of ['missingArea','extraArea','overlapArea'] as const)expect(coverage[error],faceId+': '+error).toBeLessThanOrEqual(1e-8);
+ }
+}
+it('independent marking coverage allows split holes and detects filled/moved holes and duplicate paint',()=>{
+ const box=(left:number,bottom:number,right:number,top:number):Vec2[]=>[[left,bottom],[right,bottom],[right,top],[left,top]],outer=box(0,0,1,1),hole=box(.25,.25,.75,.75),expected=[[outer,hole]];
+ const split=[[box(0,0,.5,1),box(.25,.25,.5,.75)],[box(.5,0,1,1),box(.5,.25,.75,.75)]];
+ expect(markingCoverage(expected,split)).toEqual({expectedArea:.75,actualArea:.75,missingArea:0,extraArea:0,overlapArea:0});
+ const filled=markingCoverage(expected,[[outer]]);expect(filled.extraArea).toBeCloseTo(.25,12);
+ const moved=markingCoverage(expected,[[outer,box(.125,.25,.625,.75)]]);expect(moved.actualArea).toBe(moved.expectedArea);expect(moved.missingArea).toBeCloseTo(.0625,12);expect(moved.extraArea).toBeCloseTo(.0625,12);
+ expect(markingCoverage(expected,[...expected,...expected]).overlapArea).toBeCloseTo(.75,12);
+});
 function verifyAssemblyCoverage(surface:NonNullable<ReturnType<typeof project>['surface']>,run:Awaited<ReturnType<typeof cutPreview>>['run']){
  const vertices=new Map(surface.vertices.map(v=>[v.id,[v.xMm,v.yMm,v.zMm] as Vec3])),faces=new Map(surface.faces.map(f=>[f.id,f]));
  const trimByFace=new Map<string,Vec2[][]>(),expected=new Map<string,{points:Vec3[];used:boolean}[]>();let expectedCount=0;
@@ -63,7 +111,7 @@ it('whole curved canine cuts retain every marking and hole through archive and i
  p.patternLibrary=[{piece:source,referenceId:randomUUID(),view:'front',category:'body'}];p.markings=[await projectMarking(worker,p,source.id,'front',0,0)];const original=structuredClone(p.markings);expect(original[0].fragments.length).toBeGreaterThan(20);
  const candidate=await cutPreview(worker,p.surface,p,{method:'arap',automaticCuts:true,normalAngleDeg:60,maxFacesPerPatch:400,optimizeCuts:true,searchPasses:3,maxPieces:500},assets);
  expect(candidate.run.pieces.length).toBeLessThanOrEqual(500);expect(candidate.run.bindings.every(b=>!!b.trim)).toBe(true);expect(new Set(candidate.run.bindings.flatMap(b=>b.report.faceIds)).size).toBe(p.surface.faces.length);expect(candidate.markings.map(m=>m.fragments)).toEqual(original.map(m=>m.fragments));expect(candidate.markings[0].paths.length).toBeGreaterThan(0);expect(candidate.run.pieces.every(p=>p.color==='#eceae5')).toBe(true);
- const overlays=cutAssemblyMarkings(p.surface,candidate.run,candidate.markings);expect(overlays).toHaveLength(original[0].fragments.length);expect(overlays.every(o=>o.color===source.color)).toBe(true);expect(overlays.some(o=>o.rings.length>1)).toBe(true);verifyAssemblyCoverage(p.surface,candidate.run);
+ const overlays=cutAssemblyMarkings(p.surface,candidate.run,candidate.markings);expect(overlays.every(o=>o.color===source.color)).toBe(true);expect(original[0].fragments.some(f=>f.rings.length>1)).toBe(true);verifyMarkingCoverage(p.surface,original,overlays);verifyAssemblyCoverage(p.surface,candidate.run);
  const repo=new Repository(':memory:'),fresh=new Repository(':memory:');try{repo.open(p,null);repo.commit({type:'unwrap.candidate',run:candidate.run,markings:candidate.markings},randomUUID(),'preview');repo.commit({type:'unwrap.accept'},randomUUID(),'accept');const ready=repo.snapshot()!;expect(ready.cuttingLibrary).toHaveLength(1);expect(bindingIssues(ready).filter(i=>i.severity==='error')).toEqual([]);expect(markingIssues(ready)).toEqual([]);const bytes=workflowBytes(ready);expect(new TextDecoder().decode(bytes)).not.toContain('sqlite-resource:');fresh.create('fresh');fresh.open(readWorkflow(bytes),null);expect(fresh.snapshot()).toEqual(ready);expect(workflowNodes(fresh.snapshot()!)).toEqual(workflowNodes(ready));expect(cutAssemblyMarkings(ready.cuttingLibrary![0].surface,ready.cuttingLibrary![0].run,ready.cuttingLibrary![0].markings)).toEqual(overlays);}finally{repo.close();fresh.close();}
 },600000);
 it('1500 mm legal whole pattern and long marking use the safest local precision without a size failure',async()=>{

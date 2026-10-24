@@ -1,15 +1,17 @@
 # 桌面应用架构
 
-应用采用 Electron、Vue 3、TypeScript、Pinia 和 SQLite；Rust 工作进程负责原生几何计算。开发、构建和运行入口均位于仓库根目录。
+应用采用 [Tauri v2](https://v2.tauri.org.cn/)、Vue 3、TypeScript、Pinia 和 SQLite。Tauri 使用 Windows WebView2 显示界面；随包分发的 Node.js 后台保留事务和领域服务，Rust 工作进程负责原生几何计算。开发、构建和运行入口均位于仓库根目录。
 
 ## 请求与状态链路
 
-Vue 页面 → `preload.ts` 暴露的受控 API → `main.ts` 请求队列与修订检查 → 领域服务或工作进程 → `Repository` 事务 → 统一会话状态。
+Vue 页面 → `src/tauri-transport.ts` 暴露的受控 API → Tauri command → 私有管道 → `main.ts` 请求队列与修订检查 → 领域服务或工作进程 → `Repository` 事务 → 统一会话状态。
 
 - `apps/desktop/src/store.ts` 保存统一会话，并协调交互锁和刷新。页面共用项目状态。
-- `apps/desktop/main/preload.ts` 限定渲染端可调用的方法；主进程检查请求来源和数据契约，保留沙箱与上下文隔离。
+- `apps/desktop/src/tauri-transport.ts` 限定前端可调用的方法；Tauri 主进程检查窗口和通道，Node.js 后台校验数据契约。WebView2 通过 CSP 和 capability 限制访问范围。
 - `apps/desktop/main/repository.ts` 管理 SQLite 会话、命令历史、恢复点、请求重放与资源存储。写入失败整体回滚；撤销与重做继续使用递增修订号。
 - `packages/schema/index.ts` 是项目和命令的可执行数据契约；格式迁移与兼容判断从这里开始。
+
+Tauri 原生宿主位于 `apps/desktop/src-tauri/`。业务请求经过固定通道和私有标准输入/输出管道传递；前端不直接访问 Node.js、文件系统或进程执行接口。图片解码使用独立光栅模块，密钥由 Windows 当前用户 DPAPI 保护。
 
 ## 计算与确认
 

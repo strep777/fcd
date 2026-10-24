@@ -1,10 +1,10 @@
 // Exercise actual renderer upload and re-extraction against isolated hidden
-// Electron state. No user database or user source files are opened.
+// Tauri state. No user database or user source files are opened.
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {fitReferenceView} from './reference-controls.mjs';
 import {workflow} from './ui-navigation.mjs';
 import {waitForState} from './wait-state.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import {build} from 'esbuild';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
@@ -12,13 +12,13 @@ import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
 
-const directory=await mkdtemp(resolve('.local/tests/extraction-refinement-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
+const directory=await mkdtemp(resolve('.local/tests/extraction-refinement-')),env={...process.env,FPCAD_DATA_DIR:directory};
 const helper=join(directory,'geometry.mjs');await build({stdin:{contents:"export {calibratedPoint} from './apps/desktop/main/reference-segmentation'; export {pigmentFamily} from './packages/reference/illustration'; export {edgeArcPoints} from './packages/pattern/edit'; export {analyze} from './apps/desktop/main/worker';",resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',outfile:helper});
 const {calibratedPoint,pigmentFamily,edgeArcPoints,analyze}=await import(pathToFileURL(helper));
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];
 page.on('pageerror',error=>errors.push(error.message));
 const read=async()=>{const result=await page.evaluate(()=>window.fpcad.read());assert(result.ok,JSON.stringify(result));return result.data;};
-const hidden=async()=>assert(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().every(w=>!w.isVisible())),'All test windows must remain hidden');
+const hidden=async()=>assert(await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows().every(w=>!w.isVisible())),'All test windows must remain hidden');
 const inside=(point,ring)=>{let yes=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a.yMm>point.yMm)!==(b.yMm>point.yMm)&&point.xMm<(b.xMm-a.xMm)*(point.yMm-a.yMm)/(b.yMm-a.yMm)+a.xMm)yes=!yes;}return yes;};
 function inspect(project){
  const shapes=project.patternLibrary.map(region=>({region,outer:region.piece.nodes.flatMap(node=>edgeArcPoints(region.piece,node.id).slice(0,-1)),holes:region.piece.holes??[]}));
@@ -45,10 +45,11 @@ try{
  const created=await page.evaluate(()=>window.fpcad.create({name:'描线结构与阴影重提取回归',unit:'mm'}));assert(created.ok);
  await page.reload();await workflow(page,'references');
  await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},resolve('tests/fixtures/character-front-back.jpg'));
- await page.getByLabel('双视图布局',{exact:true}).selectOption('front-right');await page.getByLabel('参考高度 mm',{exact:true}).fill('1800');
+ for(const label of ['双视图布局','参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0,'Extraction uses fixed defaults without obsolete parameter controls');
  await page.getByRole('button',{name:'上传双视图并自动拆分',exact:true}).click();
  await waitForState(page,async()=>{const s=await window.fpcad.read(),failure=document.querySelector('.error-banner')?.textContent?.trim();if(failure)throw Error('UI upload failed: '+failure);return s.ok&&s.data.project.references?.length===2&&(s.data.project.patternLibrary?.length??0)>0;},undefined,{timeout:120000});
  const imported=(await read()).project;assert.equal(imported.references.find(r=>r.view==='front').width,666);assert.equal(imported.references.find(r=>r.view==='back').width,609);
+ assert(imported.references.every(r=>r.calibration?.distanceMm===1800),'Default upload preserves the 1800 mm calibration');
  const geometry=await analyze(resolve('target/release/fpcad-worker.exe'),{...imported,pieces:imported.patternLibrary.map(r=>r.piece)});assert.deepEqual(geometry.flatMap(g=>g.issues.filter(i=>i.severity==='error')),[],'Every extracted editable contour must pass the native manufacturing validator');
  checks.push({name:'Actual upload button produces separate original-resolution structures and clean materials',...inspect(imported)});
  await page.locator('.region-card').first().waitFor();await fitReferenceView(page);await desktopScreenshot(app,page,{path:'test-results/extraction-refinement-upload.png'});await hidden();

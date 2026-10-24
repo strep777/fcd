@@ -1,10 +1,10 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
-const directory=await mkdtemp(resolve('.local/tests/control-spacing-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],problems=[];
+const directory=await mkdtemp(resolve('.local/tests/control-spacing-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],problems=[];
 try{
  await page.setViewportSize({width:1440,height:960});await page.getByRole('button',{name:'＋ 新建项目',exact:true}).first().click();await page.getByRole('dialog').locator('input').fill('控件间距检查');await page.getByRole('button',{name:'创建 →',exact:true}).click();await page.locator('.workflow-nav>button[data-stage=model]').click();
  const mesh=JSON.parse(await readFile('assets/templates/calibration-shell.fpctemplate','utf8')),indices=new Map(mesh.vertices.map((v,i)=>[v.id,i+1])),path=resolve(directory,'shell.obj');await writeFile(path,mesh.vertices.map(v=>'v '+v.xMm+' '+v.yMm+' '+v.zMm).concat(mesh.faces.map(f=>'f '+f.vertices.map(v=>indices.get(v)).join(' '))).join('\n'));await app.evaluate(({dialog},path)=>dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]}),path);await page.getByRole('button',{name:'导入三角 OBJ / GLB',exact:true}).click();await page.locator('.surface-view').waitFor();

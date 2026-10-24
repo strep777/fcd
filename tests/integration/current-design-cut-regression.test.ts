@@ -27,8 +27,9 @@ function inspect(surface:Surface,run:SurfaceRun){
  return {byColor,missingFaces:surface.faces.filter(f=>!covered.has(f.id)).length,maxFaceCoverageError:Math.max(...surface.faces.map(f=>Math.abs((covered.get(f.id)??0)-1))),pieceCount:run.pieces.length,designCutReport:run.designCutReport,optimization:run.optimization};
 }
 
-it('anatomical metadata alone does not split the unpainted material domain',async()=>{
+it('imported OBJ region labels alone do not split the unpainted material domain',async()=>{
  const p=project();p.pieces=[];p.surface=await assembleSpecies(generateSpecies(speciesDefaults('canine')));
+ p.surface.source='obj';delete p.surface.template;delete p.surface.assembly;
  expect(new Set(p.surface.faces.map(f=>f.region)).size).toBeGreaterThan(1);
  const working=await prepareDesignSurface(worker,p,true,true,assets);
  expect(working.materialDomains).toBe(1);expect(designComponents(working.surface.faces)).toHaveLength(1);

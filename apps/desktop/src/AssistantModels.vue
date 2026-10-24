@@ -1,29 +1,3 @@
-<script setup lang="ts">
-import {computed,nextTick,ref} from 'vue';
-import {localize} from './localization';
-import {providerKinds,providerPresets,type ProviderKind,type AssistantConfig} from '../../../packages/schema/assistant-config';
-const props=defineProps<{config:AssistantConfig;language:'zh'|'en'}>();
-const emit=defineEmits<{models:[id:string]}>();
-const zh=computed(()=>props.language==='zh');
-const text=(cn:string,en:string)=>zh.value?cn:localize(en);
-const newModel=ref(''),newProvider=ref(''),editingId=ref(''),connectionsOpen=ref(false),error=ref('');
-const additions=ref<Record<string,string>>({});
-const connectionSection=ref<HTMLElement>();
-const catalog=computed(()=>[...new Set(props.config.providers.flatMap(p=>p.models))].map(id=>({id,providers:props.config.providers.filter(p=>p.models.includes(id))})));
-const editor=computed(()=>props.config.providers.find(p=>p.id===editingId.value)??props.config.providers[0]);
-const selectedPair=computed({get:()=>props.config.selectedProvider&&props.config.selectedModel?JSON.stringify([props.config.selectedProvider,props.config.selectedModel]):'',set:(value:string)=>{const [provider,model]=value?JSON.parse(value):[];props.config.selectedProvider=provider;props.config.selectedModel=model;}});
-const available=(model:string)=>props.config.providers.filter(p=>!p.models.includes(model));
-const addition=(model:string)=>available(model).find(p=>p.id===additions.value[model])?.id??available(model)[0]?.id;
-function clearDefault(provider:string,model?:string){if(props.config.selectedProvider===provider&&(!model||props.config.selectedModel===model)){delete props.config.selectedProvider;delete props.config.selectedModel;}}
-function attach(model:string,provider:string){const p=props.config.providers.find(p=>p.id===provider);if(!p)return false;if(!model.trim()||model.trim().length>120){error.value=text('模型标识需要 1–120 个字符。','Model IDs must contain 1–120 characters.');return false;}if(p.models.length>=200&&!p.models.includes(model)){error.value=text('此连接已达到 200 个模型上限。','This connection already has 200 models.');return false;}if(!p.models.includes(model))p.models.push(model);error.value='';return true;}
-function addModel(){if(attach(newModel.value.trim(),newProvider.value||props.config.providers[0]?.id)){newModel.value='';}}
-function unlink(model:string,provider:string){const p=props.config.providers.find(p=>p.id===provider);if(p)p.models=p.models.filter(id=>id!==model);clearDefault(provider,model);}
-function removeModel(model:string){for(const p of props.config.providers)unlink(model,p.id);}
-async function openConnection(id:string){editingId.value=id;connectionsOpen.value=true;await nextTick();connectionSection.value?.scrollIntoView({block:'nearest'});}
-function createConnection(model?:string){if(props.config.providers.length>=30){error.value=text('最多保存 30 个提供商连接。','You can save up to 30 provider connections.');return;}const id=crypto.randomUUID();props.config.providers.push({id,name:text('自定义服务','Custom provider'),kind:'openai-compatible',baseUrl:providerPresets['openai-compatible'].baseUrl,models:model?[model]:[],enabled:true});newProvider.value=id;openConnection(id);}
-function removeConnection(id:string){props.config.providers=props.config.providers.filter(p=>p.id!==id);clearDefault(id);if(newProvider.value===id)newProvider.value='';}
-function changeKind(p:AssistantConfig['providers'][number],kind:ProviderKind){const preset=providerPresets[kind];Object.assign(p,{kind,name:preset.name,baseUrl:preset.baseUrl,models:[],apiKey:'',hasKey:false,allowHttp:false});clearDefault(p.id);}
-</script>
 <template>
  <div class="assistant-models">
   <label>{{text('默认模型连接','Default model connection')}}<select v-model="selectedPair" :aria-label="text('默认模型连接','Default model connection')"><option value="">—</option><template v-for="p in config.providers.filter(p=>p.enabled)" :key="p.id"><option v-for="model in p.models" :key="model" :value="JSON.stringify([p.id,model])">{{model}} · {{p.name}}</option></template></select></label>
@@ -57,6 +31,38 @@ function changeKind(p:AssistantConfig['providers'][number],kind:ProviderKind){co
   </details>
  </div>
 </template>
+
+<script setup lang="ts">
+import {computed,nextTick,ref} from 'vue';
+import {localize} from './localization';
+import {providerKinds,providerPresets,type ProviderKind,type AssistantConfig} from '../../../packages/schema/assistant-config';
+const props=defineProps<{config:AssistantConfig;language:'zh'|'en'}>();
+const emit=defineEmits<{models:[id:string]}>();
+const zh=computed(()=>props.language==='zh');
+const text=(cn:string,en:string)=>zh.value?cn:localize(en);
+const newModel=ref(''),newProvider=ref(''),editingId=ref(''),connectionsOpen=ref(false),error=ref('');
+const additions=ref<Record<string,string>>({});
+const connectionSection=ref<HTMLElement>();
+const catalog=computed(()=>[...new Set(props.config.providers.flatMap(p=>p.models))].map(id=>({id,providers:props.config.providers.filter(p=>p.models.includes(id))})));
+const editor=computed(()=>props.config.providers.find(p=>p.id===editingId.value)??props.config.providers[0]);
+const selectedPair=computed({get:()=>props.config.selectedProvider&&props.config.selectedModel?JSON.stringify([props.config.selectedProvider,props.config.selectedModel]):'',set:(value:string)=>{const [provider,model]=value?JSON.parse(value):[];props.config.selectedProvider=provider;props.config.selectedModel=model;}});
+const available=(model:string)=>props.config.providers.filter(p=>!p.models.includes(model));
+const addition=(model:string)=>available(model).find(p=>p.id===additions.value[model])?.id??available(model)[0]?.id;
+function clearDefault(provider:string,model?:string){if(props.config.selectedProvider===provider&&(!model||props.config.selectedModel===model)){delete props.config.selectedProvider;delete props.config.selectedModel;}}
+function attach(model:string,provider:string){const p=props.config.providers.find(p=>p.id===provider);if(!p)return false;if(!model.trim()||model.trim().length>120){error.value=text('模型标识需要 1–120 个字符。','Model IDs must contain 1–120 characters.');return false;}if(p.models.length>=200&&!p.models.includes(model)){error.value=text('此连接已达到 200 个模型上限。','This connection already has 200 models.');return false;}if(!p.models.includes(model))p.models.push(model);error.value='';return true;}
+function addModel(){if(attach(newModel.value.trim(),newProvider.value||props.config.providers[0]?.id)){newModel.value='';}}
+function unlink(model:string,provider:string){const p=props.config.providers.find(p=>p.id===provider);if(p)p.models=p.models.filter(id=>id!==model);clearDefault(provider,model);}
+function removeModel(model:string){for(const p of props.config.providers)unlink(model,p.id);}
+async function openConnection(id:string){editingId.value=id;connectionsOpen.value=true;await nextTick();connectionSection.value?.scrollIntoView({block:'nearest'});}
+function createConnection(model?:string){if(props.config.providers.length>=30){error.value=text('最多保存 30 个提供商连接。','You can save up to 30 provider connections.');return;}const id=crypto.randomUUID();props.config.providers.push({id,name:text('自定义服务','Custom provider'),kind:'openai-compatible',baseUrl:providerPresets['openai-compatible'].baseUrl,models:model?[model]:[],enabled:true});newProvider.value=id;openConnection(id);}
+function removeConnection(id:string){props.config.providers=props.config.providers.filter(p=>p.id!==id);clearDefault(id);if(newProvider.value===id)newProvider.value='';}
+function changeKind(p:AssistantConfig['providers'][number],kind:ProviderKind){const preset=providerPresets[kind];Object.assign(p,{kind,name:preset.name,baseUrl:preset.baseUrl,models:[],apiKey:'',hasKey:false,allowHttp:false});clearDefault(p.id);}
+</script>
+
 <style scoped>
-.assistant-models{max-width:1100px}.assistant-models label{display:flex;flex-direction:column;gap:6px;min-width:0}.assistant-models input,.assistant-models select{margin:0;width:100%;min-width:0}.assistant-models input[type=checkbox]{width:auto}p,small{color:var(--text-muted);line-height:1.6}.add-model,.model-connections{display:flex;gap:12px;align-items:end;flex-wrap:wrap}.add-model>label,.model-connections>label{flex:1;min-width:190px}.model-card,.provider-card{background:var(--panel);border:1px solid var(--border);padding:18px;margin:14px 0;border-radius:6px;min-width:0}.model-card header,.row{display:flex;align-items:center;gap:12px}.model-card header{justify-content:space-between;flex-wrap:wrap}.model-card h3{margin:0;overflow-wrap:anywhere}.model-provider{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 0;border-bottom:1px solid var(--border)}.model-provider strong{flex:1;min-width:120px}.model-connections{margin-top:14px}.connection-settings{margin-top:24px;border-top:1px solid var(--border);padding-top:14px}.connection-settings summary{cursor:pointer;margin-bottom:14px}.provider-grid{display:grid;gap:16px}.provider-card{display:flex;flex-direction:column;gap:12px;margin:0}.provider-card .row strong{flex:1}.provider-card .row label,.provider-card .http-option{flex-direction:row;align-items:center}.provider-card>button{align-self:flex-start}.provider-card p,.provider-card small{margin:0}.error{color:var(--danger)}
+.assistant-models{max-width:1120px;min-width:0}.assistant-models label{display:flex;flex-direction:column;gap:7px;min-width:0;font-size:12px;line-height:1.5}.assistant-models>label{max-width:560px}.assistant-models input,.assistant-models select{width:100%;min-width:0;margin:0;padding:8px 10px}.assistant-models input[type=checkbox]{width:16px;height:16px;padding:0}.assistant-models button{min-height:32px;padding:6px 11px;font-size:12px}p,small{color:var(--text-muted);font-size:12px;line-height:1.7}.assistant-models>p{max-width:80ch;margin:12px 0 20px}
+.add-model,.model-connections{display:flex;align-items:end;flex-wrap:wrap;gap:12px}.add-model{padding:18px;border:1px solid var(--border);border-radius:var(--radius-panel);background:var(--panel)}.add-model>label,.model-connections>label{flex:1;min-width:min(190px,100%)}.empty-models{padding:28px 20px;border:1px dashed var(--border);border-radius:var(--radius-panel);background:var(--panel-soft);text-align:center}
+.model-card,.provider-card{min-width:0;margin:16px 0;padding:20px;border:1px solid var(--border);border-radius:var(--radius-panel);background:var(--panel)}.model-card header,.row{display:flex;align-items:center;gap:12px}.model-card header{height:auto;min-height:0;justify-content:space-between;flex-wrap:wrap;padding:0 0 4px;border:0}.model-card h3{margin:0;color:var(--text);font-size:14px;font-weight:600;line-height:1.5;overflow-wrap:anywhere}.model-card header>button{color:var(--danger)}.model-provider{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:16px 0;border-bottom:1px solid var(--border)}.model-provider strong{flex:1;min-width:120px;color:var(--text);font-size:12px;font-weight:600;overflow-wrap:anywhere}.model-provider small{font-size:11px}.model-provider button{min-height:29px;padding:5px 9px;font-size:11px}.model-connections{margin-top:16px}
+.connection-settings{margin-top:24px;padding:18px 20px;border:1px solid var(--border);border-radius:var(--radius-panel);background:var(--panel)}.connection-settings summary{margin:0;cursor:pointer;color:var(--text);font-size:13px;font-weight:600;line-height:1.6}.connection-settings[open] summary{margin-bottom:20px}.connection-settings>label{max-width:560px}.provider-grid{display:grid;gap:16px;margin-top:18px}.provider-card{display:flex;flex-direction:column;gap:16px;margin:0;padding:18px;background:var(--panel-soft)}.provider-card .row{flex-wrap:wrap}.provider-card .row strong{flex:1;min-width:100px;color:var(--text);font-size:13px;font-weight:600;overflow-wrap:anywhere}.provider-card .row label,.provider-card .http-option{flex-direction:row;align-items:center}.provider-card>button{align-self:flex-start}.provider-card p,.provider-card small{margin:0}.provider-card small{font-size:11px}.error{color:var(--danger)}
+@media(max-width:700px){.add-model,.model-card,.connection-settings{padding:16px}.add-model>label,.model-connections>label{flex-basis:100%}.model-provider strong{flex-basis:100%}.provider-card{padding:14px}}
 </style>

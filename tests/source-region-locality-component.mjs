@@ -90,6 +90,6 @@ for(const target of recorded.filter(e=>e.grab==='center')){
  finally{fixture.app.unmount();}
 }
 for(const region of ['arm-left','arm-right'])if(!evidence.some(e=>e.region===region&&e.target==='middle'&&e.nodeChangesMm.some(change=>change>1e-5)))failures.push({region,error:'the middle-arm component case must complete an actual source-node edit'});
-await writeFile(resolve(output,'source-region17-component.json'),JSON.stringify({verification:'Actual Vue handlers and native backend, no Electron display verification',evidence,failures},null,2));
+await writeFile(resolve(output,'source-region17-component.json'),JSON.stringify({verification:'Actual Vue handlers and native backend, no WebView2 display verification',evidence,failures},null,2));
 console.log(JSON.stringify({cases:evidence.map(e=>({region:e.region,target:e.target,nodeChangesMm:e.nodeChangesMm,liveParts:e.liveParts,savedParts:e.savedParts})),failures:failures.map(({region,target,error})=>({region,target,error}))},null,2));
 assert.equal(failures.length,0,JSON.stringify(failures.map(({region,target,error})=>({region,target,error}))));

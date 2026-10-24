@@ -4,7 +4,9 @@ import {Worker} from 'node:worker_threads';
 import {join} from 'node:path';
 import {regionSchema,modelRecordSchema,type LibraryRegionEdit,referenceRunSchema,surfaceRunSchema,markingSchema,referenceSchema,projectSchema,type Reference,type SurfaceBrush,type Marking,type Surface,type Project,type UnwrapOptions,type SurfaceRun} from '../../../packages/schema/index';
 import {DomainError} from './repository';
+import {terminateNativeChildren} from './native-process';
 import {surfaceProgressStepSchema,type SurfaceProgressStep} from '../../../packages/schema/index';
+import type {ClusterOptions} from '../../../packages/reference/color-cluster';
 /** Geometry jobs need calibrated registration metadata, but never image pixels.
  * Removing whole references changes anatomical groups and their fingerprints. */
 function geometryProject(project:Project):Project{return {...project,referenceRun:undefined,references:project.references?.map(({png,resources,sheet,...reference})=>({...reference,png:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='}))};}
@@ -13,10 +15,10 @@ function runTask<T>(workerData:Record<string,unknown>,schema:z.ZodType<T>,signal
  if(signal.aborted){reject(new DomainError('CANCELLED'));return;}
  const worker=new Worker(join(__dirname,'surface-worker.cjs'),{workerData,resourceLimits:{maxOldGenerationSizeMb:1024}}),children=new Set<number>();let done=false;
  let lastProgressStage:SurfaceProgressStep['stage']|undefined,lastProgressAt=-Infinity;
- const finish=(result?:T,error?:Error)=>{if(done)return;done=true;clearTimeout(timer);signal.removeEventListener('abort',cancel);for(const pid of children)try{process.kill(pid);}catch{}void worker.terminate();if(error)reject(error);else resolve(result!);};
+ const finish=(result?:T,error?:Error)=>{if(done)return;done=true;clearTimeout(timer);signal.removeEventListener('abort',cancel);for(const pid of children)try{process.kill(pid);}catch{}let threadFailed=false;const settle=()=>{if(threadFailed)reject(new DomainError('WORKER_CRASH'));else if(error)reject(error);else resolve(result!);};void worker.terminate().catch(()=>{threadFailed=true;}).then(()=>terminateNativeChildren(children)).then(settle,()=>reject(new DomainError('WORKER_CRASH')));};
  const cancel=()=>finish(undefined,new DomainError('CANCELLED'));
  const timer=setTimeout(()=>finish(undefined,new DomainError('TIMEOUT')),timeoutMs);signal.addEventListener('abort',cancel,{once:true});
- worker.on('message',(m:{kind:string;pid?:number;value?:unknown;code?:string})=>{if(m.kind==='child'){if(m.pid){if(done){try{process.kill(m.pid);}catch{}}else children.add(m.pid);}return;}if(m.kind==='childExit'){if(m.pid)children.delete(m.pid);return;}if(done)return;if(m.kind==='progress'){
+ worker.on('message',(m:{kind:string;pid?:number;value?:unknown;code?:string})=>{if(m.kind==='child'){if(m.pid){children.add(m.pid);if(done){try{process.kill(m.pid);}catch{}}}return;}if(m.kind==='childExit'){if(m.pid)children.delete(m.pid);return;}if(done)return;if(m.kind==='progress'){
   const progress=surfaceProgressStepSchema.safeParse(m.value);if(!progress.success||signal.aborted)return;
   // Forward measured values only. Stage transitions are immediate; bursts
   // within a stage are bounded without another timer or delayed callback.
@@ -27,11 +29,10 @@ function runTask<T>(workerData:Record<string,unknown>,schema:z.ZodType<T>,signal
 });}
 
 export function runUnwrap(workerPath:string,surface:Surface,project:Project,options:UnwrapOptions,signal:AbortSignal):Promise<SurfaceRun>{return runTask({kind:'unwrap',workerPath,surface,project:geometryProject(project),options},surfaceRunSchema,signal);}
-// Design cuts, including uncolored whole models, require many bounded native
-// chart/clipping/validation jobs. Allow the complete pipeline ten minutes;
-// cancellation still terminates the thread and its children immediately.
-// Explicit mesh cuts without color inserts keep their two-minute deadline.
-export function runCutPreview(workerPath:string,surface:Surface,project:Project,options:UnwrapOptions,directory:string,signal:AbortSignal,onProgress?:(progress:SurfaceProgressStep)=>void){return runTask({kind:'cut-preview',workerPath,surface,project:geometryProject(project),options,directory},z.object({run:surfaceRunSchema,markings:z.array(markingSchema).max(500)}).strict(),signal,options.colorBoundaryCuts||options.partitionStrategy!=='mesh'?600000:120000,onProgress);}
+// Exact color subdivisions require more work than the source face count shows.
+// Keep a bounded deadline and the same cancellation/transaction guarantees.
+export function cutPreviewTimeout(project:Project,options:UnwrapOptions){const points=options.colorBoundaryCuts?(project.markings??[]).reduce((n,m)=>n+m.fragments.reduce((sum,f)=>sum+f.rings.reduce((count,r)=>count+r.length,0),0),0):0;return Math.min(900000,Math.max(60000,points*20,options.automaticCuts&&(options.partitionStrategy??'design')==='design'?(project.surface?.faces.length??0)*40:0));}
+export function runCutPreview(workerPath:string,surface:Surface,project:Project,options:UnwrapOptions,directory:string,signal:AbortSignal,onProgress?:(progress:SurfaceProgressStep)=>void){return runTask({kind:'cut-preview',workerPath,surface,project:geometryProject(project),options,directory},z.object({run:surfaceRunSchema,markings:z.array(markingSchema).max(500)}).strict(),signal,cutPreviewTimeout(project,options),onProgress);}
 export function runProjection(workerPath:string,project:Project,sourceId:string,view:'front'|'back',offsetXmm:number,offsetYmm:number,signal:AbortSignal,replaceManual=false,automatic=false,context?:PlacementContext):Promise<Marking>{return runTask({kind:'marking',workerPath,project:geometryProject(project),sourceId,view,offsetXmm,offsetYmm,replaceManual,automatic,context},markingSchema,signal);}
 
 export function runTexture(workerPath:string,project:Project,textureId:string,seed:{x:number;y:number},tolerance:number,signal:AbortSignal):Promise<Marking>{return runTask({kind:'texture',workerPath,project:geometryProject(project),textureId,seed,tolerance},markingSchema,signal);}
@@ -43,6 +44,8 @@ export function runInference(workerPath:string,project:Project,markingId:string,
 export function runReferences(references:Reference[],heightMm:number,clusters:number,excludeBackground:boolean,mode:'simple'|'precise',subject:'character'|'head'|'paw'|'foot',signal:AbortSignal){return runTask({kind:'references',references,heightMm,clusters,excludeBackground,mode,subject},z.object({references:z.array(referenceSchema),regions:projectSchema.shape.patternLibrary.unwrap()}),signal);}
 
 export function runManualMask(reference:Reference,sourceHash:string,mask:{width:number;height:number;pixels:string},color:string,signal:AbortSignal){return runTask({kind:'mask',reference,sourceHash,mask,color},referenceRunSchema,signal);}
+
+export function runReferenceSegment(reference:Reference,seed:{x:number;y:number},tolerance:number,options:ClusterOptions|undefined,fitToleranceMm:number|undefined,proxyPng:string|undefined,signal:AbortSignal){return runTask({kind:'segment',reference,seed,tolerance,options,fitToleranceMm,proxyPng},referenceRunSchema,signal);}
 
 export function runEditSurfaceMarking(workerPath:string,project:Project,markingId:string|undefined,shape:NonNullable<Marking['surfaceShape']>|undefined,stroke:SurfaceBrush|undefined,signal:AbortSignal):Promise<Marking>{return runTask({kind:'surface-edit',workerPath,project:geometryProject(project),markingId,shape,stroke},markingSchema,signal);}
 

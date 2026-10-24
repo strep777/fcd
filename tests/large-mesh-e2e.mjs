@@ -2,12 +2,12 @@ import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {assertSurfaceRendered} from './surface-renderer.mjs';
 import {executablePath,desktopArgs,testedBuild} from './desktop-launch.mjs';
 import {workflow,production,activity,openDetails} from './ui-navigation.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';import {resolve} from 'node:path';
-const directory=await mkdtemp(resolve('.local/tests/large-')),build=testedBuild,env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
+const directory=await mkdtemp(resolve('.local/tests/large-')),build=testedBuild,env={...process.env,FPCAD_DATA_DIR:directory};
 const obj=[];const width=400,height=250;for(let y=0;y<=height;y++)for(let x=0;x<=width;x++)obj.push('v '+x*10+' '+y*10+' 0');for(let y=0;y<height;y++)for(let x=0;x<width;x++){const a=y*(width+1)+x+1,b=a+1,c=a+width+1,d=c+1;obj.push('f '+a+' '+b+' '+d,'f '+a+' '+d+' '+c);}const input=resolve(directory,'large.obj');await writeFile(input,obj.join('\n'));
 const evidence={build,directory,passed:false,osSandboxDisabledForTest:process.env.FPCAD_TEST_NO_SANDBOX==='1',checks:[],paintMs:[]};
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow();page.setDefaultTimeout(60000);
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow();page.setDefaultTimeout(60000);
 try{
  await page.getByRole('button',{name:'＋ 新建项目',exact:true}).first().click();await page.getByRole('dialog').locator('input').fill('大模型验证');await page.getByRole('button',{name:'创建 →',exact:true}).click();await page.locator('.workspace').waitFor();
  await app.evaluate(({dialog},path)=>dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]}),input);

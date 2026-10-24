@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {mkdtemp,writeFile} from 'node:fs/promises';
@@ -17,12 +17,12 @@ function materialPixelCount(evidence,color){return Object.entries(evidence.color
 assert(isShadedMaterial([233,0,0],'ff0000'));assert(isShadedMaterial([84,0,140],'9900ff'));
 assert(!isShadedMaterial([233,0,7],'ff0000'));assert(!isShadedMaterial([84,0,140],'ff00ff'));assert(!isShadedMaterial([233,0,0],'9900ff'));assert(!isShadedMaterial([130,0,0],'ff0000'));
 const directory=await mkdtemp(resolve('.local/tests/assembly-closed-'));
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[],evidence={};
+const env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[],evidence={};
 page.on('pageerror',e=>errors.push(e.message));
 const read=async()=>(await page.evaluate(()=>window.fpcad.read())).data.project;
 async function apply(command){const p=await read();const result=await page.evaluate(({p,command})=>window.fpcad.apply(p.id,p.revision,command),{p,command});assert(result.ok,JSON.stringify(result.error));return result.data.project;}
-async function publish(){await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.send('fpcad:changed'));await page.waitForFunction(async()=>{const r=await window.fpcad.read();return document.querySelector('.app-shell>footer')?.textContent.includes('R'+r.data.project.revision);});}
+async function publish(){await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows()[0].contents.send('fpcad:changed'));await page.waitForFunction(async()=>{const r=await window.fpcad.read();return document.querySelector('.app-shell>footer')?.textContent.includes('R'+r.data.project.revision);});}
 async function pixels(){return page.locator('.assembly-page canvas').evaluate(c=>{const scratch=document.createElement('canvas');scratch.width=c.width;scratch.height=c.height;const ctx=scratch.getContext('2d');ctx.drawImage(c,0,0);const data=ctx.getImageData(0,0,c.width,c.height).data,colors={};let count=0,minX=c.width,minY=c.height,maxX=0,maxY=0;for(let i=0;i<data.length;i+=4){if(data[i+3]<250)continue;const key=[data[i],data[i+1],data[i+2]].map(n=>n.toString(16).padStart(2,'0')).join('');colors[key]=(colors[key]??0)+1;count++;const p=i/4,x=p%c.width,y=Math.floor(p/c.width);minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);}return {count,colors,bounds:{width:maxX-minX,height:maxY-minY},renderer:c.dataset.renderer,triangles:c.dataset.triangles};});}
 try{
  await page.setViewportSize({width:1440,height:960});await page.waitForFunction(()=>!!window.fpcad);await page.evaluate(()=>window.fpcad.create({name:'Closed colored panel assembly',unit:'mm'}));await page.reload();await workflow(page,'assembly');

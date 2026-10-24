@@ -24,6 +24,20 @@ function reports(value:unknown){
 }
 
 describe('native worker sessions',()=>{
+ it('reuses only conformal initialization across solver retries and invalidates it for geometry changes',async()=>{
+  const stream=session(),input=unwrapInput(curved,'arap');
+  for(const method of ['arap','arap-balanced','lscm','arap-balanced'] as const){
+   const retry={...input,mesh:{...input.mesh,method,iterations:method==='arap-balanced'?100:30}};
+   expect(await stream.request(retry)).toEqual(await request(worker,retry));
+  }
+  const changed=structuredClone(input);
+  changed.mesh.vertices[2].zMm+=7;
+  expect(await stream.request(changed)).toEqual(await request(worker,changed));
+  expect(await stream.request(input)).toEqual(await request(worker,input));
+  const moved=structuredClone(input);
+  moved.mesh.vertices.forEach(v=>{v.xMm+=100;v.yMm-=23;});
+  expect(await stream.request(moved)).toEqual(await request(worker,moved));
+ });
  it.each([
   {label:'flat LSCM',obj:flat,method:'lscm' as const},
   {label:'flat ARAP',obj:flat,method:'arap' as const},

@@ -3,10 +3,12 @@ import {speciesParamsSchema,surfaceSchema,type SpeciesParams,type Surface} from 
 import {DomainError} from './repository';
 import {validateSurface} from './surface';
 import {smoothSections,sweepFrame,type LoftSection,type Vector3} from './species-loft';
+import {generateWearer} from './wearer';
 export {speciesDefaults} from '../../../packages/body/defaults';
 
 /** Original measured fursuit recipes. Assembly removes overlaps to expose one closed exterior. */
 export function generateSpecies(raw:SpeciesParams,previous?:Surface):Surface{
+ if(raw.bodyMode==='dtd'||raw.bodyMode==='padded'){const result=generateWearer(speciesParamsSchema.parse(raw));validateSurface(result);return result;}
  const p=speciesParamsSchema.parse(raw),vertices:Surface['vertices']=[],faces:Surface['faces']=[],parts:string[]=[],measurements:{name:string;targetMm:number;actualMm:number;residualMm:number}[]=[];
  const vertex=(position:Vector3)=>{vertices.push({id:randomUUID(),xMm:position[0],yMm:position[1],zMm:position[2]});return vertices.length-1;};
  const face=(a:number,b:number,c:number,region:string)=>{if(a!==b&&b!==c&&c!==a)faces.push({id:randomUUID(),vertices:[a,b,c].map(i=>vertices[i].id) as [string,string,string],region});};

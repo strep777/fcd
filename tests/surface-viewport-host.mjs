@@ -6,7 +6,7 @@ import {resolve,dirname,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 // Real SFCs, stores and domain functions; only browser coordinates, IPC and
-// GPU presentation are substituted. This does not verify Electron pixels.
+// GPU presentation are substituted. This does not verify WebView2 pixels.
 export let viewport={x:0,y:0,width:720,height:540};
 export class HostNode {
  constructor(tag=''){this.__v_skip=true;this.tag=tag;this.tagName=tag.toUpperCase();this.children=[];this.parentNode=null;this.attrs={};this.style={};this.listeners=new Map();this.value='';this.type='';this.nodeType=1;}
@@ -68,7 +68,7 @@ export async function mount(p,{mode='model',rect={x:0,y:0,width:720,height:540},
  teleportTargets=new Map(['#surface-cut-draft','#mapping-surface-controls','#cutting-parts'].map(selector=>{const target=new HostNode('aside');target.parentNode=root;target.attrs.id=selector.slice(1);root.children.push(target);return [selector,target];}));
  store.data={project:projectSchema.parse(p),geometry:[],canUndo:false,canRedo:false,savedRevision:null,history:[],recovery:[],recent:[],jobs:[]};const edit=useModelEdit(pinia);
  window.fpcad={onSurfaceProgress:()=>()=>{},apply:async(...args)=>{calls.push(args);return {ok:true,data:{...JSON.parse(JSON.stringify(store.data)),project:{...JSON.parse(JSON.stringify(store.data.project)),revision:store.data.project.revision+1}}};},...api};
- const app=renderer.createApp({render:()=>h('div',[h(component==='activity'?TaskActivity:component==='unwrap'?UnwrapTools:component==='cuttools'?SurfaceCutPanel:SurfacePanel,{...props,onSelect:id=>emits.push({event:'select',value:id}),onPoint:p=>emits.push({event:'point',value:p}),onChoices:ids=>emits.push({event:'choices',value:ids}),onMarking:marking=>emits.push({event:'marking',value:marking}),onPreviewReady:()=>emits.push({event:'previewReady'}),onCutDraftActive:active=>emits.push({event:'cutDraftActive',value:active})}),controls?h(ModelEditControls,{language:'en'}):null])});app.use(pinia);app.mount(root);await flush();
+ const app=renderer.createApp({render:()=>h('div',[h(component==='activity'?TaskActivity:component==='unwrap'?UnwrapTools:component==='cuttools'?SurfaceCutPanel:SurfacePanel,{...props,onDraw:request=>emits.push({event:'draw',value:request}),onSelect:id=>emits.push({event:'select',value:id}),onPoint:p=>emits.push({event:'point',value:p}),onChoices:ids=>emits.push({event:'choices',value:ids}),onMarking:marking=>emits.push({event:'marking',value:marking}),onPreviewReady:()=>emits.push({event:'previewReady'}),onCutDraftActive:active=>emits.push({event:'cutDraftActive',value:active})}),controls?h(ModelEditControls,{language:'en'}):null])});app.use(pinia);app.mount(root);await flush();
  const button=t=>{const n=walk(root).find(n=>n.tag==='button'&&n.textContent===t);assert(n,'missing button: '+t);return n;};
  const byLabel=t=>{const n=walk(root).find(n=>n.attrs['aria-label']===t);assert(n,'missing control: '+t);return n;};
  const click=async n=>{assert(!n.attrs.disabled);await n.attrs.onClick({button:0});await flush();};

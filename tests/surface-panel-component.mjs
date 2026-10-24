@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 
 // Actual SurfacePanel rendering and handlers run under Vue's custom renderer.
 // Only the canvas/GPU presentation children, browser coordinates and IPC are
-// substituted. This is component logic coverage, not an Electron UI capture.
+// substituted. This is component logic coverage, not an WebView2 UI capture.
 class HostNode {
  constructor(tag=''){this.tag=tag;this.tagName=tag.toUpperCase();this.children=[];this.parentNode=null;this.attrs={};this.style={};this.listeners=new Map();this.value='';this.defaultValue='';this.type='';this.nodeType=1;}
  get textContent(){return this.text??this.children.map(n=>n.textContent).join('');}
@@ -114,5 +114,13 @@ for(const shape of ['round','square']){
   checks.push({case:'existing depth-correct outline, handles, live drag and explicit save',passed:true});
  }finally{fixture.app.unmount();}
 }
-await writeFile('test-results/surface-panel-component.json',JSON.stringify({passed:true,verification:'Vue custom renderer component logic; no Electron display verification',checks},null,2));
+for(const wrap of [true,false]){
+ const input=project(false,true);Object.assign(input.markings[0].surfaceShape,{wrap,anchorFaceId:'lower',regions:['panel']});
+ const fixture=await mount(input);try{
+  const {button,byLabel,click,model,calls}=fixture;await click(button('Front'));await model(byLabel('Select attached marking'),'old');await click(byLabel('Edit attached marking nodes'));await click(byLabel('Shrink marking draft'));await click(button('Confirm marking edit'));
+  assert.equal(calls.length,1);assert.equal(calls[0].method,'edit');assert.equal(calls[0].args[3].wrap,wrap);assert.equal(calls[0].args[3].anchorFaceId,'lower');assert.deepEqual(calls[0].args[3].regions,['panel']);assert.notDeepEqual(calls[0].args[3].nodes,input.markings[0].surfaceShape.nodes);
+  checks.push({case:`draftScope preserves wrap=${wrap}, anchor and regions through contour editing and save`,passed:true});
+ }finally{fixture.app.unmount();}
+}
+await writeFile('test-results/surface-panel-component.json',JSON.stringify({passed:true,verification:'Vue custom renderer component logic; no WebView2 display verification',checks},null,2));
 console.log(JSON.stringify({passed:true,verification:'component logic',checks}));

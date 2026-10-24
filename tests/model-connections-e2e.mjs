@@ -1,13 +1,13 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
 import {desktopScreenshot} from './desktop-screenshot.mjs';
-const directory=await mkdtemp(resolve('.local/tests/model-connections-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+const directory=await mkdtemp(resolve('.local/tests/model-connections-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
+ assert.equal(await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows().some(w=>w.isVisible())),false);
  await page.getByRole('button',{name:'AI 助手',exact:true}).click();await page.getByRole('tab',{name:'模型管理',exact:true}).waitFor();
  assert.equal(await page.getByRole('tab',{name:'提供商',exact:true}).count(),0,'model management must be the single connection entry');
  await page.getByLabel('新增模型标识',{exact:true}).fill('shared-model');await page.getByLabel('新增模型的提供商',{exact:true}).selectOption('ollama');await page.getByRole('button',{name:'添加模型',exact:true}).click();

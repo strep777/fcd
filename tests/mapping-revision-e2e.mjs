@@ -1,5 +1,5 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import upng from '@pdf-lib/upng';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
@@ -7,8 +7,8 @@ import {resolve} from 'node:path';
 import {desktopArgs,executablePath} from './desktop-launch.mjs';
 import {workflow} from './ui-navigation.mjs';
 import {waitForState} from './wait-state.mjs';
-const directory=await mkdtemp(resolve('.local/tests/mapping-revision-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];let yaw=0,perspective=false;
+const directory=await mkdtemp(resolve('.local/tests/mapping-revision-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];let yaw=0,perspective=false;
 page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data.project;};
 const revision=async before=>waitForState(page,async n=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision>n;},before);

@@ -37,6 +37,26 @@ it('cancellation terminates once and drops late progress without resuming a task
  workers[0].emit('message',{kind:'progress',value:{stage:'unwrap',completed:1,total:5}});controller.abort();expect(await rejected).toBe('CANCELLED');
  workers[0].emit('message',{kind:'progress',value:{stage:'unwrap',completed:5,total:5}});expect(onProgress).toHaveBeenCalledOnce();expect(workers[0].terminate).toHaveBeenCalledOnce();expect(vi.getTimerCount()).toBe(0);
 });
+it.each(['cancel','timeout'] as const)('%s does not settle the task until the worker termination completes',async mode=>{
+ const {p,result,controller,onProgress}=cut(),settled=vi.fn(),outcome=result.catch(error=>error.code);let exited!:(code:number)=>void;
+ workers[0].terminate.mockImplementationOnce(()=>new Promise<number>(resolve=>{exited=resolve;}));void result.then(settled,settled);
+ if(mode==='cancel')controller.abort();else await vi.advanceTimersByTimeAsync(60000);
+ await Promise.resolve();expect(workers[0].terminate).toHaveBeenCalledOnce();expect(settled).not.toHaveBeenCalled();expect(vi.getTimerCount()).toBe(0);
+ workers[0].emit('message',{kind:'progress',value:{stage:'validate'}});workers[0].emit('message',{kind:'result',value:{run:p.surfaceRun,markings:[]}});expect(onProgress).not.toHaveBeenCalled();
+ exited(0);expect(await outcome).toBe(mode==='cancel'?'CANCELLED':'TIMEOUT');expect(settled).toHaveBeenCalledOnce();
+});
+it('a stopped thread cannot release cancellation while its native child is still alive',async()=>{
+ let alive=true;vi.spyOn(process,'kill').mockImplementation((_pid,signal)=>{if(signal===0&&!alive)throw Object.assign(Error('exited'),{code:'ESRCH'});return true;});
+ const {result,controller}=cut(),settled=vi.fn(),outcome=result.catch(error=>error.code);void result.then(settled,settled);workers[0].emit('message',{kind:'child',pid:123456});controller.abort();await vi.advanceTimersByTimeAsync(100);expect(settled).not.toHaveBeenCalled();expect(workers[0].terminate).toHaveBeenCalledOnce();
+ alive=false;await vi.advanceTimersByTimeAsync(20);expect(await outcome).toBe('CANCELLED');expect(settled).toHaveBeenCalledOnce();expect(vi.getTimerCount()).toBe(0);
+});
+it('a child announced during thread termination is also awaited and a non-exiting child has a bounded failure',async()=>{
+ vi.spyOn(process,'kill').mockImplementation(()=>true);const {result,controller}=cut(),settled=vi.fn(),outcome=result.catch(error=>error.code);let threadExited!:(value:number)=>void;workers[0].terminate.mockImplementationOnce(()=>new Promise<number>(resolve=>threadExited=resolve));void result.then(settled,settled);controller.abort();workers[0].emit('message',{kind:'child',pid:123457});threadExited(0);
+ await vi.advanceTimersByTimeAsync(1999);expect(settled).not.toHaveBeenCalled();await vi.advanceTimersByTimeAsync(1);expect(await outcome).toBe('WORKER_CRASH');expect(settled).toHaveBeenCalledOnce();expect(vi.getTimerCount()).toBe(0);
+});
+it('thread termination errors still wait for native exit before reporting the crash',async()=>{
+ let alive=true;vi.spyOn(process,'kill').mockImplementation((_pid,signal)=>{if(signal===0&&!alive)throw Object.assign(Error('exited'),{code:'ESRCH'});return true;});const {result,controller}=cut(),settled=vi.fn(),outcome=result.catch(error=>error.code);workers[0].terminate.mockRejectedValueOnce(Error('termination error'));void result.then(settled,settled);workers[0].emit('message',{kind:'child',pid:123459});controller.abort();await vi.advanceTimersByTimeAsync(100);expect(settled).not.toHaveBeenCalled();alive=false;await vi.advanceTimersByTimeAsync(20);expect(await outcome).toBe('WORKER_CRASH');expect(vi.getTimerCount()).toBe(0);
+});
 it('same-stage bursts forward at most once per 200 ms, keeping received counts and immediate stage transitions',async()=>{
  let now=1000;vi.spyOn(performance,'now').mockImplementation(()=>now);
  const {p,result,onProgress}=cut(),send=(stage:string,completed:number,total=2000)=>workers[0].emit('message',{kind:'progress',value:{stage,completed,total}});

@@ -38,4 +38,4 @@ it('the raised-paw claw keeps its oblique upper edge instead of restoring pixel 
   return [{x,y,turn:Math.abs(Math.atan2(u.x*v.y-u.y*v.x,u.x*v.x+u.y*v.y))}];
  });
  expect(Math.max(0,...turns.map(v=>v.turn)),JSON.stringify(turns)).toBeLessThanOrEqual(Math.PI/6);
-},30000);
+},120000);

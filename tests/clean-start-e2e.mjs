@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -6,8 +6,8 @@ import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
 
 // A first launch must never touch the user's actual workspace.
 const directory=resolve(await mkdtemp('.local/tests/clean-start-'));
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,env,args:desktopArgs});
+const env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({executablePath,env,args:desktopArgs});
 const errors=[];
 try{
  const page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));

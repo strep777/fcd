@@ -1,11 +1,11 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
 import {workflow} from './ui-navigation.mjs';
-const directory=await mkdtemp(resolve('.local/tests/large-auto-mapping-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(45000);
+const directory=await mkdtemp(resolve('.local/tests/large-auto-mapping-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(45000);
 try{
  await page.waitForFunction(()=>!!window.fpcad);await app.evaluate(({dialog},path)=>dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]}),resolve('tests/fixtures/character-ear-native.png'));
  const seeded=await page.evaluate(async()=>{const check=r=>{if(!r.ok)throw Error(JSON.stringify(r));return r.data.project;};let p=check(await window.fpcad.create({name:'125 sources in one undoable placement',unit:'mm'}));p=check(await window.fpcad.importReference(p.id,p.revision,'front'));const referenceId=p.references[0].id,vertices=[[0,0,0],[100,0,0],[100,100,0],[0,100,0]].map(([xMm,yMm,zMm])=>({id:crypto.randomUUID(),xMm,yMm,zMm}));p=check(await window.fpcad.apply(p.id,p.revision,{type:'surface.set',surface:{id:crypto.randomUUID(),topologyVersion:1,source:'obj',vertices,faces:[[0,1,2],[0,2,3]].map(ids=>({id:crypto.randomUUID(),region:'body',vertices:ids.map(i=>vertices[i].id)}))}}));for(let i=0;i<125;i++){const piece={id:crypto.randomUUID(),name:'Source '+i,nodes:[[0,0],[100,0],[100,100],[0,100]].map(([xMm,yMm])=>({id:crypto.randomUUID(),xMm,yMm})),closed:true,allowanceMm:0,cutQty:1,mirror:false,material:'fabric',furRad:0,color:'#73c9b6'};p=check(await window.fpcad.apply(p.id,p.revision,{type:'library.region.put',region:{piece,referenceId,view:'front',category:'body',anatomy:{part:'body',side:'center',confidence:1,method:'manual'}}}));}return {revision:p.revision,sources:p.patternLibrary.map(r=>r.piece.id)};});

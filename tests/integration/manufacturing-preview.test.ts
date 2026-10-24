@@ -27,18 +27,19 @@ function setup(){const store=useSession(),p=project();p.pieces=[{...rectangle(35
 async function rendered(component:Component,advanced:boolean,props={}){const {editor}=setup(),app=createSSRApp(defineComponent({setup(){provide(patternEditorKey,editor);provide('advancedMode',ref(advanced));return ()=>h(component,props);}}));app.use(pinia);const context:{teleports?:Record<string,string>}={},html=await renderToString(app,context);return html+Object.values(context.teleports??{}).join('');}
 it('keeps common piece edits and allowance available in simple mode, then restores advanced editing controls',async()=>{
  const simple=await rendered(PatternProperties,false),advanced=await rendered(PatternProperties,true);
- for(const text of ['裁片颜色','名称','生成缝份候选','材料与裁剪'])expect(simple).toContain(text);
+ for(const text of ['裁片颜色','名称','应用到所有裁片','材料与裁剪'])expect(simple).toContain(text);
  for(const text of ['新建轮廓','导入 SVG 纸样','复制']){expect(simple).not.toContain(text);expect(advanced).not.toContain(text);}
- for(const text of ['逐边缝份','缝份连接','轮廓、孔洞','布向角']){expect(simple).not.toContain(text);expect(advanced).toContain(text);}
+ for(const text of ['逐边拼接间距','拼接间距连接方式','轮廓、孔洞','布向角']){expect(simple).not.toContain(text);expect(advanced).toContain(text);}
 });
-it('simple cutting retains computation and saved cuts while advanced restores manual point edits and solver options',async()=>{
+it('simple cutting retains closed pen paths, saved cuts and computation while advanced restores scope and solver options',async()=>{
  const simple=await rendered(CuttingPage,false,{language:'zh'}),advanced=await rendered(CuttingPage,true,{language:'zh'});
- for(const text of ['裁切版型','曲面钢笔','手绘裁线','花纹画笔（涂区域）','自动计算裁线并预览'])expect(simple).toContain(text);
- for(const text of ['手动切分点与切分线','半侧制版与中线围合','求解参数','展开算法']){expect(simple).not.toContain(text);expect(advanced).toContain(text);}
+ for(const text of ['裁切版型','曲面钢笔（闭合裁线）','已保存裁线','花纹画笔（涂区域）','自动计算裁线并预览'])expect(simple).toContain(text);
+ for(const text of ['手绘裁线','手动切分点与切分线']){expect(simple).not.toContain(text);expect(advanced).not.toContain(text);}
+ for(const text of ['半侧制版与中线围合','求解参数','展开算法']){expect(simple).not.toContain(text);expect(advanced).toContain(text);}
 });
 it('simple production forms keep fabric essentials while hiding algorithm and detailed manufacturing settings',async()=>{
  const materials=await rendered(MaterialsPanel,false,{language:'zh',selectedId:''}),materialsAdvanced=await rendered(MaterialsPanel,true,{language:'zh',selectedId:''});
- expect(materials).toContain('默认缝份 mm');expect(materials).not.toContain('经向伸长比');expect(materialsAdvanced).toContain('经向伸长比');
+ expect(materials).toContain('默认拼接间距大小 mm');expect(materials).not.toContain('经向伸长比');expect(materialsAdvanced).toContain('经向伸长比');
  const nesting=await rendered(NestingPanel,false,{language:'zh'}),nestingAdvanced=await rendered(NestingPanel,true,{language:'zh'});expect(nesting).toContain('幅宽 mm');expect(nesting).toContain('片间距 mm');expect(nesting).not.toContain('保守包围框');expect(nestingAdvanced).toContain('保守包围框');
  const seams=await rendered(SeamsPanel,false,{language:'zh'}),seamsAdvanced=await rendered(SeamsPanel,true,{language:'zh'});expect(seams).toContain('建立接缝');expect(seams).not.toContain('A 起止');expect(seamsAdvanced).toContain('A 起止');
 });

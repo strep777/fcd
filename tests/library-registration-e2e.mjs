@@ -1,12 +1,12 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import UPNG from '@pdf-lib/upng';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
-const directory=await mkdtemp(resolve('.local/tests/library-registration-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
+const directory=await mkdtemp(resolve('.local/tests/library-registration-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
 const ok=r=>{assert(r.ok,JSON.stringify(r));return r.data;},read=async()=>ok(await page.evaluate(()=>window.fpcad.read()));
 let passed=false;
 try{

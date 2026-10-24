@@ -1,5 +1,5 @@
 // Final accepted-project smoke test with ordinary GPU flags, no unwrap.
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {DatabaseSync,backup} from 'node:sqlite';
 import {createHash} from 'node:crypto';
@@ -9,6 +9,7 @@ import {setPriority,constants} from 'node:os';
 import {desktopArgs,executablePath} from './desktop-launch.mjs';
 import {hiddenWindowId} from './desktop-window.mjs';
 import {desktopScreenshot} from './desktop-screenshot.mjs';
+import {webglDiagnostics} from './webgl-diagnostics.mjs';
 
 assert.equal(process.env.FPCAD_TEST_GPU,'1','This final check must retain ordinary GPU flags');
 assert(!desktopArgs.includes('--disable-gpu'));assert(!desktopArgs.includes('--no-sandbox'));
@@ -36,10 +37,10 @@ async function revision(expected){await page.waitForFunction(expected=>document.
 async function choose(){await page.locator('.project-card[data-session-id="'+sessionId+'"]').click();await page.locator('.workflow-nav').waitFor();await revision(initialRevision+(report.reaccepted?2:0));}
 async function cutting(){await page.locator('.workflow-nav>button[data-stage="cutting"]').click();await page.locator('main.workspace.page-cutting').waitFor();await lines().first().waitFor({timeout:10000});return{count:await lines().count(),page:await page.locator('main.workspace').getAttribute('class')};}
 async function compact(){return page.evaluate(async()=>{const start=performance.now(),r=await window.fpcad.read();if(!r.ok)throw Error(r.error.code);const p=r.data.project,digest=async value=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value))))].map(n=>n.toString(16).padStart(2,'0')).join('');return{readMs:performance.now()-start,revision:p.revision,accepted:p.surfaceRun?.accepted,pieces:p.pieces.length,archive:p.cuttingLibrary?.length??0,markings:p.markings.map(m=>({id:m.id,color:m.color,fragments:m.fragments.length,paths:m.paths.length})),sourceHash:await digest({surface:p.surface,library:p.patternLibrary}),geometryHash:await digest({pieces:p.pieces.map(({id,nodes,holes,curves,closed})=>({id,nodes,holes,curves,closed})),bindings:p.bindings.map(({pieceId,trim})=>({pieceId,trim})),markings:p.markings.map(({id,color,surfaceShape,fragments,paths})=>({id,color,surfaceShape,fragments,paths}))})};});}
-async function gpu(){return{features:await app.evaluate(({app})=>app.getGPUFeatureStatus()),info:await app.evaluate(({app})=>app.getGPUInfo('basic')),canvases:await page.locator('.surface-gpu .surface-canvas').evaluateAll(nodes=>nodes.map(c=>{const result={width:c.width,height:c.height,backend:c.dataset.backend,visible:c.getBoundingClientRect().width>0&&c.getBoundingClientRect().height>0};const gl=c.getContext('webgl');if(!gl)return result;const ext=gl.getExtension('WEBGL_debug_renderer_info');return{...result,version:gl.getParameter(gl.VERSION),renderer:gl.getParameter(gl.RENDERER),unmaskedRenderer:ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):undefined,unmaskedVendor:ext?gl.getParameter(ext.UNMASKED_VENDOR_WEBGL):undefined};}))};}
+async function gpu(){return webglDiagnostics(page);}
 try{
- const env={...process.env,FPCAD_DATA_DIR:directory,FPCAD_PROFILE:'1'};delete env.ELECTRON_RUN_AS_NODE;
- const launched=performance.now();app=await electron.launch({args:desktopArgs,executablePath,env});page=await app.firstWindow();report.launchToWindowMs=performance.now()-launched;page.setDefaultTimeout(120000);page.on('pageerror',e=>report.errors.push(e.message));app.process().stdout?.on('data',b=>mainLog.push({at:new Date().toISOString(),text:String(b)}));app.process().stderr?.on('data',b=>mainLog.push({at:new Date().toISOString(),text:String(b)}));await hiddenWindowId(app,page);await page.setViewportSize({width:1920,height:1080});await page.addInitScript(installTrace);await page.evaluate(installTrace);
+ const env={...process.env,FPCAD_DATA_DIR:directory,FPCAD_PROFILE:'1'};
+ const launched=performance.now();app=await desktop.launch({args:desktopArgs,executablePath,env});page=await app.firstWindow();report.launchToWindowMs=performance.now()-launched;page.setDefaultTimeout(120000);page.on('pageerror',e=>report.errors.push(e.message));app.process().stdout?.on('data',b=>mainLog.push({at:new Date().toISOString(),text:String(b)}));app.process().stderr?.on('data',b=>mainLog.push({at:new Date().toISOString(),text:String(b)}));await hiddenWindowId(app,page);await page.setViewportSize({width:1920,height:1080});await page.addInitScript(installTrace);await page.evaluate(installTrace);
  await stage('load-project-picker',async()=>{await page.locator('.project-card[data-session-id="'+sessionId+'"]').waitFor();return page.evaluate(()=>window.__acceptedFinalTrace.states);});
  await stage('open-accepted-project',choose);await stage('initial-cutting-seams',cutting);const initial=await stage('initial-compact-state',compact);assert(initial.accepted&&initial.pieces===175&&initial.archive===1);report.gpu=await gpu();report.checks.push('Ordinary GPU launch stays hidden and the existing accepted project shows saved half-opacity cut seams');
  await stage('undo-to-existing-candidate',async()=>{await page.locator('.project-toolbar').getByRole('button',{name:/撤销/}).click();await revision(initialRevision+1);await lines().first().waitFor({timeout:10000});});

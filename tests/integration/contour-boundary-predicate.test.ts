@@ -1,5 +1,5 @@
 import {afterAll,expect,it} from 'vitest';
-import {contourBoundaryError,contourWithinBoundary} from '../../packages/reference/contour-topology';
+import {contourBoundaryError,contourWithinBoundary,safeContour} from '../../packages/reference/contour-topology';
 import type {Piece} from '../../packages/schema/index';
 import {rectangle} from '../fixtures';
 
@@ -7,6 +7,13 @@ type XY={xMm:number;yMm:number};
 const p=(xMm:number,yMm:number):XY=>({xMm,yMm});
 const shape=(points:XY[],holes:XY[][]=[]):Piece=>({...rectangle(),nodes:points.map((q,i)=>({...q,id:`n${i}`})),holes:holes.map((ring,r)=>ring.map((q,i)=>({...q,id:`h${r}-${i}`}))),curves:[]});
 const rect=(x=0,y=0,s=1)=>shape([p(x,y),p(x+12*s,y),p(x+12*s,y+8*s),p(x,y+8*s)]);
+it('does not spend the material area budget again after source localization',()=>{
+ const raw=rect(),measured=shape([p(0,0),p(12,0),p(12,7.84),p(0,7.84)]),fitted=shape([p(0,0),p(12,0),p(12,7.68),p(0,7.68)]);
+ expect(safeContour(measured,raw,.8)).toBe(true);
+ expect(safeContour(fitted,measured,.8)).toBe(true);
+ expect(safeContour(fitted,measured,.8,[],undefined,raw)).toBe(false);
+ expect(safeContour(measured,measured,.8,[],undefined,raw)).toBe(true);
+});
 function curve(x=0,y=0,s=1,bow=3):Piece{
  const q=rect(x,y,s);
  q.curves=[{id:'c0',startNodeId:'n0',endNodeId:'n1',c1:{id:'a',...p(x+3*s,y-bow*s)},c2:{id:'b',...p(x+9*s,y-bow*s)}},{id:'c2',startNodeId:'n2',endNodeId:'n3',c1:{id:'c',...p(x+9*s,y+(8+bow)*s)},c2:{id:'d',...p(x+3*s,y+(8+bow)*s)}}];return q;

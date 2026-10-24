@@ -1,12 +1,12 @@
 import {chooseProject} from './ui-navigation.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {desktopArgs,executablePath} from './desktop-launch.mjs';
 import {workflow} from './ui-navigation.mjs';
-const directory=await mkdtemp(resolve('.local/tests/session-drafts-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(e.message));
+const directory=await mkdtemp(resolve('.local/tests/session-drafts-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(e.message));
 try{
  await page.waitForFunction(()=>!!window.fpcad);
  const seeded=await page.evaluate(async()=>{const vertices=[[0,0,0],[100,0,0],[100,100,0],[0,100,0]].map(([xMm,yMm,zMm])=>({id:crypto.randomUUID(),xMm,yMm,zMm})),surface={id:crypto.randomUUID(),source:'obj',topologyVersion:1,vertices,faces:[[0,1,2],[0,2,3]].map(t=>({id:crypto.randomUUID(),region:'body',vertices:t.map(i=>vertices[i].id)}))};for(const name of ['项目 A']){let r=await window.fpcad.create({name,unit:'mm'});if(!r.ok)return r;r=await window.fpcad.apply(r.data.project.id,r.data.project.revision,{type:'surface.set',surface});if(!r.ok)return r;}return {ok:true};});assert(seeded.ok);

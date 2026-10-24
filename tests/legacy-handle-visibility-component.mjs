@@ -62,4 +62,4 @@ try{
  });
 }finally{f.app.unmount();}
 await mkdir('test-results/current-cutting',{recursive:true});const passed=checks.every(c=>c.passed);
-await writeFile('test-results/current-cutting/final-regression-legacy-handle-visibility-component.json',JSON.stringify({passed,sourcePath,sourceProjectHash:originalHash,verification:'Real exported accepted project in actual SurfacePanel Vue handlers; world-space ray oracle on every original face; no native solver, build or Electron',checks},null,2));console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;
+await writeFile('test-results/current-cutting/final-regression-legacy-handle-visibility-component.json',JSON.stringify({passed,sourcePath,sourceProjectHash:originalHash,verification:'Real exported accepted project in actual SurfacePanel Vue handlers; world-space ray oracle on every original face; no native solver, build or WebView2',checks},null,2));console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;

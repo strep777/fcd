@@ -13,24 +13,17 @@
   <div class="saved-cut-list">
    <div v-for="line in lines" :key="line.id" :class="['saved-line',{active:selected===line.id||selected===line.mirroredFrom,disabled:!line.enabled}]">
     <input type="checkbox" :checked="line.enabled" :disabled="store.busy||!!line.mirroredFrom" :aria-label="(zh?'启用裁剪线 ':localize('Enable cut '))+line.name" @change="metadata(line,($event.target as HTMLInputElement).checked)">
-    <button class="select-cut" @click="choose(line)"><strong>{{line.name}}</strong><small>{{line.edges.length}} {{zh?'段 · 已保存':localize('edges · saved')}}{{line.mirroredFrom?(zh?' · 对称':localize(' · symmetric')):''}}</small></button>
+    <button class="select-cut" @click="choose(line)"><strong>{{line.name}}</strong><small>{{line.edges.length}} {{zh?'段 · 已保存':localize('edges · saved')}}{{line.kind!=='midline'&&!line.closed?(zh?' · 待闭合修复':localize(' · closure repair needed')):''}}{{line.mirroredFrom?(zh?' · 对称':localize(' · symmetric')):''}}</small></button>
     <button class="focus-cut" :aria-label="(zh?'聚焦裁剪线 ':localize('Focus cut '))+line.name" :title="zh?'在模型上查看':localize('Show on model')" @click="emit('focus',line.id)"><ToolIcon name="eye"/></button>
    </div>
    <div v-if="!lines.length" class="cut-lines-empty"><ToolIcon name="cut"/><small>{{search?(zh?'没有匹配的裁线。':localize('No matching cut lines.')):(zh?'在模型上绘制并保存裁线，或自动计算裁线预览。':localize('Draw and save lines on the model, or compute a cut preview.'))}}</small></div>
   </div>
-  <div v-if="draft&&!sectionActive" class="cut-line-editor">
-   <label>{{zh?'裁剪线名称':localize('Cut line name')}}<input v-model="draft.name" maxlength="120" @change="metadata(draft,draft.enabled,draft.name)"></label>
-   <div class="two-col"><button :disabled="store.busy||draft.kind==='midline'" @click="emit('draw',{kind:draft.section?'section':draft.kind as 'pen'|'freehand',lineId:draft.id})">{{draft.section?(zh?'在模型上调整截面':localize('Adjust section on model')):(zh?'编辑路径节点':localize('Edit path nodes'))}}</button><button :disabled="store.busy||draft.kind==='midline'&&mesh.cutScope?.side!=='full'" @click="remove(draft)">{{zh?'删除裁剪线':localize('Delete cut line')}}</button></div>
-   <small>{{zh?'在模型上拖动路径圆点调整，保存前可取消。':localize('Drag path nodes on the model; cancel before saving.')}}</small>
-   <template v-if="draft.kind!=='midline'">
-    <template v-if="draft.section"><label>{{zh?'截面位置 mm':localize('Section position mm')}}<input v-model.number="draft.section.positionMm" type="number" step="1"></label></template>
-    <template v-else>
-     <label class="check-label"><input v-model="draft.symmetric" type="checkbox">{{zh?'对称绘制':localize('Symmetric drawing')}}</label>
-     <label v-if="advanced" class="check-label"><input v-model="draft.closed" type="checkbox">{{zh?'闭合裁剪线':localize('Close cut line')}}</label>
-     <label v-if="advanced&&draft.kind==='pen'">{{zh?'钢笔张力':localize('Pen tension')}}<input v-model.number="draft.tension" type="range" min="0" max="1" step=".05"></label>
-     <details v-if="advanced"><summary>{{zh?'路径点调整与新增切分点':localize('Path points & insert points')}} · {{draft.controlPoints.length}}</summary><div v-for="(p,i) in draft.controlPoints" :key="p.id" class="cut-control-point"><span>{{i+1}}</span><label v-for="axis in (['xMm','yMm','zMm'] as const)" :key="axis">{{axis[0].toUpperCase()}} mm<input v-model.number="p[axis]" type="number" step=".5"></label><button :disabled="draft.controlPoints.length<=2" :aria-label="'Remove point '+(i+1)" @click="draft.controlPoints.splice(i,1)">−</button><button v-if="i<draft.controlPoints.length-1" :disabled="draft.controlPoints.length>=400" :aria-label="'Insert point after '+(i+1)" @click="insert(i)">＋</button></div></details>
-    </template>
-    <button class="apply-path" :disabled="store.busy||!draft.name.trim()" @click="savePath">{{zh?'应用路径调整':localize('Apply path edits')}}</button><button v-if="draftDirty" class="apply-path" :disabled="store.busy" @click="discardPathEdits">{{zh?'取消路径调整':localize('Cancel path edits')}}</button>
+  <div v-if="selectedLine" class="cut-line-editor">
+   <label>{{zh?'裁剪线名称':localize('Cut line name')}}<input v-model="lineName" maxlength="120" @change="metadata(selectedLine,selectedLine.enabled,lineName)"></label>
+   <div class="two-col"><button :disabled="store.busy||selectedLine.kind==='midline'" @click="emit('draw',{kind:'pen',lineId:selectedLine.id})">{{pathWarning?(zh?'用钢笔修复闭合':localize('Repair closure with pen')):(zh?'编辑钢笔节点':localize('Edit pen nodes'))}}</button><button :disabled="store.busy||selectedLine.kind==='midline'&&mesh.cutScope?.side!=='full'" @click="remove(selectedLine)">{{zh?'删除裁剪线':localize('Delete cut line')}}</button></div>
+   <template v-if="selectedLine.kind!=='midline'">
+    <small v-if="pathWarning" class="cut-path-warning" role="status">{{pathWarning}}</small>
+    <small v-else>{{zh?'在模型上拖动钢笔节点调整闭合裁线，保存前可取消。':localize('Drag pen nodes on the model to edit the closed cut; cancel before saving.')}}</small>
    </template>
   </div>
   <details v-if="advanced" class="half-cut-settings">
@@ -39,7 +32,7 @@
    <div class="two-col"><label>{{zh?'中线轴':localize('Midline axis')}}<select v-model="scope.axis"><option>x</option><option>y</option><option>z</option></select></label><label>{{zh?'中线位置 mm':localize('Midline mm')}}<input v-model.number="scope.positionMm" type="number" step="1"></label></div>
    <label class="check-label"><input v-model="scope.closeMidline" type="checkbox">{{zh?'中线参与围合（缝合）；关闭则沿中线对折裁剪':localize('Sewn midline; unchecked means cut on fold')}}</label>
    <button :disabled="store.busy||!Number.isFinite(scope.positionMm)" @click="apply({type:'surface.cutScope',scope})">{{zh?'应用制版范围':localize('Apply scope')}}</button>
-   <small>{{zh?'右侧为坐标大于中线的一侧，左侧为小于中线的一侧。半侧纸样自动设置镜像双片；对折边缝份为 0 mm。':localize('Right uses coordinates above the midline; left below. Half patterns use mirrored pairs, fold edges have zero allowance.')}}</small>
+   <small>{{zh?'右侧为坐标大于中线的一侧，左侧为小于中线的一侧。半侧纸样自动设置镜像双片；对折边拼接间距为 0 mm。':localize('Right uses coordinates above the midline; left below. Half patterns use mirrored pairs, fold edges have zero allowance.')}}</small>
    <div v-if="midlines.length" class="midline-list"><strong>{{zh?'中线边界管理':localize('Midline boundaries')}}</strong> · {{midlines.length}}<button v-for="line in midlines" :key="line.id" @click="choose(line)">{{line.name}} · {{line.edges.length}} {{zh?'段':localize('edges')}}</button></div>
   </details>
  </section>
@@ -48,34 +41,29 @@
 <script setup lang="ts">
 import {localize} from './localization';
 
-import {computed,inject,ref,watch,nextTick,useTemplateRef} from 'vue';
+import {computed,inject,ref,watch,useTemplateRef} from 'vue';
 import {useSession} from './store';
 import {useDraftHistory} from './modules/useDraftHistory';
 import ToolIcon from './ToolIcon.vue';
 import type {CutLine,CutScope,Command} from '../../../packages/schema/index';
-const props=defineProps<{sectionActive?:boolean;language:'zh'|'en';targetId?:string;toolsTarget?:string}>(),emit=defineEmits<{draw:[request:{kind:'pen'|'freehand'|'brush'|'lasso'|'section'|'paint';lineId?:string}];focus:[lineId:string];draftDirty:[dirty:boolean]}>(),store=useSession(),zh=computed(()=>props.language==='zh'),mesh=computed(()=>store.data.project?.surface);
+const props=defineProps<{language:'zh'|'en';targetId?:string;toolsTarget?:string}>(),emit=defineEmits<{draw:[request:{kind:'pen'|'paint';lineId?:string}];focus:[lineId:string]}>(),store=useSession(),zh=computed(()=>props.language==='zh'),mesh=computed(()=>store.data.project?.surface);
 const advanced=inject('advancedMode',ref(false));
-const search=ref(''),selected=ref(''),draft=ref<CutLine>();
+const search=ref(''),selected=ref(''),lineName=ref('');
+const selectedLine=computed(()=>mesh.value?.cutLines?.find(line=>line.id===selected.value));
 const scope=ref<CutScope>({side:'full',axis:'x',positionMm:0,closeMidline:true});
 const panel=useTemplateRef<HTMLElement>('panel');
-const drawingTools=[{kind:'paint',icon:'brushAdd',zh:'花纹画笔（涂区域）',en:'Paint markings (areas)'},{kind:'pen',icon:'pen',zh:'曲面钢笔',en:'Surface pen'},{kind:'freehand',icon:'pen',zh:'手绘裁线',en:'Freehand cut line'},{kind:'lasso',icon:'lasso',zh:'套索裁线',en:'Lasso cut line'}] as const;
-const history=useDraftHistory(()=>({draft:draft.value,scope:scope.value}),value=>{draft.value=value.draft;scope.value=value.scope;},()=>!props.sectionActive&&!!panel.value?.getClientRects().length,()=>store.busy);
-const draftDirty=computed(()=>!!draft.value&&JSON.stringify(draft.value)!==JSON.stringify(mesh.value?.cutLines?.find(line=>line.id===draft.value?.id)));
-watch(draftDirty,dirty=>emit('draftDirty',dirty),{immediate:true});
-function discardPathEdits(){const saved=mesh.value?.cutLines?.find(line=>line.id===draft.value?.id);if(saved)history.reset(()=>{draft.value=JSON.parse(JSON.stringify(saved));});}
+const drawingTools=[{kind:'paint',icon:'brushAdd',zh:'花纹画笔（涂区域）',en:'Paint markings (areas)'},{kind:'pen',icon:'pen',zh:'曲面钢笔（闭合裁线）',en:'Surface pen (closed cuts)'}] as const;
+const history=useDraftHistory(()=>scope.value,value=>{scope.value=value;},()=>!!panel.value?.getClientRects().length,()=>store.busy);
+const pathWarning=computed(()=>{const line=selectedLine.value;if(!line||line.kind==='midline')return '';if(line.kind!=='pen')return zh.value?'这条旧裁线需要用钢笔重新确认闭合路径。请在模型上修复后保存，原裁线会保留到保存成功。':localize('Confirm this legacy line as a closed pen path on the model. The original line stays until saving succeeds.');if(!line.closed)return zh.value?'此裁线尚未闭合。请在模型上用钢笔补足至少 3 个节点并确认闭合，原裁线会保留到保存成功。':localize('This cut is open. Repair it on the model with at least 3 pen nodes and confirm closure. The original stays until saving succeeds.');if(line.controlPoints.length<3)return zh.value?'闭合裁线至少需要 3 个节点；请在模型上补足节点后保存。':localize('A closed cut needs at least 3 nodes. Add nodes on the model before saving.');if(!line.projection)return zh.value?'这条旧裁线缺少钢笔编辑信息，请在模型上修复后保存。':localize('This legacy line is missing pen editing data. Repair it on the model before saving.');return '';});
 const lines=computed(()=>mesh.value?.cutLines?.filter(l=>l.name.toLowerCase().includes(search.value.toLowerCase()))??[]),midlines=computed(()=>mesh.value?.cutLines?.filter(l=>l.kind==='midline')??[]);
 watch(()=>JSON.stringify(mesh.value?.cutScope),()=>{const s=mesh.value?.cutScope;history.reset(()=>{scope.value=structuredClone(s??{side:'full',axis:'x',positionMm:0,closeMidline:true});});},{immediate:true});
-watch(()=>mesh.value?.id,()=>{history.reset(()=>{selected.value='';draft.value=undefined;});});
-watch(()=>JSON.stringify(mesh.value?.cutLines),()=>{history.reset(()=>{if(selected.value){const line=mesh.value?.cutLines?.find(l=>l.id===selected.value);draft.value=line?JSON.parse(JSON.stringify(line)):undefined;}});},{deep:false});
-function choose(line:CutLine){const base=line.mirroredFrom?mesh.value?.cutLines?.find(l=>l.id===line.mirroredFrom)??line:line;history.reset(()=>{selected.value=base.id;draft.value=JSON.parse(JSON.stringify(base));});emit('focus',line.id);}
+watch(()=>mesh.value?.id,()=>{selected.value='';lineName.value='';});
+watch(()=>selectedLine.value?.name,name=>{lineName.value=name??'';},{immediate:true});
+function choose(line:CutLine){const base=line.mirroredFrom?mesh.value?.cutLines?.find(l=>l.id===line.mirroredFrom)??line:line;selected.value=base.id;lineName.value=base.name;emit('focus',line.id);}
 watch(()=>props.targetId,id=>{if(id?.startsWith('cutLine:')){const line=mesh.value?.cutLines?.find(l=>l.id===id.slice(8));if(line)choose(line);}},{immediate:true});
 async function apply(command:Command){const p=store.data.project;if(p)return store.run(()=>window.fpcad.apply(p.id,p.revision,JSON.parse(JSON.stringify(command))));}
 async function metadata(line:CutLine,enabled=line.enabled,name=line.name){await apply({type:'surface.cutLine.meta',lineId:line.id,name,enabled});}
-async function remove(line:CutLine){if(await apply({type:'surface.cutLine.delete',lineId:line.id})){selected.value='';draft.value=undefined;}}
-async function savePath(){const d=draft.value;if(!d)return;if(d.section)await apply({type:'surface.section',id:d.id,name:d.name,section:d.section});else if(d.projection)await apply({type:'surface.curve',id:d.id,name:d.name,kind:d.kind as 'pen'|'freehand',regions:d.regions,controlPoints:d.controlPoints,...(d.surfaceAnchored?{surfaceAnchored:true}:{}),projection:d.projection,tension:d.tension,closed:d.closed,symmetric:d.symmetric});}
-function insert(index:number){const d=draft.value;if(!d||index>=d.controlPoints.length-1)return;const a=d.controlPoints[index],b=d.controlPoints[index+1];d.controlPoints.splice(index+1,0,{id:crypto.randomUUID(),xMm:(a.xMm+b.xMm)/2,yMm:(a.yMm+b.yMm)/2,zMm:(a.zMm+b.zMm)/2});}
-async function openSection(){if(props.sectionActive||!draft.value?.section)return;await nextTick();const editor=panel.value?.querySelector<HTMLElement>('.cut-line-editor');editor?.scrollIntoView({block:'nearest'});editor?.querySelector<HTMLInputElement>('input[type=number]')?.focus();}
-defineExpose({openSection});
+async function remove(line:CutLine){if(await apply({type:'surface.cutLine.delete',lineId:line.id})){selected.value='';lineName.value='';}}
 function restore(){window.dispatchEvent(new CustomEvent('fpcad-document-history',{detail:{redo:false}}));}
 </script>
 
@@ -106,9 +94,8 @@ function restore(){window.dispatchEvent(new CustomEvent('fpcad-document-history'
 .focus-cut{padding:5px;background:transparent;border-color:transparent}.focus-cut .tool-icon{width:15px;height:15px}
 .cut-lines-empty{display:flex;align-items:center;gap:10px;padding:12px 4px 8px;color:var(--text-muted)}.cut-lines-empty>.tool-icon{width:24px;height:24px;opacity:.55}.cut-lines-empty>small{margin:0;font-size:10px}
 .cut-line-editor{margin-top:12px;padding:0 10px 10px;background:var(--panel-soft);border:1px solid var(--border);border-radius:6px}
-.cut-line-editor .two-col{gap:6px}.cut-line-editor button{white-space:normal;font-size:10px}.apply-path{width:100%;margin-top:7px}
-.cut-control-point{display:grid;grid-template-columns:12px repeat(3,minmax(0,1fr)) 20px 20px;gap:3px;align-items:center}.cut-control-point label{font-size:9px;margin:5px 0}
-.cut-control-point input{padding:5px 2px;font-size:10px;min-width:0}.cut-control-point button{padding:3px}
+.cut-line-editor .two-col{gap:6px}.cut-line-editor button{white-space:normal;font-size:10px}
+.cut-line-editor .cut-path-warning{color:var(--warning)}
 .half-cut-settings>button{width:100%;font-size:10px}.midline-list>button{display:block;width:100%;margin:4px 0;text-align:left;font-size:10px}
 @media(max-width:1100px){.in-workspace-toolbar button{font-size:10px;padding:6px 7px;gap:5px}.in-workspace-toolbar .tool-icon{width:16px;height:16px}}
 @media(max-width:800px){.surface-cut-panel{padding:13px}.in-workspace-toolbar button{padding:5px 6px}}

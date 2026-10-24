@@ -11,7 +11,7 @@ function portion(s:Segment,start:number,end:number,id:()=>string):Segment{
 /** Replace only a source-certified corner interval. Every curve outside the
  * interval is retained exactly (cubic subsegments use exact endpoint derivatives).
  * In particular, discovering a sharp corner never refits another round end. */
-export function spliceSourceTips(base:{nodes:P[];curves:C[]},closed:boolean,windows:{from:P;to:P;tip:P;through?:P[]}[],id:()=>string,compactStations=false,sourcePoints:P[]=[]){
+export function spliceSourceTips(base:{nodes:P[];curves:C[]},closed:boolean,windows:{from:P;to:P;tip:P;through?:P[]}[],id:()=>string,compactStations=false,sourcePoints:P[]=[],matchTangents=true){
  const finite=(p:P)=>!!p&&Number.isFinite(p.xMm)&&Number.isFinite(p.yMm);let tips=0;
  if(!Array.isArray(base.nodes)||!Array.isArray(base.curves)||!Array.isArray(windows)||base.nodes.length<(closed?3:2)||base.nodes.length>2048||base.curves.length>512||windows.length>64||base.nodes.some(p=>!finite(p))||base.curves.some(c=>!c||!finite(c.c1)||!finite(c.c2))||windows.some(w=>!w||!finite(w.from)||!finite(w.to)||!finite(w.tip)||w.through!==undefined&&!Array.isArray(w.through)||(tips+=1+(w.through?.length??0))>64||w.through?.some(p=>!finite(p))))return;
  const segments:Segment[]=base.nodes.slice(0,closed?undefined:-1).map((a,i)=>{const b=base.nodes[(i+1)%base.nodes.length];return{a,b,c:base.curves.find(c=>c.startNodeId===a.id&&c.endNodeId===b.id)};}),count=segments.length;
@@ -20,6 +20,9 @@ export function spliceSourceTips(base:{nodes:P[];curves:C[]},closed:boolean,wind
   let best={distance:Infinity,position:0,p};
   segments.forEach((s,i)=>{let t=0;if(!s.c){const x=s.b.xMm-s.a.xMm,y=s.b.yMm-s.a.yMm;t=Math.max(0,Math.min(1,((p.xMm-s.a.xMm)*x+(p.yMm-s.a.yMm)*y)/(x*x+y*y||1)));}
    else{let value=Infinity;for(let j=0;j<=32;j++){const d=distance(at(s,j/32),p);if(d<value){value=d;t=j/32;}}let lo=Math.max(0,t-1/32),hi=Math.min(1,t+1/32);for(let k=0;k<30;k++){const a=lo+(hi-lo)/3,b=hi-(hi-lo)/3;if(distance(at(s,a),p)<distance(at(s,b),p))hi=b;else lo=a;}t=(lo+hi)/2;}
+   // Numerical minimization must not leave an infinitesimal cubic at an
+   // existing station: its derivative is ill-conditioned after serialization.
+   if(distance(at(s,t),s.a)<1e-6)t=0;else if(distance(at(s,t),s.b)<1e-6)t=1;
    const q=at(s,t),d=distance(q,p);if(d<best.distance)best={distance:d,position:i+t,p:q};
   });return best;
  };
@@ -56,6 +59,20 @@ export function spliceSourceTips(base:{nodes:P[];curves:C[]},closed:boolean,wind
   if(sourcePoints.some(p=>{const before=Math.min(segmentDistance(p,a.a,b.a),segmentDistance(p,b.a,b.b));return before<=1.05&&segmentDistance(p,a.a,b.b)>Math.max(1,before+.025);}))continue;
   a.b=b.b;output.splice(i,1);reduced=true;break;
  }}
+ if(compactStations&&matchTangents){
+  const tips=new Set(windows.flatMap(w=>[w.tip,...w.through??[]]).map(p=>p.id));
+  // Only the joins introduced by a corner splice need new endpoint
+  // derivatives. Match the incident straight support while retaining the
+  // cubic's handle length; the caller validates the complete source corridor.
+  for(let i=closed?0:1;i<output.length;i++){
+   const a=output[(i+output.length-1)%output.length],b=output[i];
+   if(tips.has(b.a.id)||!!a.c===!!b.c||!edits.some(e=>distance(b.a,e.from)<1e-6||distance(b.a,e.to)<1e-6))continue;
+   const line=a.c?b:a,dx=line.b.xMm-line.a.xMm,dy=line.b.yMm-line.a.yMm,l=Math.hypot(dx,dy);
+   if(l<1e-6)continue;
+   if(a.c){const h=distance(a.c.c2,a.b);a.c={...a.c,c2:{...a.c.c2,xMm:a.b.xMm-dx/l*h,yMm:a.b.yMm-dy/l*h}};}
+   else if(b.c){const h=distance(b.c.c1,b.a);b.c={...b.c,c1:{...b.c.c1,xMm:b.a.xMm+dx/l*h,yMm:b.a.yMm+dy/l*h}};}
+  }
+ }
  const nodes=output.map(s=>s.a);if(!closed)nodes.push(output.at(-1)!.b);
  return{nodes,curves:output.filter(s=>s.c).map(s=>({...s.c!,startNodeId:s.a.id,endNodeId:s.b.id}))};
 }

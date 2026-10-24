@@ -24,7 +24,7 @@ it('rejects missing token, browser origins and wrong Host even with a valid toke
 });
 it('uses schema and capability validation; file export, raw surface injection and session switching cannot reach dispatch',async()=>{
  const dispatched:Request[]=[];const bridge=new AssistantBridge(async r=>{dispatched.push(r);return success;});try{const s=await bridge.enable(),send=(body:unknown)=>fetch(s.endpoint+'/v1/request',{method:'POST',headers:{Authorization:'Bearer '+s.token,'Content-Type':'application/json'},body:JSON.stringify(body)});
- expect((await send(read())).status).toBe(200);expect(dispatched).toHaveLength(1);
+ expect((await send(read())).status).toBe(200);expect(dispatched).toHaveLength(1);expect(s.commands).not.toContain('surface.section');expect((await send({...read(),projectId:randomUUID(),method:'command.apply',expectedRevision:0,payload:{type:'surface.section',name:'Rejected section',section:{axis:'y',positionMm:50}}})).status).toBe(403);expect(dispatched).toHaveLength(1);
  for(const req of [{...read(),method:'project.open'},{...read(),method:'session.activate',payload:{sessionId:randomUUID()}},{...read(),method:'workflow.file',projectId:randomUUID(),expectedRevision:0,payload:{action:'export'}}])expect((await send(req)).status).toBe(403);
  expect((await send({...read(),projectId:randomUUID(),method:'command.apply',expectedRevision:0,payload:{type:'pieces.replace',removeIds:[],pieces:[]}})).status).toBe(403);expect((await send({...read(),payload:{garbage:1}})).status).toBe(400);expect(dispatched).toHaveLength(1);
  }finally{bridge.disable();}

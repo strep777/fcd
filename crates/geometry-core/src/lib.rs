@@ -8,9 +8,9 @@ pub mod clipping;
 #[cfg(test)]
 mod contour_budget_tests;
 mod numerical;
-mod sparse;
 #[cfg(test)]
 mod numerical_contour_tests;
+mod sparse;
 pub mod surface;
 pub use advanced::{analyze, boolean};
 #[derive(Debug, Serialize)]

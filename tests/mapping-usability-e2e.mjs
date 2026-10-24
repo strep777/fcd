@@ -1,5 +1,5 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -10,8 +10,8 @@ import {build} from 'esbuild';
 import {pathToFileURL} from 'node:url';
 const directory=await mkdtemp(resolve('.local/tests/mapping-usability-'));
 const copied=false;
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),results=[],errors=[];
+const env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),results=[],errors=[];
 page.setDefaultTimeout(10000);page.on('pageerror',e=>errors.push(e.message));
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok);return r.data.project;};
 async function check(name,fn){console.log('START',name);try{await fn();results.push({name,passed:true});console.log('PASS',name);}catch(e){results.push({name,passed:false,error:String(e)});console.log('FAIL',name,String(e));}}
@@ -25,7 +25,7 @@ const runtime=resolve(directory,'placement-labels.mjs');await build({stdin:{cont
  await check('a simple closed stroke can be painted on the template before unfolding',async()=>{
   const before=await read();const panel=page.locator('.surface-panel');await panel.getByRole('button',{name:'正面',exact:true}).click();await page.getByRole('button',{name:'绘制三维花纹',exact:true}).click();
   const view=page.locator('.surface-view');await view.scrollIntoViewIfNeeded();const b=await view.boundingBox();for(const [x,y] of [[.47,.40],[.53,.40],[.53,.55],[.47,.55]])await page.mouse.click(b.x+b.width*x,b.y+b.height*y);
-  await page.getByRole('button',{name:'闭合并贴附',exact:true}).click();await waitForState(page,async()=>{const r=await window.fpcad.read();return !/处理中|Working/.test(document.querySelector('.app-shell>footer').textContent)&&!!r;});const after=await read();assert((after.markings?.length??0)>(before.markings?.length??0),await page.locator('.error-banner').innerText().catch(()=>''));
+  await page.getByRole('button',{name:'闭合并贴附',exact:true}).click();await waitForState(page,async()=>{const r=await window.fpcad.read();return !!document.querySelector('.project-toolbar button')&&!document.querySelector('.project-toolbar button').disabled&&!!r;});const after=await read();assert((after.markings?.length??0)>(before.markings?.length??0),await page.locator('.error-banner').innerText().catch(()=>''));
  });
 
  await check('drag/drop commits an independent surface copy immediately',async()=>{
@@ -52,7 +52,7 @@ const runtime=resolve(directory,'placement-labels.mjs');await build({stdin:{cont
  await check('single-source automatic placement explains skipped regions without a silent success',async()=>{const before=await read(),source=before.patternLibrary.find(r=>r.anatomy?.part==='leg'&&!['left','right'].includes(r.anatomy.side));assert(source);await page.locator('.mapping-page [data-region-id="'+source.piece.id+'"]').click();await page.getByRole('button',{name:'自动匹配此花纹的模型部位',exact:true}).click();await page.locator('.attach-notice').waitFor();assert.match(await page.locator('.attach-notice').innerText(),/需要指定左侧或右侧/);assert.equal((await read()).revision,before.revision);});
  await check('automatic placement accounts for every selected source context on a fresh real fixture',async()=>{
  const before=await read(),selected=await page.locator('.auto-mapping .part-options input:checked').evaluateAll(inputs=>inputs.map(e=>e.value)),attempts=before.patternLibrary.flatMap(r=>placementAnatomies(r).filter(a=>selected.includes(a.part)).map(a=>({id:r.piece.id,part:a.part,side:a.side,name:r.anatomy?.contexts?r.piece.name+' / '+partName(a.part)+' '+sideName(a.side):r.piece.name})));
- await page.getByRole('button',{name:/自动匹配并贴附所选部位/}).click();await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&!/处理中|Working/.test(document.querySelector('.app-shell>footer').textContent)&&(r.data.project.revision>revision||!!document.querySelector('.error-banner'));},before.revision,{timeout:120000});
+ await page.getByRole('button',{name:/自动匹配并贴附所选部位/}).click();await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&!!document.querySelector('.project-toolbar button')&&!document.querySelector('.project-toolbar button').disabled&&(r.data.project.revision>revision||!!document.querySelector('.error-banner'));},before.revision,{timeout:120000});
  const after=await read();assert(after.revision>before.revision,'Automatic placement must commit a result: '+await page.locator('.error-banner').innerText().catch(()=>''));const report=await page.locator('.auto-mapping [role=status]').innerText(),counts=report.match(/已贴附 (\d+) · 跳过 (\d+)/);assert(counts);assert(Number(counts[1])>0);assert.equal(Number(counts[1])+Number(counts[2]),attempts.length,'Every selected anatomical context needs an output or an explicit reason');
  const skipped=await page.locator('.auto-mapping details li').allTextContents();assert.equal(skipped.length,Number(counts[2]));const skippedNames=skipped.map(t=>t.split(' — ')[0]);assert.equal(new Set(skippedNames).size,skippedNames.length);assert(skippedNames.every(n=>attempts.some(a=>a.name===n)),'Every reason must identify a selected source context');const successful=attempts.filter(a=>!skippedNames.includes(a.name)),automatic=after.markings.filter(m=>m.source==='reference'&&m.editMode==='projected'&&m.placement&&successful.some(a=>a.id===m.sourcePieceId&&a.part===m.placement.part&&a.side===m.placement.side));
  assert.equal(automatic.length,Number(counts[1]));for(const a of successful)assert.equal(automatic.filter(m=>m.sourcePieceId===a.id&&m.placement.part===a.part&&m.placement.side===a.side).length,1,'Each successful context must have exactly one output');assert(automatic.every(m=>!m.placement.reviewed&&m.fragments.length>0));const replaced=new Set(automatic.map(m=>m.id)),retained=(before.markings??[]).filter(m=>!replaced.has(m.id));for(const m of retained)assert.deepEqual(after.markings.find(v=>v.id===m.id),m);assert.equal(after.markings.length,retained.length+automatic.length);

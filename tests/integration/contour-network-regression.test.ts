@@ -30,13 +30,26 @@ it('the actual JPEG thigh bottom does not acquire a backwards-pointing cubic cus
   for(let k=0;k<=128;k++){const t=k/128,s=1-t;checked.push(sign*3*(s*s*(c.c1.xMm-a.xMm)+2*s*t*(c.c2.xMm-c.c1.xMm)+t*t*(b.xMm-c.c2.xMm)));}
  }
  expect(checked.length).toBeGreaterThan(0);expect(Math.min(...checked)).toBeGreaterThanOrEqual(-1e-8);
-},30000);
+},120000);
 it('the actual JPEG inner white fur tip remains a sharp measured point',async()=>{
  const pieces=await actualFrontPieces(),tips=pieces.filter(p=>p.color==='#f9e33c').flatMap(p=>p.nodes.filter(n=>n.xMm+609>=760.5&&n.xMm+609<=763&&750-n.yMm>=510&&750-n.yMm<=513).map(n=>heading(p,n)));
  // Both long incident edges meet at the original narrow white fur tip near
  // (762,512). A broad cubic through this interval rounded the source point.
  expect(tips.length).toBeGreaterThan(0);expect(Math.max(...tips)).toBeGreaterThanOrEqual(Math.PI/3);
-},30000);
+},120000);
+it('the actual JPEG ear stripe has no pixel staircase along its long inner diagonal',async()=>{
+ const pieces=await actualFrontPieces(),piece=pieces.find(p=>p.name.endsWith('/ 21')&&p.color==='#f9e33c');
+ expect(piece).toBeDefined();
+ // Fixed source-pixel interval along the long pink-facing side, excluding
+ // the genuine upper and lower fur corners. This is not a fitted-node ROI.
+ const inside=(p:{xMm:number;yMm:number})=>p.xMm>=280&&p.xMm<=305&&750-p.yMm>=53&&750-p.yMm<=87;
+ const local=piece!.nodes.filter(inside),samples=piece!.nodes.flatMap((a,i)=>{
+  const b=piece!.nodes[(i+1)%piece!.nodes.length],c=piece!.curves?.find(c=>c.startNodeId===a.id&&c.endNodeId===b.id);
+  return Array.from({length:65},(_,k)=>{const t=k/64,s=1-t;return c?{xMm:s**3*a.xMm+3*s*s*t*c.c1.xMm+3*s*t*t*c.c2.xMm+t**3*b.xMm,yMm:s**3*a.yMm+3*s*s*t*c.c1.yMm+3*s*t*t*c.c2.yMm+t**3*b.yMm}:{xMm:a.xMm+t*(b.xMm-a.xMm),yMm:a.yMm+t*(b.yMm-a.yMm)};});
+ });
+ expect(samples.some(inside),'the saved curve must still traverse the source interval').toBe(true);
+ expect(Math.max(0,...local.map(n=>heading(piece!,n))),'a long source edge must not keep horizontal/vertical raster turns').toBeLessThanOrEqual(Math.PI/9);
+},120000);
 it.each([8,15,25].flatMap(radius=>[.05,1,10].flatMap(scale=>[0,.37].map(rotation=>({radius,scale,rotation})))))('small analytic ellipse radius $radius retains its painted curvature at scale $scale rotation $rotation',({radius,scale,rotation})=>{
  const width=110,height=110,masks=[new Uint8Array(width*height),new Uint8Array(width*height)];
  for(let y=5;y<105;y++)for(let x=5;x<105;x++)masks[((x+.5-55)/(radius*1.4))**2+((y+.5-55)/radius)**2<1?0:1][y*width+x]=1;

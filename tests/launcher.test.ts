@@ -15,7 +15,7 @@ function runLauncher(options:{installed?:boolean;entry?:'bat';args?:string[];fai
  mkdirSync(mockBin);
  for(const extension of ['bat'])copyFileSync(resolve(`启动新版FurryCAD.${extension}`),join(directory,`启动新版FurryCAD.${extension}`));
  if(options.installed){
-  for(const file of ['node_modules/electron/dist/electron.exe','node_modules/.bin/vite.cmd']){
+  for(const file of ['node_modules/@tauri-apps/cli/tauri.js','node_modules/.bin/vite.cmd']){
    mkdirSync(resolve(directory,file,'..'),{recursive:true});
    writeFileSync(join(directory,file),'');
   }

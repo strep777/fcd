@@ -23,9 +23,11 @@ function polygons(rings:XY[][]){
 /** UV paths are derived samples, not new source contours. Compact only paths
  * over the editable node budget, preserving holes and a 0.001 mm distance
  * bound. Truly complex material is partitioned into adjacent same-color rings;
- * this does not introduce a sewing line or discard any material. */
-export async function boundedMarkingRings(rings:XY[][],precisionDigits:number,intersect:(jobs:{subjects:XY[][];clips:XY[][]}[])=>Promise<XY[][][]>):Promise<XY[][]>{
- const distinct=rings.map(distinctMarkingStations);if(distinct.some((ring,i)=>ring!==rings[i]))rings=distinct;
+ * this does not introduce a sewing line or discard any material. Projection
+ * callers use preserveStations: their coordinates are not surface distances,
+ * so only exact partitioning is admissible before barycentric conversion. */
+export async function boundedMarkingRings(rings:XY[][],precisionDigits:number,intersect:(jobs:{subjects:XY[][];clips:XY[][]}[])=>Promise<XY[][][]>,preserveStations=false):Promise<XY[][]>{
+ const distinct=preserveStations?rings:rings.map(distinctMarkingStations);if(distinct.some((ring,i)=>ring!==rings[i]))rings=distinct;
  if(rings.length<=1000&&rings.every(r=>r.length<=2000))return rings;
  const pending=polygons(rings).map(p=>({...p,depth:0})),result:XY[][]=[],finishedBounds:number[][]=[];
  while(pending.length){
@@ -36,7 +38,7 @@ export async function boundedMarkingRings(rings:XY[][],precisionDigits:number,in
   // Keep exact contours wherever another island's box overlaps; subdivision
   // still satisfies the node budget without altering their relative topology.
   const neighbours=pending.some(p=>overlaps(box,bounds(p.outer)))||finishedBounds.some(b=>overlaps(box,b));
-  const compact=neighbours?polygon:safeColorOutline(polygon,{outer:polygon.outer.length>2000?simplifyColorBoundary(polygon.outer):polygon.outer,holes:polygon.holes.map(r=>r.length>2000?simplifyColorBoundary(r):r)});
+  const compact=preserveStations||neighbours?polygon:safeColorOutline(polygon,{outer:polygon.outer.length>2000?simplifyColorBoundary(polygon.outer):polygon.outer,holes:polygon.holes.map(r=>r.length>2000?simplifyColorBoundary(r):r)});
   if(compact.outer.length<=2000&&compact.holes.every(r=>r.length<=2000)){result.push(compact.outer,...compact.holes);finishedBounds.push(bounds(compact.outer));if(result.length>1000)throw new DomainError('REGION_COMPLEXITY');continue;}
   if(polygon.depth>=12)throw new DomainError('REGION_COMPLEXITY');
   const x=polygon.outer.map(p=>p[0]),y=polygon.outer.map(p=>p[1]),minX=Math.min(...x),maxX=Math.max(...x),minY=Math.min(...y),maxY=Math.max(...y),vertical=maxX-minX>=maxY-minY,middle=vertical?(minX+maxX)/2:(minY+maxY)/2;

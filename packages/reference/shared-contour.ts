@@ -9,7 +9,7 @@ function validPreparation(prepared:Point[][],branches:{closed:boolean}[]){
 type Curve=NonNullable<Piece['curves']>[number];
 type Edge={a:string;b:string;owners:Set<number>;rings:Set<string>;pair:string;chain?:number};
 type Path={keys:string[];edges:string[]};
-type Chain={raw:Point[];closed:boolean;anchors:string[];edges:string[];owners:Set<number>;hole:boolean;nodes:Point[];curves:Curve[];holeFit?:{nodes:Point[];curves:Curve[]};restored:boolean;sourceAreaAllowance?:number;sourceBoundary?:Point[];raster?:{nodes:Point[];curves:Curve[]}};
+type Chain={raw:Point[];closed:boolean;anchors:string[];edges:string[];owners:Set<number>;hole:boolean;nodes:Point[];curves:Curve[];holeFit?:{nodes:Point[];curves:Curve[]};restored:boolean;sourceAreaAllowance?:number;rasterAreaBound?:boolean;sourceBoundary?:Point[];raster?:{nodes:Point[];curves:Curve[]}};
 /** Joint source-network recovery. Shared edges are fitted once and traversed
  * in reverse by their other owner. This neither expands materials nor fills
  * gaps after the fact: adjacency and junctions come from the traced pixel graph.
@@ -23,7 +23,7 @@ export function recoverSharedContours(originals:Piece[],pixelMm:number,createId:
  // Source-pixel coordinates make all contact, flattening and work budgets
  // independent of the user's millimetre calibration and world translation.
  const input=originals.map(p=>({...p,nodes:p.nodes.map(local),holes:p.holes?.map(r=>r.map(local)),curves:p.curves?.map(c=>({...c,c1:local(c.c1),c2:local(c.c2)}))}));
- const localFit:BoundaryFit|undefined=imageFit?((points,closed,colors,id)=>{const fit=imageFit(points.map(world),closed,colors,id);return fit?{sourceBoundary:fit.sourceBoundary?.map(local),sourceAreaAllowance:fit.sourceAreaAllowance===undefined?undefined:fit.sourceAreaAllowance/size**2,nodes:fit.nodes.map(local),curves:fit.curves.map(c=>({...c,c1:local(c.c1),c2:local(c.c2)}))}:undefined;}):undefined;
+ const localFit:BoundaryFit|undefined=imageFit?((points,closed,colors,id)=>{const fit=imageFit(points.map(world),closed,colors,id);return fit?{sourceBoundary:fit.sourceBoundary?.map(local),rasterAreaBound:fit.rasterAreaBound,sourceAreaAllowance:fit.sourceAreaAllowance===undefined?undefined:fit.sourceAreaAllowance/size**2,nodes:fit.nodes.map(local),curves:fit.curves.map(c=>({...c,c1:local(c.c1),c2:local(c.c2)}))}:undefined;}):undefined;
  const prepare=imageFit?.prepare;if(localFit&&prepare)localFit.prepare=(branches,contours)=>{const prepared=prepare.call(imageFit,branches.map(b=>({...b,raw:b.raw.map(world)})),contours.map(p=>({...p,nodes:p.nodes.map(world),holes:p.holes?.map(r=>r.map(world)),curves:p.curves?.map(c=>({...c,c1:world(c.c1),c2:world(c.c2)}))})));if(!prepared)return;if(!validPreparation(prepared,branches))throw Error('INVALID_SOURCE_PREPARATION');return prepared.map(r=>r.map(local));};
  const result=recoverNetwork(input,.8,createId,localFit);
  return {...result,pieces:result.pieces.map(p=>({...p,nodes:p.nodes.map(world),holes:p.holes?.map(r=>r.map(world)),curves:p.curves?.map(c=>({...c,c1:world(c.c1),c2:world(c.c2)}))}))};
@@ -77,8 +77,13 @@ function recoverNetwork(originals:Piece[],pixelMm:number,createId:()=>string,ima
   // Polygon-only holes and their other owner share these exact samples. The
   // finer curve fit need not turn flattening samples into excessive editable
   // nodes; the assembled polygon still passes the full 1.05-pixel bound below.
-  let nodes=fitted.nodes,curves=fitted.curves??[];const holeFit=hole&&curves.length?{nodes,curves}:undefined;if(hole){nodes=contourPolyline(nodes,curves,closed,g*.06,createId);curves=[];}
-  Object.assign(chain,{nodes,curves,holeFit,...(fitted===measured?{sourceBoundary:measured.sourceBoundary,sourceAreaAllowance:measured.sourceAreaAllowance,raster:{nodes:hole?contourPolyline(rasterFit.nodes,rasterFit.curves??[],closed,g*.06,createId):rasterFit.nodes,curves:hole?[]:rasterFit.curves??[]}}:{})});
+  // Subpixel RGB fits need the tighter polygon budget. A raster-only fit
+  // has no such extra precision: oversampling it adds editable nodes without
+  // recovering any source detail. Both owners still share the same polygon,
+  // and the complete assembled boundary is checked below.
+  const polygonTolerance=g*(measured ? .02 : .06);
+  let nodes=fitted.nodes,curves=fitted.curves??[];const holeFit=hole&&curves.length?{nodes,curves}:undefined;if(hole){nodes=contourPolyline(nodes,curves,closed,polygonTolerance,createId);curves=[];}
+  Object.assign(chain,{nodes,curves,holeFit,...(fitted===measured?{sourceBoundary:measured.sourceBoundary,rasterAreaBound:measured.rasterAreaBound,sourceAreaAllowance:measured.sourceAreaAllowance,raster:{nodes:hole?contourPolyline(rasterFit.nodes,rasterFit.curves??[],closed,g*.06,createId):rasterFit.nodes,curves:hole?[]:rasterFit.curves??[]}}:{})});
  }
  const reverse=(c:Chain)=>({nodes:[...c.nodes].reverse(),curves:c.curves.map(v=>({...v,startNodeId:v.endNodeId,endNodeId:v.startNodeId,c1:v.c2,c2:v.c1}))});
  const signed=(r:Point[])=>r.reduce((s,p,i)=>{const q=r[(i+1)%r.length],o=r[0];return s+(p.xMm-o.xMm)*(q.yMm-o.yMm)-(q.xMm-o.xMm)*(p.yMm-o.yMm);},0);
@@ -150,14 +155,14 @@ function recoverNetwork(originals:Piece[],pixelMm:number,createId:()=>string,ima
  // Only an independently measured source boundary may replace the raster
  // baseline. Both owners use the same chain, and restoring the raster fit
  // immediately revokes this exception. Other chains keep the 1.05px bound.
- const validationOriginal=(owner:number)=>{
+ const validationOriginal=(owner:number,areaBudget=false)=>{
   if(!ownedChains[owner].some(c=>c.raster&&c.sourceBoundary))return originals[owner];
   const rings=paths[owner].map((path,ri)=>{const chainIds=path.edges.map(k=>graph.get(k)!.chain!);let start=chainIds.findIndex((id,i)=>id!==chainIds[(i+chainIds.length-1)%chainIds.length]);if(start<0)start=Math.max(0,path.keys.indexOf(key(chains[chainIds[0]].raw[0])));const nodes:Point[]=[];let consumed=0;
-   while(consumed<chainIds.length){const index=(start+consumed)%chainIds.length,c=chains[chainIds[index]],source=c.raster&&c.sourceBoundary?c.sourceBoundary:c.raw;let count=1;while(consumed+count<chainIds.length&&chainIds[(index+count)%chainIds.length]===chainIds[index])count++;
+   while(consumed<chainIds.length){const index=(start+consumed)%chainIds.length,c=chains[chainIds[index]],source=c.raster&&c.sourceBoundary&&(!areaBudget||!c.rasterAreaBound)?c.sourceBoundary:c.raw;let count=1;while(consumed+count<chainIds.length&&chainIds[(index+count)%chainIds.length]===chainIds[index])count++;
     const forward=c.closed?Math.sign(signed(c.raw))===Math.sign(signed(rawRings[owner][ri])):path.keys[index]===key(c.raw[0])&&path.keys[(index+1)%path.keys.length]===key(c.raw[1]);const directed=forward?source:[...source].reverse();nodes.push(...(c.closed?directed:directed.slice(0,-1)));consumed+=count;
    }return nodes;});return{...originals[owner],nodes:rings[0],holes:rings.slice(1),curves:[]};
  };
- const valid=(piece:Piece,i:number)=>{const cached=checked.get(piece);if(cached!==undefined)return cached;const sourceOriginal=validationOriginal(i);const result=piece.nodes.length>=3&&piece.nodes.length<=2000&&piece.holes?.every(r=>r.length>=3&&r.length<=2000)!==false&&safeContour(piece,sourceOriginal,pixelMm,paths[i].map(path=>{const id=graph.get(path.edges[0])!.chain!,c=chains[id];return c.raster&&c.closed&&path.edges.every(k=>graph.get(k)!.chain===id)?c.sourceAreaAllowance??0:0;}),{stepMm:g*.1,limitMm:g*1.05});checked.set(piece,result);return result;};
+ const valid=(piece:Piece,i:number)=>{const cached=checked.get(piece);if(cached!==undefined)return cached;const sourceOriginal=validationOriginal(i);const result=piece.nodes.length>=3&&piece.nodes.length<=2000&&piece.holes?.every(r=>r.length>=3&&r.length<=2000)!==false&&safeContour(piece,sourceOriginal,pixelMm,paths[i].map(path=>{const id=graph.get(path.edges[0])!.chain!,c=chains[id];return c.raster&&c.closed&&path.edges.every(k=>graph.get(k)!.chain===id)?c.sourceAreaAllowance??0:0;}),{stepMm:g*.1,limitMm:g*1.05},ownedChains[i].some(c=>c.raster&&c.rasterAreaBound)?validationOriginal(i,true):undefined);checked.set(piece,result);return result;};
  // A coarse arc may satisfy the distance envelope but miss a small owner's
  // area budget. Increase the fit's resolution before discarding its geometry.
  // Subdivision uses original measured vertices; both material owners still
@@ -199,9 +204,39 @@ function recoverNetwork(originals:Piece[],pixelMm:number,createId:()=>string,ima
   if(!chain.closed)nodes.push(raw.at(-1)!);
   chain.nodes=chain.hole?contourPolyline(nodes,curves,chain.closed,g*.06,createId):nodes;chain.curves=chain.hole?[]:curves;
  };
+ const straightenContact=(chain:Chain,contacts:Point[])=>{
+  if(chain.hole||!chain.curves.length)return false;
+  for(const curve of chain.curves){
+   const a=chain.nodes.find(p=>p.id===curve.startNodeId)!,b=chain.nodes.find(p=>p.id===curve.endNodeId)!;
+   const samples=contourPolyline([a,b],[curve],false,g*.01,createId);
+   if(!contacts.some(p=>samples.some(q=>Math.hypot(p.xMm-q.xMm,p.yMm-q.yMm)<g*2)))continue;
+   const before=chain.curves;chain.curves=before.filter(c=>c!==curve);
+   const candidate=assemble();
+   // A local chord is admissible only when it preserves the complete source
+   // corridor and topology of both owners. Inferred tips elsewhere survive.
+   if([...chain.owners].every(owner=>valid(candidate[owner],owner))&&!crossingChains().has(chains.indexOf(chain))){pieces=candidate;return true;}
+   chain.curves=before;
+  }
+  return false;
+ };
  for(let pass=0;pass<maxPasses;pass++){
-  const crossing=crossingChains();if(crossing.size){const active=[...crossing].filter(([i])=>!chains[i].restored);if(!active.length)throw Error('RESOURCE_LIMIT');for(const [i,contacts] of active){const c=chains[i];if(c.raster){Object.assign(c,c.raster);c.raster=undefined;c.holeFit=undefined;}else protectContact(c,contacts);}pieces=assemble();continue;}
+  const crossing=crossingChains();if(crossing.size){const active=[...crossing].filter(([i])=>!chains[i].restored);if(!active.length)throw Error('RESOURCE_LIMIT');let local=false;for(const [i,contacts]of active)if(straightenContact(chains[i],contacts)){local=true;break;}if(!local)for(const [i,contacts] of active){const c=chains[i];if(c.raster){Object.assign(c,c.raster);c.raster=undefined;c.holeFit=undefined;}else protectContact(c,contacts);}pieces=assemble();continue;}
   const failed=pieces.findIndex((p,i)=>!valid(p,i));if(failed<0)break;
+  // A measured side may share a small owner with a coarse raster-only fit.
+  // Refine that approximation before throwing away the measured smooth side
+  // merely because their combined area error exhausts the owner's budget.
+  if(ownedChains[failed].some(c=>c.raster&&c.rasterAreaBound)){
+   let repaired=false;
+   for(const c of ownedChains[failed].filter(c=>!c.raster&&!c.restored&&!c.hole).slice(0,16)){
+    const before={nodes:c.nodes,curves:c.curves};
+    for(const depth of [1,2]){Object.assign(c,refine(c,depth));const candidate=assemble();
+     if(valid(candidate[failed],failed)&&[...c.owners].every(owner=>!valid(pieces[owner],owner)||valid(candidate[owner],owner))&&!crossingChains().size){pieces=candidate;repaired=true;break;}
+     Object.assign(c,before);
+    }
+    if(repaired)break;
+   }
+   if(repaired)continue;
+  }
   const measured=chains.filter(c=>c.owners.has(failed)&&c.raster);
   if(measured.length){
    // The observed boundary remains the geometric source even when its
@@ -212,6 +247,16 @@ function recoverNetwork(originals:Piece[],pixelMm:number,createId:()=>string,ima
    const validOwners=pieces.flatMap((p,i)=>valid(p,i)?[i]:[]);
    const originalFits=exact.map(c=>({c,nodes:c.nodes,curves:c.curves,holeFit:c.holeFit}));
    if(exact.length){
+    // A single inaccurate fit must not replace every other measured side by
+    // pixel stairs. Try bounded individual restorations before the joint one.
+    let repaired=false;
+    for(const before of originalFits.slice(0,16)){
+     const c=before.c;c.nodes=c.sourceBoundary!;c.curves=[];c.holeFit=undefined;
+     const candidate=assemble();
+     if(valid(candidate[failed],failed)&&validOwners.every(owner=>valid(candidate[owner],owner))&&!crossingChains().size){pieces=candidate;repaired=true;break;}
+     Object.assign(c,{nodes:before.nodes,curves:before.curves,holeFit:before.holeFit});
+    }
+    if(repaired)continue;
     for(const c of exact){c.nodes=c.sourceBoundary!;c.curves=[];c.holeFit=undefined;}
     const candidate=assemble();
     if(valid(candidate[failed],failed)&&validOwners.every(owner=>valid(candidate[owner],owner))&&!crossingChains().size){pieces=candidate;continue;}

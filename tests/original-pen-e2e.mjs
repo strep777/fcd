@@ -2,13 +2,13 @@ import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {fitReferenceView} from './reference-controls.mjs';
 import {chooseProject} from './ui-navigation.mjs';
 import {waitForState} from './wait-state.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {executablePath,desktopArgs} from './desktop-launch.mjs';
-const directory=await mkdtemp(resolve('.local/tests/original-pen-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
+const directory=await mkdtemp(resolve('.local/tests/original-pen-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
  await page.setViewportSize({width:1500,height:1000});await page.waitForFunction(()=>!!window.fpcad);
  await page.evaluate(()=>window.fpcad.create({name:'原图与钢笔回归',unit:'mm'}));

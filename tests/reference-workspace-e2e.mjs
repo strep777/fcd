@@ -1,7 +1,7 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {fitReferenceView} from './reference-controls.mjs';
 import {waitForState} from './wait-state.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -9,8 +9,8 @@ import UPNG from '@pdf-lib/upng';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
 import {workflow,openDetails} from './ui-navigation.mjs';
 const codec=UPNG.default??UPNG,directory=await mkdtemp(resolve('.local/tests/reference-workspace-'));
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[],checks=[];
+const env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[],checks=[];
 page.setDefaultTimeout(8000);
 page.on('pageerror',error=>errors.push(error.message));
 try{

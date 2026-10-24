@@ -8,7 +8,7 @@ import {pathToFileURL} from 'node:url';
 
 // Actual Vue components, assembly binding conversion and assembly renderer.
 // The host supplies measured canvas boxes and records real Canvas2D commands;
-// it does not run a browser CSS engine, GPU driver or Electron screenshot.
+// it does not run a browser CSS engine, GPU driver or WebView2 screenshot.
 let canvasBox={x:0,y:0,width:900,height:500},frameId=0;
 const frames=new Map(),observers=new Set();
 class HostNode{
@@ -123,5 +123,5 @@ try{
  for(let offset=0;offset<upload.length;offset+=12){assert(Math.abs(Math.hypot(...upload.slice(offset+9,offset+12))-1)<1e-6,'each packed vertex carries one unit normal');assert(upload.slice(offset+6,offset+9).every(c=>c>=0&&c<=1));}
  assert.deepEqual(glCalls.draws[0],[gl.TRIANGLES,0,triangles.length*3]);painter.dispose();checks.push({case:'GPU vec3 shader attributes, 48-byte stride and packed color/normal upload agree (command recorder)',passed:true});
 }
-await writeFile('test-results/assembly-preview-component.json',JSON.stringify({passed:true,verification:'Actual Vue/custom host, Canvas2D commands and GPU upload contract; not browser CSS or Electron GPU pixels',checks,realEvidence},null,2));
+await writeFile('test-results/assembly-preview-component.json',JSON.stringify({passed:true,verification:'Actual Vue/custom host, Canvas2D commands and GPU upload contract; not browser CSS or WebView2 GPU pixels',checks,realEvidence},null,2));
 console.log(JSON.stringify({passed:true,checks,realEvidence}));

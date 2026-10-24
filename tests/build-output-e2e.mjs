@@ -20,6 +20,6 @@ const second=JSON.parse(await readFile('release/latest.json','utf8'));
 assert.deepEqual(second,first);
 await absent(join(second.directory,'obsolete-audit-sentinel.txt'));
 await access(second.executable);
-await access(join(second.directory,'resources/app/dist/bin/fpcad-worker.exe'));
+await access(join(second.directory,'dist/bin/fpcad-worker.exe'));
 assert.equal((await readdir('release')).filter(name=>/^\.(packaging|previous)-/.test(name)).length,0);
 console.log('PASS: obsolete build/package files removed; repeat package stable; user-data cleanup rejected');

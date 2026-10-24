@@ -59,7 +59,7 @@ export class JobManager {
   if(project.revision!==job.baseRevision||!source||hash(JSON.stringify(source))!==job.inputHash){job.status='stale';job.sequence++;this.persist(job);throw new DomainError('STALE_RESULT');}
   const actual=hash(JSON.stringify({piece:job.piece,geometry:job.geometry,algorithmVersion:job.algorithmVersion,inputHash:job.inputHash}));
   if(actual!==resultHash||!job.geometry||job.geometry.issues.some(i=>i.severity==='error'))throw new DomainError('INVALID_GEOMETRY');
-  this.repository.commit({type:'piece.put',piece:job.piece},requestId,fingerprint,()=>{job.status='accepted';job.sequence++;this.persist(job);this.repository.checkpointWithinTransaction();});this.changed();
+  this.repository.commit({type:'piece.put',piece:job.piece},requestId,fingerprint,checkpoint=>{job.status='accepted';job.sequence++;this.persist(job);checkpoint();});this.changed();
  }
  dispose(){this.releaseDeleted();for(const [id,controller] of this.controllers){const job=this.get(id);if(job.status==='running'||job.status==='queued'){job.status='cancelled';job.errorCode='CANCELLED';job.sequence++;this.persist(job);}controller.abort();}this.disposed=true;this.controllers.clear();}
 }

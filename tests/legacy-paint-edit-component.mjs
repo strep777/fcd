@@ -109,5 +109,5 @@ await check('wheel and zoom buttons spread existing edit knots up to 3200% witho
  }finally{f.app.unmount();}
 });
 await mkdir('test-results/current-cutting',{recursive:true});const passed=checks.every(c=>c.passed);
-await writeFile('test-results/current-cutting/final-regression-legacy-paint-edit-component.json',JSON.stringify({passed,verification:'Actual SurfacePanel Vue handlers with custom display/DOM/IPC host; independent cubic/polygon bidirectional boundary oracle; no Electron or compute',checks},null,2));
+await writeFile('test-results/current-cutting/final-regression-legacy-paint-edit-component.json',JSON.stringify({passed,verification:'Actual SurfacePanel Vue handlers with custom display/DOM/IPC host; independent cubic/polygon bidirectional boundary oracle; no WebView2 or compute',checks},null,2));
 console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;

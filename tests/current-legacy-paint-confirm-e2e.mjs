@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {DatabaseSync,backup} from 'node:sqlite';
 import {createHash} from 'node:crypto';
@@ -15,8 +15,8 @@ assert(sourceDirectory.startsWith(root+sep),'Read only an isolated accepted base
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function databaseHash(path){const db=new DatabaseSync(path,{readOnly:true}),h=createHash('sha256');try{for(const row of db.prepare('SELECT id,state FROM sessions ORDER BY id').iterate())h.update(JSON.stringify(row));for(const row of db.prepare('SELECT digest,json FROM resources ORDER BY digest').iterate())h.update(JSON.stringify(row));return h.digest('hex');}finally{db.close();}}
 const baselinePath=resolve(sourceDirectory,'workspace.sqlite'),baselineBefore=databaseHash(baselinePath),directory=await mkdtemp(resolve('.local/tests/legacy-paint-confirm-')),source=new DatabaseSync(baselinePath,{readOnly:true});try{await backup(source,resolve(directory,'workspace.sqlite'));}finally{source.close();}
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
+const env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[];page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data;};
 const stableProject=p=>({...p,revision:0,updatedAt:''});let report={passed:false,directory,sourceDirectory,baselineBefore,hidden:true};
 try{

@@ -7,6 +7,7 @@ import { projectSchema,parseProject, type Project } from '../../../packages/sche
 import { DomainError, hash } from './repository';
 const modules=['character','body','markings','seams','uv','materials','nesting','simulation'];
 const maxBytes=200*1024*1024;
+const byteView=(bytes:Uint8Array)=>Buffer.from(bytes.buffer,bytes.byteOffset,bytes.byteLength);
 function safePath(path:string){return path.length<240&&!path.includes('\\')&&!path.includes(':')&&!path.startsWith('/')&&path.split('/').every(p=>!!p&&p!=='.'&&p!=='..'&&!/[\x00-\x1f]/.test(p)&&!/[. ]$/.test(p)&&!/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(p));}
 const entry=z.object({path:z.string(),size:z.number().int().nonnegative().max(maxBytes),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
 const manifestSchema=z.object({format:z.literal('fpcad'),formatVersion:z.literal(1),schemaVersion:z.union([z.literal(1),z.literal(2)]),migrationVersion:z.union([z.literal(0),z.literal(1)]),applicationVersion:z.string(),unit:z.literal('mm'),createdAt:z.iso.datetime(),updatedAt:z.iso.datetime(),projectId:z.uuid(),contentHash:z.string(),files:z.array(entry).max(32)}).strict();
@@ -47,7 +48,9 @@ export function unpack(bytes:Uint8Array):Project{
   for(const e of entries){const data=files.get(e.path);if(!data||data.length!==e.size||hash(data)!==e.sha256)throw new DomainError('HASH_MISMATCH');}
   const expected=new Set(['manifest.json','project.json','patterns.json',...modules.map(m=>m+'.json')]);
   const linkedAssets=new Set<string>();
-  const patterns=z.object({schemaVersion:z.union([z.literal(1),z.literal(2)]),pieces:projectSchema.shape.pieces}).strict().parse(json('patterns.json'));
+  // Validate each file envelope here, then validate every domain value once in parseProject.
+  // Deep-parsing each group first doubles the copies of large meshes and images.
+  const patterns=z.object({schemaVersion:z.union([z.literal(1),z.literal(2)]),pieces:z.unknown()}).strict().parse(json('patterns.json'));
   const meta=z.object({schemaVersion:z.union([z.literal(1),z.literal(2)])}).passthrough().parse(json('project.json'));
   if(meta.schemaVersion!==m.schemaVersion||patterns.schemaVersion!==m.schemaVersion)throw new DomainError('HASH_MISMATCH');
   let extended:Record<string,unknown>={};
@@ -56,8 +59,9 @@ export function unpack(bytes:Uint8Array):Project{
   }else{
     for(const key of ['character','simulation'])z.object({schemaVersion:z.literal(2),items:z.array(z.never()).length(0)}).strict().parse(json(key+'.json'));
     const groups={materials:{materials:projectSchema.shape.materials,items:z.array(z.never()).length(0).optional()},body:{surface:projectSchema.shape.surface,surfaceRun:projectSchema.shape.surfaceRun},uv:{bindings:projectSchema.shape.bindings},markings:{maskSources:projectSchema.shape.maskSources,references:projectSchema.shape.references,referenceRun:projectSchema.shape.referenceRun,markings:projectSchema.shape.markings},seams:{seams:projectSchema.shape.seams},nesting:{nesting:projectSchema.shape.nesting}};
-    for(const [key,shape] of Object.entries(groups)){const raw=json(key+'.json');if(key==='markings'&&Array.isArray(raw.references))for(const r of raw.references){const id=z.uuid().parse(r.id),a=r.resources;if(!a)continue;const readAsset=(data:unknown,suffix:string,mime:string)=>{if(typeof data!=='string')throw new DomainError('INVALID_ARCHIVE');if(!data.startsWith('asset:'))return data;const path='images/'+id+'-'+suffix;if(data!=='asset:'+path||!files.has(path))throw new DomainError('MISSING_FILE');linkedAssets.add(path);return 'data:'+mime+';base64,'+Buffer.from(files.get(path)!).toString('base64');};r.png=readAsset(r.png,'original.png','image/png');const mime=z.enum(['image/png','image/jpeg','image/webp']).parse(a.source?.mime);a.source.data=readAsset(a.source.data,'source.'+(mime==='image/jpeg'?'jpg':mime==='image/webp'?'webp':'png'),mime);a.proxy.png=readAsset(a.proxy.png,'proxy.png','image/png');a.thumbnail.png=readAsset(a.thumbnail.png,'thumbnail.png','image/png');}const {schemaVersion,...fields}=z.object({schemaVersion:z.literal(2),...shape}).strict().parse(raw);const {items,...domain}=fields as Record<string,unknown>;extended={...extended,...domain};}
-    z.object(projectSchema.shape).strict().omit({materials:true,pieces:true,surface:true,surfaceRun:true,bindings:true,maskSources:true,references:true,referenceRun:true,markings:true,seams:true,nesting:true}).parse(meta);
+    for(const [key,shape] of Object.entries(groups)){const raw=json(key+'.json');if(key==='markings'&&Array.isArray(raw.references))for(const r of raw.references){const id=z.uuid().parse(r.id),a=r.resources;if(!a)continue;const readAsset=(data:unknown,suffix:string,mime:string)=>{if(typeof data!=='string')throw new DomainError('INVALID_ARCHIVE');if(!data.startsWith('asset:'))return data;const path='images/'+id+'-'+suffix;if(data!=='asset:'+path||!files.has(path))throw new DomainError('MISSING_FILE');linkedAssets.add(path);return 'data:'+mime+';base64,'+byteView(files.get(path)!).toString('base64');};r.png=readAsset(r.png,'original.png','image/png');const mime=z.enum(['image/png','image/jpeg','image/webp']).parse(a.source?.mime);a.source.data=readAsset(a.source.data,'source.'+(mime==='image/jpeg'?'jpg':mime==='image/webp'?'webp':'png'),mime);a.proxy.png=readAsset(a.proxy.png,'proxy.png','image/png');a.thumbnail.png=readAsset(a.thumbnail.png,'thumbnail.png','image/png');}const {schemaVersion,...fields}=z.object({schemaVersion:z.literal(2),...Object.fromEntries(Object.entries(shape).map(([name,schema])=>[name,name==='items'?schema:z.unknown().optional()]))}).strict().parse(raw);const {items,...domain}=fields as Record<string,unknown>;extended={...extended,...domain};}
+    const metaShape=z.object(projectSchema.shape).omit({materials:true,pieces:true,surface:true,surfaceRun:true,bindings:true,maskSources:true,references:true,referenceRun:true,markings:true,seams:true,nesting:true}).shape;
+    z.object(Object.fromEntries(Object.keys(metaShape).map(key=>[key,z.unknown().optional()]))).strict().parse(meta);
   }
   if([...files.keys()].some(k=>!expected.has(k)&&!linkedAssets.has(k)))throw new DomainError('UNSUPPORTED_PROJECT_FEATURE');
   const project=parseProject({...meta,...extended,pieces:patterns.pieces});
@@ -65,7 +69,9 @@ export function unpack(bytes:Uint8Array):Project{
   return project;
 }
 function validateDirectory(bytes:Uint8Array){
-  const b=Buffer.from(bytes);let end=-1;
+  // Directory validation is read-only; a view avoids another whole-archive
+  // allocation (up to 200 MiB) while preserving offsets for sliced inputs.
+  const b=byteView(bytes);let end=-1;
   for(let i=b.length-22;i>=Math.max(0,b.length-65557);i--)if(b.readUInt32LE(i)===0x06054b50&&i+22+b.readUInt16LE(i+20)===b.length){end=i;break;}
   if(end<0||b.readUInt16LE(end+4)!==0||b.readUInt16LE(end+6)!==0)throw new DomainError('INVALID_ARCHIVE');
   const count=b.readUInt16LE(end+10),length=b.readUInt32LE(end+12),start=b.readUInt32LE(end+16);

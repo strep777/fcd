@@ -1,5 +1,5 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {cp,mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -8,7 +8,7 @@ import {workflow,production,activity,openDetails,chooseProject} from './ui-navig
 
 const directory=await mkdtemp(resolve('.local/tests/studio-ui-')),output='test-results/studio-ui';await mkdir(output,{recursive:true});
 const checks=[],errors=[],contrast=[],screenshots=[];let app,page;
-async function launch(data){const env={...process.env,FPCAD_DATA_DIR:data};delete env.ELECTRON_RUN_AS_NODE;app=await electron.launch({args:desktopArgs,executablePath,env});page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(8000);await page.setViewportSize({width:1440,height:960});await page.waitForFunction(()=>!!window.fpcad);}
+async function launch(data){const env={...process.env,FPCAD_DATA_DIR:data};app=await desktop.launch({args:desktopArgs,executablePath,env});page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(8000);await page.setViewportSize({width:1440,height:960});await page.waitForFunction(()=>!!window.fpcad);}
 async function shot(name){const path=output+'/'+name+'.png';await desktopScreenshot(app,page,{path});screenshots.push(path);}
 async function audit(name){
  // Evaluate the settled state after the theme's 180 ms feedback transitions.
@@ -39,7 +39,7 @@ try{
  checks.push('all six editing pages, including actual cut assembly, retain readable controls and consistent studio surfaces without body overflow');
  await workflow(page,'references');await page.locator('.image-tools').getByRole('button',{name:'钢笔选区',exact:true}).click();await page.getByRole('button',{name:'放大选区编辑',exact:true}).click();await audit('expanded-mask');await shot('expanded-mask');await page.getByRole('button',{name:'收起选区编辑',exact:true}).click();await workflow(page,'pattern');
  checks.push('expanded manual-selection editor uses the shared controls and readable foregrounds');
- await page.locator('.cut-selection .cut-row>button').first().click();await page.getByRole('button',{name:'单片分页拼接预览',exact:true}).click();await page.locator('.print-preview').waitFor();await audit('print-dialog');await shot('print-dialog');await page.keyboard.press('Escape');
+ await page.locator('.cut-selection .cut-row>button').first().click();await page.getByLabel('全选当前列表',{exact:true}).uncheck();await page.getByRole('button',{name:'单片分页拼接预览',exact:true}).click();await page.locator('.print-preview').waitFor();await audit('print-dialog');await shot('print-dialog');await page.keyboard.press('Escape');
  checks.push('model source and tiled-print dialogs keep readable foregrounds, controls and studio styling');
  for(const key of ['materials','seams','nesting']){await production(page,key);await audit(key);await shot(key);}
  await workflow(page,'workflow');await audit('workflow');await shot('workflow');for(const key of ['jobs','diagnostics','history','recovery']){await activity(page,key);await audit('activity-'+key);}await page.locator('.activity-close').click();

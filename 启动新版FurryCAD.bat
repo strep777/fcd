@@ -16,7 +16,7 @@ if not "%errorlevel%"=="0" (
 )
 
 set "FPCAD_DATA_DIR=%~dp0.local\workspace"
-if not exist "node_modules\electron\dist\electron.exe" goto install
+if not exist "node_modules\@tauri-apps\cli\tauri.js" goto install
 if not exist "node_modules\.bin\vite.cmd" goto install
 goto build
 

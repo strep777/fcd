@@ -15,6 +15,152 @@ struct Element {
     gy: [f64; 3],
     area: f64,
 }
+struct BoundarySpring {
+    a: usize,
+    b: usize,
+    length: f64,
+    weight: f64,
+}
+fn spring_energy(springs: &[BoundarySpring], uv: &[[f64; 2]]) -> f64 {
+    springs
+        .iter()
+        .map(|s| {
+            let length = (uv[s.a][0] - uv[s.b][0]).hypot(uv[s.a][1] - uv[s.b][1]);
+            s.weight * (length - s.length).powi(2)
+        })
+        .sum()
+}
+/// Linearize scalar lengths, not edge vectors: sewing constraints must leave
+/// boundary tangents free to turn while fixing the physical edge lengths.
+fn refine_seamed(
+    elements: &[Element],
+    springs: &[BoundarySpring],
+    faces: &[[usize; 3]],
+    uv: &mut Vec<[f64; 2]>,
+    anchor: usize,
+    limit: usize,
+) -> Result<ArapReport, &'static str> {
+    use std::collections::BTreeMap;
+    let free: Vec<_> = (0..uv.len()).filter(|&i| i != anchor).collect();
+    let mut index = vec![None; uv.len()];
+    for (i, &v) in free.iter().enumerate() {
+        index[v] = Some(2 * i);
+    }
+    let n = free.len() * 2;
+    let mut base = vec![BTreeMap::<usize, f64>::new(); n];
+    for e in elements {
+        for axis in 0..2 {
+            for gradient in [e.gx, e.gy] {
+                for k in 0..3 {
+                    if let Some(i) = index[e.indices[k]] {
+                        for j in 0..3 {
+                            if let Some(l) = index[e.indices[j]] {
+                                *base[i + axis].entry(l + axis).or_default() +=
+                                    e.area * gradient[k] * gradient[j];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let area: f64 = elements.iter().map(|e| e.area).sum();
+    let objective = |p: &[[f64; 2]]| energy(elements, p) + spring_energy(springs, p) / area;
+    let before = objective(uv);
+    let mut after = before;
+    let mut iterations = 0;
+    let mut converged = false;
+    for iteration in 0..limit {
+        let mut matrix = base.clone();
+        let mut rhs = vec![0.; n];
+        for e in elements {
+            let r = rotation(e, uv);
+            for axis in 0..2 {
+                for (column, gradient) in [e.gx, e.gy].into_iter().enumerate() {
+                    let residual = r[axis * 2 + column]
+                        - (0..3)
+                            .map(|k| gradient[k] * uv[e.indices[k]][axis])
+                            .sum::<f64>();
+                    for k in 0..3 {
+                        if let Some(i) = index[e.indices[k]] {
+                            rhs[i + axis] += e.area * gradient[k] * residual;
+                        }
+                    }
+                }
+            }
+        }
+        for s in springs {
+            let delta = [uv[s.b][0] - uv[s.a][0], uv[s.b][1] - uv[s.a][1]];
+            let length = delta[0].hypot(delta[1]);
+            if length <= 0. {
+                return Err("NUMERICAL_FAILURE");
+            }
+            let mut row = Vec::with_capacity(4);
+            for (v, sign) in [(s.a, -1.), (s.b, 1.)] {
+                if let Some(i) = index[v] {
+                    for (axis, value) in delta.iter().enumerate() {
+                        row.push((i + axis, sign * value / length));
+                    }
+                }
+            }
+            for &(i, a) in &row {
+                rhs[i] += s.weight * a * (s.length - length);
+                for &(j, b) in &row {
+                    *matrix[i].entry(j).or_default() += s.weight * a * b;
+                }
+            }
+        }
+        let matrix: Vec<Vec<_>> = matrix
+            .into_iter()
+            .map(|r| r.into_iter().collect())
+            .collect();
+        let Some(factor) = crate::sparse::Factor::new(&matrix) else {
+            return Err("ARAP_NOT_CONVERGED");
+        };
+        let delta = factor.solve(&rhs);
+        if delta.iter().any(|v| !v.is_finite()) {
+            return Err("NUMERICAL_FAILURE");
+        }
+        let mut step = 1.;
+        let mut accepted = None;
+        for _ in 0..32 {
+            let mut trial = uv.clone();
+            for (i, &v) in free.iter().enumerate() {
+                trial[v][0] += step * delta[2 * i];
+                trial[v][1] += step * delta[2 * i + 1];
+            }
+            if positive(faces, &trial) {
+                let value = objective(&trial);
+                if value <= after + 1e-12 {
+                    accepted = Some((trial, value));
+                    break;
+                }
+            }
+            step *= 0.5;
+        }
+        let Some((trial, value)) = accepted else {
+            break;
+        };
+        iterations = iteration + 1;
+        converged = (after - value).abs() < 1e-10 * after.max(1.)
+            && springs.iter().all(|s| {
+                let length = (trial[s.a][0] - trial[s.b][0]).hypot(trial[s.a][1] - trial[s.b][1]);
+                (length / s.length - 1.).abs() < 1e-5
+            });
+        *uv = trial;
+        after = value;
+        if converged {
+            break;
+        }
+    }
+    Ok(ArapReport {
+        iterations,
+        energy_before: before,
+        energy_after: after,
+        converged,
+        reverted: false,
+    })
+}
 fn inner(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(a, b)| a * b).sum()
 }
@@ -250,6 +396,7 @@ fn refine_with_weights(
     let uv_origin = uv[anchors[0]];
     let conditioned = Mesh {
         repair_cuts: mesh.repair_cuts,
+        initial_uv: None,
         method: mesh.method.clone(),
         iterations: mesh.iterations,
         vertices: mesh
@@ -322,7 +469,52 @@ fn refine_conditioned(
     if !positive(faces, uv) {
         return Err("UNWRAP_FLIPPED");
     }
-    let before = energy(&elements, uv);
+    // Sewing boundaries are physical lengths shared by neighbouring panels.
+    // Penalize relative edge strain, including short material-intersection
+    // edges; an area-only objective can otherwise ignore those edges entirely.
+    let mut springs = Vec::new();
+    if mesh.method == "arap-seamed" {
+        let mut edges = std::collections::BTreeMap::<(usize, usize), usize>::new();
+        for face in faces {
+            for i in 0..3 {
+                let (a, b) = (face[i], face[(i + 1) % 3]);
+                *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        // Boundary stiffness describes the physical panel. Increasing a
+        // failed triangle's minimax weight must not simultaneously increase
+        // every boundary spring and cancel that corrective weighting.
+        let total_area: f64 = elements
+            .iter()
+            .enumerate()
+            .map(|(i, e)| e.area / weights.map_or(1., |w| w[i]))
+            .sum();
+        let count = edges.values().filter(|&&count| count == 1).count().max(1);
+        for ((a, b), count_edge) in edges {
+            if count_edge != 1 {
+                continue;
+            }
+            let p = &mesh.vertices[globals[a]];
+            let q = &mesh.vertices[globals[b]];
+            let length = (p.x_mm - q.x_mm)
+                .hypot(p.y_mm - q.y_mm)
+                .hypot(p.z_mm - q.z_mm);
+            if length <= 0. {
+                return Err("NUMERICAL_FAILURE");
+            }
+            springs.push(BoundarySpring {
+                a,
+                b,
+                length,
+                weight: 100_000. * total_area / count as f64 / length.powi(2),
+            });
+        }
+    }
+    if !springs.is_empty() {
+        return refine_seamed(&elements, &springs, faces, uv, anchors[0], limit);
+    }
+    let objective = |points: &[[f64; 2]]| energy(&elements, points);
+    let before = objective(uv);
     let mut after = before;
     let mut converged = before < 1e-12;
     let mut iterations = 0;
@@ -404,7 +596,11 @@ fn refine_conditioned(
                     }
                 }
             }
-            let mut x: Vec<_> = factor.as_ref().map(|f| f.solve(&rhs)).filter(|x| x.iter().all(|v| v.is_finite())).unwrap_or_else(|| free.iter().map(|&v| uv[v][axis]).collect());
+            let mut x: Vec<_> = factor
+                .as_ref()
+                .map(|f| f.solve(&rhs))
+                .filter(|x| x.iter().all(|v| v.is_finite()))
+                .unwrap_or_else(|| free.iter().map(|&v| uv[v][axis]).collect());
             let product = multiply(&x);
             let mut residual: Vec<_> = rhs.iter().zip(product).map(|(a, b)| a - b).collect();
             let mut z: Vec<_> = residual.iter().zip(&diagonal).map(|(r, d)| r / d).collect();
@@ -454,7 +650,7 @@ fn refine_conditioned(
                 .map(|(a, b)| [a[0] + step * (b[0] - a[0]), a[1] + step * (b[1] - a[1])])
                 .collect();
             if positive(faces, &trial) {
-                let e = energy(&elements, &trial);
+                let e = objective(&trial);
                 if e <= after + 1e-12 {
                     accepted = Some((trial, e));
                     break;
@@ -489,6 +685,7 @@ mod tests {
         let rest = [[0., 0.], [100., 0.], [100., 100.], [0., 100.]];
         let mut mesh = Mesh {
             repair_cuts: false,
+            initial_uv: None,
             method: "arap".into(),
             iterations: Some(100),
             vertices: rest
@@ -590,10 +787,65 @@ mod tests {
     }
 
     #[test]
+    fn curved_panel_recovers_physical_seam_lengths_from_a_compressed_seed() {
+        for scale in [0.001, 1., 1000.] {
+            let vertices = [
+                [0., 0., 0.],
+                [100., 0., 0.],
+                [100., 100., 0.],
+                [0., 100., 0.],
+                [50., 50., 20.],
+            ];
+            let faces = [[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]];
+            let mesh = Mesh {
+                repair_cuts: false,
+                initial_uv: None,
+                method: "arap-seamed".into(),
+                iterations: Some(100),
+                vertices: vertices
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| Vertex {
+                        id: i.to_string(),
+                        x_mm: p[0] * scale,
+                        y_mm: p[1] * scale,
+                        z_mm: p[2] * scale,
+                    })
+                    .collect(),
+                faces: faces
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| Face {
+                        id: i.to_string(),
+                        vertices: f.map(|v| v.to_string()),
+                        region: "panel".into(),
+                    })
+                    .collect(),
+            };
+            let mut uv: Vec<_> = vertices
+                .iter()
+                .map(|p| [p[0] * scale * 0.95, p[1] * scale * 0.95])
+                .collect();
+            refine(&mesh, &[0, 1, 2, 3, 4], &faces, &mut uv, [0, 1], 100).unwrap();
+            assert!(positive(&faces, &uv));
+            for i in 0..4 {
+                let j = (i + 1) % 4;
+                let length = (uv[i][0] - uv[j][0]).hypot(uv[i][1] - uv[j][1]);
+                assert!(
+                    (length / (100. * scale) - 1.).abs() < 0.0005,
+                    "Curved patch seam {i} at scale {scale}: {length}"
+                );
+            }
+            assert_eq!(uv[0], [0., 0.]);
+        }
+    }
+
+    #[test]
     fn skinny_valid_triangle_keeps_its_isometric_embedding() {
         let mut uv = vec![[0., 0.], [100., 0.], [100., 0.0000001]];
         let mesh = Mesh {
             repair_cuts: false,
+            initial_uv: None,
             method: "arap".into(),
             iterations: Some(30),
             vertices: uv

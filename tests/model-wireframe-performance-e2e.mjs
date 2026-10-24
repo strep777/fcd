@@ -1,6 +1,6 @@
 import {build} from 'esbuild';
 import {parse,compileScript} from '@vue/compiler-sfc';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import {mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {resolve,dirname} from 'node:path';
@@ -18,9 +18,9 @@ window.preview=reactive({index:0,wireframe:false,yaw:0});window.unavailable=fals
 createApp({render:()=>{const m=prepared[window.preview.index];return h(SurfaceGpu,{surface:m.surface,faces:m.faces,camera:{...m.camera,yaw:window.preview.yaw},wireframe:window.preview.wireframe,onUnavailable:()=>window.unavailable=true});}}).mount('#app');`;
 await build({stdin:{contents:entry,resolveDir:resolve('.'),loader:'ts'},bundle:true,format:'iife',platform:'browser',outfile:resolve(directory,'fixture.js'),plugins:[{name:'production-vue',setup(build){build.onLoad({filter:/\.vue$/},async({path})=>{const {descriptor}=parse(await readFile(path,'utf8'));return {contents:compileScript(descriptor,{id:'wireframe-performance',inlineTemplate:true}).content+'\nconst style=document.createElement("style");style.textContent='+JSON.stringify(descriptor.styles.map(s=>s.content).join('\n'))+';document.head.append(style);',loader:'ts',resolveDir:dirname(path)};});}}]});
 await writeFile(resolve(directory,'index.html'),'<html><style>body{margin:0}.surface-view{width:720px;height:540px}</style><div id="app"></div><script src="fixture.js"></script></html>');
-await writeFile(resolve(directory,'main.cjs'),`const {app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(resolve(directory,'profile'))});app.whenReady().then(()=>new BrowserWindow({width:720,height:540,useContentSize:true,show:false,webPreferences:{contextIsolation:true,backgroundThrottling:false}}).loadFile(${JSON.stringify(resolve(directory,'index.html'))}));app.on('window-all-closed',()=>app.quit());`);
-const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:['--fpcad-background-test','--disable-gpu','--enable-unsafe-swiftshader',...(process.env.FPCAD_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[]),resolve(directory,'main.cjs')],env}),page=await app.firstWindow(),errors=[],checks=[];
+await writeFile(resolve(directory,'fixture.json'),JSON.stringify({html:resolve(directory,'index.html'),width:720,height:540}));
+const env={...process.env};
+const app=await desktop.launch({args:['--fpcad-background-test','--disable-gpu','--enable-unsafe-swiftshader',...(process.env.FPCAD_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[]),resolve(directory,'fixture.json')],env}),page=await app.firstWindow(),errors=[],checks=[];
 page.on('pageerror',e=>errors.push(e.message));
 try{
  await hiddenWindowId(app,page);await page.waitForFunction(()=>window.unavailable||document.querySelector('canvas')?.dataset.backend==='webgl');assert(!await page.evaluate(()=>window.unavailable));

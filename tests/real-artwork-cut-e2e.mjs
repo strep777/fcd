@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile} from 'node:fs/promises';
 import {build} from 'esbuild';
@@ -10,8 +10,8 @@ import {workflow} from './ui-navigation.mjs';
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {testedArtifacts} from './real-mapping-fixture-audit.mjs';
 
-const directory=await mkdtemp(resolve('.local/tests/real-artwork-cut-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[],checks=[];
+const directory=await mkdtemp(resolve('.local/tests/real-artwork-cut-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),errors=[],checks=[];
 page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(30000);
 const blueWhite=process.env.FPCAD_REAL_ARTWORK==='blue-white',evidenceName=blueWhite?'real-blue-white-cut':'real-artwork-cut';
 const imagePath=resolve(blueWhite?'tests/fixtures/character-blue-white-front-back.png':'tests/fixtures/character-front-back.jpg'),imageSha256=createHash('sha256').update(await readFile(imagePath)).digest('hex');
@@ -22,7 +22,7 @@ const record=message=>{checks.push(message);console.log(message);};
 // through Playwright retains multiple copies unrelated to normal application use.
 const summary=()=>page.evaluate(async()=>{const r=await window.fpcad.read();if(!r.ok)throw Error(JSON.stringify(r));const p=r.data.project,archive=p.cuttingLibrary?.[0];return {pieces:p.pieces.length,archiveCount:p.cuttingLibrary?.length??0,archiveId:archive?.id,activeCutId:p.activeCutId,archiveHash:archive?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(archive,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]])):value))))).map(v=>v.toString(16).padStart(2,'0')).join(''):null,manufacturingErrors:r.data.geometry.flatMap(g=>g.issues).filter(i=>i.severity==='error')};});
 try{
- assert.equal(resolve(await app.evaluate(({app})=>app.getAppPath())),artifacts.applicationDirectory);
+ assert.equal(resolve(await app.evaluate(({host})=>host.getAppPath())),artifacts.applicationDirectory);
  await page.setViewportSize({width:1440,height:1000});await page.waitForFunction(()=>!!window.fpcad);
  const runtime=resolve(directory,'parameters.mjs');await build({stdin:{contents:"export {speciesDefaults} from './packages/body/defaults';",resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',outfile:runtime});const parameters=(await import(pathToFileURL(runtime))).speciesDefaults('canine');
  await app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});},imagePath);

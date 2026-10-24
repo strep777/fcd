@@ -2,7 +2,7 @@
 
 ## 项目与工作目录
 
-这是面向兽装花纹、三维映射和二维纸样制作的 Windows 桌面 CAD。主要技术栈为 Electron、Vue 3、TypeScript、Pinia、SQLite 和 Rust。
+这是面向兽装制作电子打版的关于兽装花纹、三维映射和二维纸样制作的 Windows 桌面 CAD。主要技术栈为 Tauri2、Vue 3、TypeScript、Pinia、SQLite 和 Rust。
 
 - 当前维护源码直接位于仓库根目录，`apps/`、`packages/` 和 `crates/` 是并列目录。根目录 `package.json` 是应用配置，直接执行开发命令。
 - 根目录 `README.md` 面向使用者；本文件 `AGENTS.md` 是开发协作规则与规范索引入口，也用于自动发现项目规则。
@@ -15,7 +15,7 @@
 | 目录 | 职责 |
 | --- | --- |
 | `apps/desktop/src/` | Vue 页面、组件、编辑交互与统一会话状态 |
-| `apps/desktop/main/` | Electron 主进程、IPC、数据库事务、导入导出及工作线程调度 |
+| `apps/desktop/main/` | Tauri2 主进程、IPC、数据库事务、导入导出及工作线程调度 |
 | `packages/schema/` | Zod 数据契约、项目版本与迁移；修改数据结构从这里开始 |
 | `packages/reference/` | 原图处理、选区、轮廓恢复与贴附配准 |
 | `packages/surface/` | 曲面、绑定、裁切、三维对应关系与预览 |
@@ -34,7 +34,7 @@
 - `marking-fingerprint.ts` 是花纹依赖指纹的统一实现。指纹覆盖字段或序列化方式变动时检查历史项目兼容性。
 - 材料删除必须检查当前裁片、花纹库、非活动模型、裁切历史和计算候选中的引用。
 - 裁切库是历史快照。编辑当前状态时保留历史快照，恢复历史版本时保留所需资源与依赖。
-- 保持 Electron 的沙箱、上下文隔离、IPC 来源检查及本机助手权限约束；文件导入继续执行大小、路径、契约和完整性校验。
+- 保持 Tauri2 的沙箱、上下文隔离、IPC 来源检查及本机助手权限约束；文件导入继续执行大小、路径、契约和完整性校验。
 
 ## 环境与常用命令
 
@@ -64,13 +64,45 @@ npm test -- tests/integration/topology-provenance.test.ts tests/integration/mate
 
 新增回归测试验证可观察的业务结果和失败后的状态完整性，覆盖有效、失效和未审阅状态。无需原生求解的持久化测试可以使用 `tests/fixtures/accepted-cut.ts`；算法正确性仍使用真实 Rust 工作进程。哈希测试先通过契约规范化输入，再计算持久化指纹。
 
+这个项目是给自己做的离线软件，安全性测试不需要制作，只要功能和实现表现的测试即可。
+
+
 ## 数据、产物与文档
 
 - 根目录 `.local/workspace/` 是用户项目库；禁止作为测试缓存清理。
 - `.tools/` 是本地工具链与依赖，不作为旧程序残留删除。
 - `node_modules/`、`target/`、`target-*/`、`dist/`、`release/`、`.local/tests/`、`test-results/` 是本地依赖或生成内容，不能加入源码提交。
 - 清理脚本先运行 `-WhatIf`，检查实际目标和链接，并确认相关测试进程已关闭。保留用户库、固定测试样本、生产资源、发布包及已有验收记录。
-- `Docs/` 的现行指南与设计放入 `guides/`、`design/`，尚未落地但仍有价值的规划放入 `planning/` 并注明当前状态、待实现内容和未验证目标。保留未落地规划；删除已被现行文档替代的重复说明和过时实施记录，历史验收资料通过 Git 追溯。
+- `Docs/` 的现行指南与设计放入 `guides/`、`design/`，尚未落地但仍有价值的规划放入 `planning/` 并注明当前状态、待实现内容和未验证目标。保留未落地规划；删除已被现行文档替代的重复说明和过时实施记录，历史验收资料通过 Git 追溯，每次完成后的项目版本修改说明报告放在`update/`中。
 - 新生成的验证日志、截图和报告放入 `test-results/`，不直接写入文档目录。整理后运行 `npm run docs:check` 校验链接。
 - 导出给用户的能力、命令或目录发生变化时同步更新 README 与目录索引。
 - 如任务要求提交代码，遵循 [.github/git-commit-instructions.md](.github/git-commit-instructions.md)：标题类型前缀不可省略，冒号后有一个空格，概述使用简体中文；缺陷修复使用 `fix:` 或 `fix(scope):`。未要求提交时交付工作区修改及验证结果。
+
+
+## 开发要求：
+1.
+https://learn.chatgpt.com/docs/agent-configuration/agents-md\\\\
+https://learn.chatgpt.com/docs/agent-configuration/subagents?surface=app\\\\
+https://learn.chatgpt.com/docs/agent-configuration/speed\\\\
+https://learn.chatgpt.com/docs/agent-configuration/rules\\\\
+你按照文档可以使用多个gpt6.1sol xhigh来帮助你完成代码，如果涉及computer use就使用gpt astra low来帮助你，你去给它们发送任务的同时你也要完成审核和测试和功能效果确认以及最重要的合并，如果他们做的一直不符合要求就要你来亲自帮忙，所有涉及到算法的部分都需要你来操作
+2. 认真完成布置的所有任务
+3. 每次动手前需要完整了解当前项目目标和功能状态
+4. 每次开始任务前清理所有旧数据，只保留最新数据，所有版本由git管理，本地文件只保留最新版，git参考使用skills而不是写入文件，使用cmd命令管理
+
+每次修复完成后需要打开cmd在F:\公司\fcd目录运行：
+```cmd
+git add ./*
+git commit -m "<本次更新的内容>"
+git push
+```
+
+5. 测试需要使用多个gpt6.1sol high完整遵循软件测试方法测试，全覆盖软件的所有功能，确保功能符合制作预期
+6. 在所有bug修复完成后全面检查项目所有功能是否按照预期工作，不按预期的地方需要再次认真修复直到正常可用为止
+7. 如果要通过用户电脑打开测试需要让打开的软件UI图层界面优先级最低防止影响用户在进行别的操作
+8. 所有功能点完成后集中进行测试，不要做完一个测一个
+
+需要学习的开源项目，学习后了解项目的任务功能然后开工：
+- https://github.com/tabjy/clo3d-patterns
+- https://github.com/blender/blender
+- https://github.com/FashionFreedom/Seamly2D

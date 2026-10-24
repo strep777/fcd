@@ -30,17 +30,17 @@ function verifyConservation(surface:Surface,run:SurfaceRun){
  expect(physicalArea).toBeCloseTo(10000,3);expect(flatArea).toBeCloseTo(10000,3);expect(run.pieces.reduce((sum,p)=>sum+ringArea(p.nodes)-(p.holes??[]).reduce((n,h)=>n+ringArea(h),0),0)).toBeCloseTo(10000,3);
  return {flatArea,physicalArea};
 }
-it('an off-grid bent freehand seam crosses the original diagonal and defines two exact planar pieces',async()=>{
- const p=planar(),before=structuredClone(p),controlPoints=[point(37,0),point(61,43),point(44,100)];
- const edited=await editSurfaceCuts(worker,p,{type:'surface.curve',name:'Off-grid user freehand',kind:'freehand',controlPoints,projection,tension:1,closed:false,symmetric:false}),saved={...p,...edited};
- expect(p).toEqual(before);expect(saved.surface!.cutLines![0].kind).toBe('freehand');expect(saved.surface!.cutLines![0].section).toBeUndefined();expect(saved.surface!.cutLines![0].controlPoints).toEqual(controlPoints);expect(cutComponents(saved.surface!.cutLines![0].edges)).toHaveLength(1);
+it('an off-grid bent closed pen seam crosses the original diagonal and defines two exact planar pieces',async()=>{
+ const p=planar(),before=structuredClone(p),controlPoints=[point(37,0),point(61,43),point(44,100),point(0,100),point(0,0)];
+ const edited=await editSurfaceCuts(worker,p,{type:'surface.curve',name:'Off-grid closed pen',kind:'pen',controlPoints,projection,tension:1,closed:true,symmetric:false}),saved={...p,...edited};
+ expect(p).toEqual(before);expect(saved.surface!.cutLines![0].kind).toBe('pen');expect(saved.surface!.cutLines![0].closed).toBe(true);expect(saved.surface!.cutLines![0].section).toBeUndefined();expect(saved.surface!.cutLines![0].controlPoints).toEqual(controlPoints);expect(cutComponents(saved.surface!.cutLines![0].edges)).toHaveLength(1);
  expect(saved.surface!.vertices.length).toBeGreaterThan(4);const crossing=saved.surface!.vertices.find(v=>Math.abs(v.xMm-v.yMm)<1e-7&&v.xMm>40&&v.xMm<70);expect(crossing).toBeDefined();expect(crossing!.xMm).toBeCloseTo(61-17*18/74,7);
  const savedBefore=structuredClone(saved),candidate=await cutPreview(worker,saved.surface!,saved,{automaticCuts:true,colorBoundaryCuts:true},assets);expect(saved).toEqual(savedBefore);expect(candidate.run.options!.partitionStrategy).toBe('design');expect(candidate.run.pieces).toHaveLength(2);expect(candidate.run.designCutReport).toEqual({materialDomains:2,userSeams:1,topologySeams:0,distortionSeams:0,manufacturingSeams:0});
  const areas=candidate.run.pieces.map(p=>ringArea(p.nodes)).sort((a,b)=>a-b);expect(areas[0]).toBeCloseTo(4900.5,3);expect(areas[1]).toBeCloseTo(5099.5,3);verifyConservation(saved.surface!,candidate.run);
  const ready={...saved,pieces:candidate.run.pieces,bindings:candidate.run.bindings,markings:candidate.markings},geometry=await analyze(worker,ready);expect(bindingIssues(ready)).toEqual([]);expect(geometry.flatMap(g=>g.issues.filter(i=>i.severity==='error'))).toEqual([]);expect(geometry.map(g=>g.areaMm2).sort((a,b)=>a-b)).toEqual(expect.arrayContaining(areas.map(a=>expect.closeTo(a,3))));
 },120000);
 it.each([0,100])('a %i mm project allowance applies to the generated candidate and real manufacturing geometry',async allowanceMm=>{
- const p=planar(allowanceMm),edited=await editSurfaceCuts(worker,p,{type:'surface.curve',name:'Oblique freehand',kind:'freehand',controlPoints:[point(37,0),point(44,100)],projection,tension:1,closed:false,symmetric:false}),saved={...p,...edited};
+ const p=planar(allowanceMm),edited=await editSurfaceCuts(worker,p,{type:'surface.curve',name:'Oblique closed pen',kind:'pen',controlPoints:[point(37,0),point(44,100),point(0,100),point(0,0)],projection,tension:1,closed:true,symmetric:false}),saved={...p,...edited};
  const candidate=await cutPreview(worker,saved.surface!,saved,{automaticCuts:true},assets);expect(candidate.run.pieces).toHaveLength(2);expect(candidate.run.pieces.every(p=>p.allowanceMm===allowanceMm&&p.allowanceSource==='project')).toBe(true);verifyConservation(saved.surface!,candidate.run);
  const geometry=await analyze(worker,{...saved,pieces:candidate.run.pieces,bindings:candidate.run.bindings,markings:candidate.markings});expect(geometry.flatMap(g=>g.issues.filter(i=>i.severity==='error'))).toEqual([]);
  expect(candidate.run.cutPreview).toEqual(geometry.map(g=>({id:g.id,cut:g.cut,cutHoles:g.cutHoles})));

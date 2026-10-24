@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
@@ -7,11 +7,12 @@ import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {hiddenWindowId} from './desktop-window.mjs';
 import {workflow,surfaceCoordinates} from './ui-navigation.mjs';
 import {waitForState} from './wait-state.mjs';
-const directory=await mkdtemp(resolve('.local/tests/mapping-transform-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
+const directory=await mkdtemp(resolve('.local/tests/mapping-transform-')),env={...process.env,FPCAD_DATA_DIR:directory};
 const output=process.env.FPCAD_TEST_RESULTS_DIR??'test-results/current-cutting';await mkdir(output,{recursive:true});
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];let passed=false,nodeCounts=[];
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[],viewportBackends={};let passed=false,nodeCounts=[];
 page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(15000);
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data.project;};
+async function requireWebgl(phase){await page.waitForFunction(()=>document.querySelector('.surface-view')?.dataset.backend==='webgl');const backend=await page.locator('.surface-view').getAttribute('data-backend');assert.equal(backend,'webgl','Actual Mapping viewport must render through WebGL: '+phase);viewportBackends[phase]=backend;}
 try{
  await page.setViewportSize({width:1440,height:960});await page.waitForFunction(()=>!!window.fpcad);await hiddenWindowId(app,page);
  const created=await page.evaluate(async()=>{
@@ -23,7 +24,14 @@ try{
   p=(await window.fpcad.read()).data.project;
   return window.fpcad.surfaceMarking(p.id,p.revision,{origin:[0,120,0],axes:[[1,0,0],[0,1,0],[0,0,1]],nodes:[{xMm:-40,yMm:-50},{xMm:40,yMm:-50},{xMm:40,yMm:50},{xMm:-40,yMm:50}]},'#d28a53','变换测试');
  });assert(created.ok,JSON.stringify(created));
- await page.reload();await workflow(page,'mapping');await page.locator('.surface-controls').getByRole('button',{name:'正面',exact:true}).click();
+ await app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});},resolve('tests/fixtures/character-front-back.jpg'));
+ const seededSource=await page.evaluate(async()=>{
+  let p=(await window.fpcad.read()).data.project,response=await window.fpcad.importReference(p.id,p.revision,'front');if(!response.ok)return response;p=response.data.project;
+  const piece={id:crypto.randomUUID(),name:'同页清空后重新贴附',color:'#2288cc',closed:true,allowanceMm:0,cutQty:1,mirror:false,material:'Pigment',furRad:0,nodes:[[-25,-30],[25,-30],[25,30],[-25,30]].map(([xMm,yMm])=>({id:crypto.randomUUID(),xMm,yMm})),holes:[[[-7,-7],[-7,7],[7,7],[7,-7]].map(([xMm,yMm])=>({id:crypto.randomUUID(),xMm,yMm}))]};
+  return window.fpcad.apply(p.id,p.revision,{type:'library.region.put',region:{piece,referenceId:p.references[0].id,view:'front',category:'body'}});
+ });assert(seededSource.ok,JSON.stringify(seededSource));
+ const sourceId=seededSource.data.project.patternLibrary[0].piece.id;
+ await page.reload();await workflow(page,'mapping');await page.locator('.surface-controls').getByRole('button',{name:'正面',exact:true}).click();await requireWebgl('initial');
  const marking=(await read()).markings[0],view=page.locator('.surface-view'),before=(await read()).revision;
  await page.getByLabel('Select attached marking',{exact:true}).selectOption(marking.id);
  let center=await surfaceCoordinates(page,0,0);await page.mouse.click(center.x,center.y);
@@ -31,6 +39,13 @@ try{
  const oldWidth=Number(await page.getByLabel('Attached marking width',{exact:true}).inputValue()),handle=await page.locator('.free-transform-handles [data-handle="se"]').boundingBox();
  await page.mouse.move(handle.x+4,handle.y+4);await page.mouse.down();await page.mouse.move(handle.x+38,handle.y+22,{steps:8});await page.mouse.up();
  const width=Number(await page.getByLabel('Attached marking width',{exact:true}).inputValue());assert(width>oldWidth+5,'Resize handle must synchronize width');assert.equal((await read()).revision,before,'Transform drag stays a draft');
+ const corners=await page.locator('.free-transform-handles rect').evaluateAll(nodes=>nodes.map(n=>{const b=n.getBoundingClientRect();return{x:b.x+b.width/2,y:b.y+b.height/2};}));
+ const grab={x:corners.reduce((sum,p)=>sum+p.x,0)/corners.length,y:corners.reduce((sum,p)=>sum+p.y,0)/corners.length};
+ const boxBefore=await page.locator('.free-transform-handles [data-handle="se"]').boundingBox();
+ await page.mouse.move(grab.x,grab.y);await page.mouse.down();await page.mouse.move(grab.x+24,grab.y+12,{steps:8});await page.mouse.up();
+ const boxAfter=await page.locator('.free-transform-handles [data-handle="se"]').boundingBox();
+ assert(Math.abs(boxAfter.x-boxBefore.x-24)<2&&Math.abs(boxAfter.y-boxBefore.y-12)<2,'Resized draft must translate with the pointer: '+JSON.stringify({boxBefore,boxAfter,grab}));
+ assert.equal(Number(await page.getByLabel('Attached marking width',{exact:true}).inputValue()),width,'Moving preserves the resized width');assert.equal((await read()).revision,before,'Move remains part of the transform draft');
  const rot=await page.locator('.free-transform-handles circle').boundingBox();await page.mouse.move(rot.x+6,rot.y+6);await page.mouse.down();await page.mouse.move(rot.x+40,rot.y+12,{steps:8});await page.mouse.up();
  assert(Math.abs(Number(await page.getByLabel('Attached marking rotation',{exact:true}).inputValue()))>5,'Rotation handle must synchronize angle');
  const layout=await page.evaluate(()=>{const r=s=>document.querySelector(s).getBoundingClientRect().toJSON();return {view:r('.surface-view'),overlay:r('.surface-interaction-overlay'),controls:r('#mapping-surface-controls'),navigation:r('.surface-controls')};});
@@ -40,14 +55,14 @@ try{
  center=await surfaceCoordinates(page,0,0);await page.mouse.click(center.x,center.y);await page.keyboard.press('Control+t');await page.getByLabel('Attached marking width',{exact:true}).fill('92');await page.getByLabel('Attached marking rotation',{exact:true}).fill('18');await page.getByLabel('Attached marking rotation',{exact:true}).press('Tab');
  await page.getByRole('button',{name:'确认变换 Enter',exact:true}).click();await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision===revision+1;},before);
  checks.push('Ordinary selection opens eight resize handles and one rotation handle; direct mouse edits synchronize values, Escape restores the original selection, and numeric edits commit once.');
- await app.evaluate(({ipcMain})=>{const original=ipcMain._invokeHandlers.get('fpcad:request');if(typeof original!=='function')throw Error('Missing real IPC handler');globalThis.__independentBrushRequests=[];ipcMain.removeHandler('fpcad:request');ipcMain.handle('fpcad:request',(event,request)=>{if(request?.method==='marking.surface.brush')globalThis.__independentBrushRequests.push(JSON.parse(JSON.stringify(request)));return original(event,request);});});
+ await page.evaluate(()=>{const original=window.__TAURI_INTERNALS__.invoke;window.__independentBrushRequests=[];window.__TAURI_INTERNALS__.invoke=function(command,args,...rest){if(command==='desktop_request'&&args?.channel==='fpcad:request-text'&&args.payload?.method==='marking.surface.brush')window.__independentBrushRequests.push(JSON.parse(JSON.stringify(args.payload)));return original.call(this,command,args,...rest);};});
  await page.locator('.surface-tool-rail').getByRole('button',{name:'笔刷添加花纹',exact:true}).click();await page.getByLabel('Symmetric surface paint',{exact:true}).check();
  const brushBefore=await read(),a=await surfaceCoordinates(page,-95,40),b=await surfaceCoordinates(page,-75,-35);
  await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:32});assert(await page.locator('.symmetry-guide').isVisible());
  await desktopScreenshot(app,page,{path:resolve(output,'mapping-symmetric-brush.png')});await page.mouse.up();
  await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision===revision+1;},brushBefore.revision);
  let painted=await read();assert.equal(painted.markings.length,brushBefore.markings.length+2);nodeCounts=painted.markings.slice(-2).map(m=>m.surfaceShape.nodes.length);
- await writeFile(resolve(output,'mapping-symmetric-brush-latest-input.json'),JSON.stringify({before:brushBefore,requests:await app.evaluate(()=>globalThis.__independentBrushRequests),after:painted},null,2));
+ await writeFile(resolve(output,'mapping-symmetric-brush-latest-input.json'),JSON.stringify({before:brushBefore,requests:await page.evaluate(()=>window.__independentBrushRequests),after:painted},null,2));
  assert.deepEqual(errors,[]);checks.push('Symmetric brush displays the model axis and mirrored paint in progress, then saves two independent editable contours in one revision.');
  const withoutRevision=({revision,updatedAt,...project})=>project;
  await page.locator('.project-toolbar').getByRole('button',{name:/撤销/}).click();await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision===revision+1;},painted.revision);
@@ -56,6 +71,9 @@ try{
  const redone=await read();assert.deepEqual(withoutRevision(redone),withoutRevision(painted),'UI redo restores both contours, every curve control and all projected fragments exactly');painted=redone;
  checks.push('One visible toolbar undo removes both symmetric contours together; redo restores the complete saved geometry exactly.');
  await desktopScreenshot(app,page,{path:resolve(output,'mapping-transform-final.png')});
+ // Undo removed this record and cleared its selection. Redo restores saved
+ // geometry; choose the restored second stroke explicitly before editing it.
+ await page.getByLabel('Select attached marking',{exact:true}).selectOption(painted.markings.at(-1).id);
  await page.getByRole('button',{name:'编辑轮廓节点',exact:true}).click();await page.locator('.surface-view .curve-handles circle').first().waitFor();assert.equal(await page.locator('.surface-view .curve-handles circle').count(),nodeCounts[1]);
  await desktopScreenshot(app,page,{path:resolve(output,'mapping-compact-edit-nodes.png')});await page.keyboard.press('Escape');assert.equal((await read()).revision,painted.revision);
  checks.push('The saved paint opens as editable surface nodes; cancelling node editing preserves the saved revision.');
@@ -72,6 +90,37 @@ try{
  await page.getByRole('button',{name:'解锁全部贴附花纹',exact:true}).click();await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision===revision+1;},locked.revision);
  const unlocked=await read();assert(unlocked.markings.every(m=>!m.locked));assert.deepEqual(unlocked.markings.map(({locked,...m})=>m),beforeLock.markings.map(({locked,...m})=>m));
  center=await surfaceCoordinates(page,0,0);await page.mouse.click(center.x,center.y);await page.keyboard.press('Control+t');await page.locator('.free-transform-handles').waitFor();await page.keyboard.press('Escape');assert.equal((await read()).revision,unlocked.revision);assert.deepEqual(errors,[]);
- checks.push('Approve and lock preserves all geometry, disables edit/erase/delete and numeric transforms, blocks drag and shortcuts; unlocking restores transform access.');assert(nodeCounts.every(count=>count<80),'Saved symmetric brush contours must each retain fewer than 80 editable nodes: '+nodeCounts.join(', '));passed=true;
+ checks.push('Approve and lock preserves all geometry, disables edit/erase/delete and numeric transforms, blocks drag and shortcuts; unlocking restores transform access.');assert(nodeCounts.every(count=>count<80),'Saved symmetric brush contours must each retain fewer than 80 editable nodes: '+nodeCounts.join(', '));
+ // Keep the production Mapping viewport mounted through the entire reset. The
+ // observer delegates to the real handler; every candidate and commit still
+ // crosses Tauri command, private backend pipe, the repository and the native geometry worker.
+ await page.evaluate(()=>{const original=window.__TAURI_INTERNALS__.invoke;window.__contextResetRequests=[];window.__TAURI_INTERNALS__.invoke=function(command,args,...rest){if(command==='desktop_request'&&args?.channel==='fpcad:request-text')window.__contextResetRequests.push(JSON.parse(JSON.stringify(args.payload)));return original.call(this,command,args,...rest);};});
+ await page.getByLabel('Select attached marking',{exact:true}).selectOption(marking.id);
+ await page.getByRole('button',{name:'编辑已贴附花纹节点',exact:true}).click();await page.getByRole('button',{name:'确认花纹编辑',exact:true}).waitFor();
+ const beforeClear=await read(),oldNode=await page.locator('.surface-view .curve-handles circle').first().boundingBox();assert(oldNode);
+ await page.mouse.move(oldNode.x+oldNode.width/2,oldNode.y+oldNode.height/2);await page.mouse.down();await page.mouse.move(oldNode.x+oldNode.width/2+5,oldNode.y+oldNode.height/2-3,{steps:4});await page.mouse.up();assert(await page.getByRole('button',{name:'删除选中节点',exact:true}).isEnabled());assert.equal((await read()).revision,beforeClear.revision,'The selected dirty node draft is still uncommitted before clearing');
+ await page.evaluate(()=>{window.__resetMappingPage=document.querySelector('.mapping-page');window.__resetMappingView=document.querySelector('.surface-view');});
+ await page.getByRole('button',{name:'清空模型贴附花纹',exact:true}).click();await page.getByRole('button',{name:'确认清空贴附花纹',exact:true}).click();
+ await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision===revision+1&&r.data.project.markings.length===0;},beforeClear.revision);
+ const cleared=await read();assert.deepEqual(cleared.patternLibrary,beforeClear.patternLibrary);assert.equal(await page.getByLabel('Select attached marking',{exact:true}).inputValue(),'');assert.equal(await page.getByRole('button',{name:'确认花纹编辑',exact:true}).count(),0);assert.equal(await page.locator('.curve-handles circle,.free-transform-handles rect').count(),0);
+ await page.keyboard.press('Enter');assert.equal((await read()).revision,cleared.revision,'Enter must not save the cleared node draft');
+ const sourceCard=page.locator('.mapping-page .region-card[data-region-id="'+sourceId+'"]'),dropView=page.locator('.surface-view'),dropBounds=await dropView.boundingBox();assert(dropBounds);
+ await sourceCard.scrollIntoViewIfNeeded();const dragStart=await sourceCard.locator('svg').boundingBox();assert(dragStart);await page.mouse.move(dragStart.x+dragStart.width/2,dragStart.y+dragStart.height/2);await page.mouse.down();await page.mouse.move(dragStart.x+dragStart.width/2+12,dragStart.y+dragStart.height/2,{steps:4});await page.mouse.move(dropBounds.x+dropBounds.width/2,dropBounds.y+dropBounds.height/2,{steps:24});await page.mouse.move(dropBounds.x+dropBounds.width/2+1,dropBounds.y+dropBounds.height/2,{steps:2});await page.mouse.up();
+ await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision===revision+1&&r.data.project.markings.length===1;},cleared.revision);
+ const reattached=await read(),fresh=reattached.markings[0];assert(!beforeClear.markings.some(item=>item.id===fresh.id));assert(fresh.fragments.length>0);assert.equal(fresh.surfaceShape.holes.length,1);assert.deepEqual(reattached.patternLibrary,beforeClear.patternLibrary);
+ assert.equal(await page.getByLabel('Select attached marking',{exact:true}).inputValue(),fresh.id);assert.equal(await page.locator('.free-transform-handles rect').count(),8);
+ assert(await page.evaluate(()=>window.__resetMappingPage===document.querySelector('.mapping-page')&&window.__resetMappingView===document.querySelector('.surface-view')),'Clear and drag must retain the same mounted Mapping tab and viewport');
+ await page.getByRole('button',{name:'编辑已贴附花纹节点',exact:true}).click();const freshNode=page.locator('.surface-view .curve-handles circle').first();await freshNode.waitFor();const knot=await freshNode.boundingBox();assert(knot);const nodeStart={x:knot.x+knot.width/2,y:knot.y+knot.height/2};
+ await page.mouse.move(nodeStart.x,nodeStart.y);await page.mouse.down();await page.mouse.move(nodeStart.x+8,nodeStart.y-5,{steps:6});await page.mouse.up();assert.equal((await read()).revision,reattached.revision,'Reattached node drag remains a draft');
+ await page.getByRole('button',{name:'确认花纹编辑',exact:true}).click();await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision===revision+1;},reattached.revision);
+ const nodeSaved=await read();assert.equal(nodeSaved.markings[0].id,fresh.id);assert.notDeepEqual(nodeSaved.markings[0].surfaceShape.nodes,fresh.surfaceShape.nodes);assert.deepEqual(nodeSaved.markings[0].surfaceShape.holes,fresh.surfaceShape.holes);assert.deepEqual(nodeSaved.patternLibrary,beforeClear.patternLibrary);
+ const reattachedWidth=Number(await page.getByLabel('Attached marking width',{exact:true}).inputValue()),resizeHandle=await page.locator('.free-transform-handles [data-handle="se"]').boundingBox();assert(resizeHandle);
+ await page.mouse.move(resizeHandle.x+resizeHandle.width/2,resizeHandle.y+resizeHandle.height/2);await page.mouse.down();await page.mouse.move(resizeHandle.x+resizeHandle.width/2+18,resizeHandle.y+resizeHandle.height/2+9,{steps:6});await page.mouse.up();assert(Number(await page.getByLabel('Attached marking width',{exact:true}).inputValue())>reattachedWidth);assert.equal((await read()).revision,nodeSaved.revision);
+ await page.getByRole('button',{name:'确认变换 Enter',exact:true}).click();await waitForState(page,async revision=>{const r=await window.fpcad.read();return r.ok&&r.data.project.revision===revision+1;},nodeSaved.revision);
+ const resetSaved=await read(),resetRequests=await page.evaluate(()=>window.__contextResetRequests),mutations=resetRequests.filter(request=>request.method!=='session.read');
+ assert.equal(resetSaved.revision,beforeClear.revision+4,'Clear, placement, node edit and resize each commit exactly one revision');assert(resetSaved.markings.every(m=>!beforeClear.markings.some(old=>old.id===m.id)),'No post-clear edit may revive a deleted marking');
+ assert.equal(resetSaved.markings[0].id,fresh.id);assert(resetSaved.markings[0].fragments.length>0);assert.deepEqual(resetSaved.patternLibrary,beforeClear.patternLibrary);assert.deepEqual(errors,[]);await hiddenWindowId(app,page);await requireWebgl('clear-reattach-node-resize');
+ await desktopScreenshot(app,page,{path:resolve(output,'mapping-clear-reattach-node-resize.png')});await writeFile(resolve(output,'mapping-clear-reattach-evidence.json'),JSON.stringify({beforeClear,cleared,reattached,nodeSaved,saved:resetSaved,requests:mutations,backgroundWindow:true,sameMappingViewport:true},null,2));
+ checks.push('Real Tauri and native worker: clear an active node edit, immediately drag a library source in the same mounted Mapping tab, save a new node edit and handle resize exactly once each, and preserve the source library.');passed=true;
  console.log(JSON.stringify({passed,directory,nodeCounts,checks},null,2));
-}finally{await writeFile(resolve(output,'mapping-transform.json'),JSON.stringify({passed,directory,nodeCounts,checks,errors,backgroundWindow:true},null,2));await app.close();}
+}catch(error){await desktopScreenshot(app,page,{path:resolve(output,'mapping-transform-failure.png')}).catch(()=>{});await writeFile(resolve(output,'mapping-transform-failure-state.json'),JSON.stringify(await read(),null,2)).catch(()=>{});throw error;}finally{await writeFile(resolve(output,'mapping-transform.json'),JSON.stringify({passed,directory,nodeCounts,checks,errors,viewportBackends,backgroundWindow:true},null,2));await app.close();}

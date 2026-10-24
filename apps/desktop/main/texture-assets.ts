@@ -8,7 +8,7 @@ export function factorColor(byte:number,factor:number){const s=byte/255,linear=s
 const uri=(b:ArrayBuffer)=>'data:image/png;base64,'+Buffer.from(b).toString('base64');
 export async function textureAsset(bytes:Uint8Array,name:string,factor:number[]){
  let input;try{input=inspectImage(bytes);}catch(e){throw new DomainError((e as Error).message);}if(Math.max(input.width,input.height)>2048)throw new DomainError('TEXTURE_LIMIT');
- let png=input.bytes;if(input.mime!=='image/png'){const {nativeImage}=await import('electron');const image=nativeImage.createFromBuffer(Buffer.from(input.bytes));if(image.isEmpty())throw new DomainError('IMAGE_DECODE');png=image.toPNG();}
+ let png=input.bytes;if(input.mime!=='image/png'){const {rasterImage}=await import('./raster-image');const image=await rasterImage.decode(Buffer.from(input.bytes));if(image.isEmpty())throw new DomainError('IMAGE_DECODE');png=image.toPNG();}
  const decoded=codec.decode(Uint8Array.from(png).buffer),oriented=orientPixels(new Uint8Array(codec.toRGBA8(decoded)[0]),input.width,input.height,input.orientation),{width,height}=oriented,rgba=oriented.pixels;
  for(let i=0;i<rgba.length;i++)rgba[i]=i%4===3?255:factorColor(rgba[i],factor[i%4]);
  const original=codec.encode([rgba.buffer as ArrayBuffer],width,height,0),ratio=Math.min(1,512/Math.max(width,height)),w=Math.max(1,Math.round(width*ratio)),h=Math.max(1,Math.round(height*ratio)),small=new Uint8Array(w*h*4);

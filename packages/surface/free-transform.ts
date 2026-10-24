@@ -1,9 +1,9 @@
 import type {Shape,Point} from './attached-edit';
 import {mapShapeContour,sampleShapeContour} from './shape-contour';
 import {pointBounds} from '../pattern/edit';
-export type TransformHandle='nw'|'n'|'ne'|'e'|'se'|'s'|'sw'|'w'|'rotate';
+export type TransformHandle='nw'|'n'|'ne'|'e'|'se'|'s'|'sw'|'w'|'rotate'|'move';
 const rotate=(p:Point,center:Point,angle:number):Point=>{const x=p.xMm-center.xMm,y=p.yMm-center.yMm,c=Math.cos(angle),s=Math.sin(angle);return {xMm:center.xMm+x*c-y*s,yMm:center.yMm+x*s+y*c};};
-const signs:Record<Exclude<TransformHandle,'rotate'>,[number,number]>={nw:[-1,1],n:[0,1],ne:[1,1],e:[1,0],se:[1,-1],s:[0,-1],sw:[-1,-1],w:[-1,0]};
+const signs:Record<Exclude<TransformHandle,'rotate'|'move'>,[number,number]>={nw:[-1,1],n:[0,1],ne:[1,1],e:[1,0],se:[1,-1],s:[0,-1],sw:[-1,-1],w:[-1,0]};
 export function setShapeTransform(shape:Shape,width:number,height:number,angleRad:number,initialAngleRad=0):Shape{
  if(![width,height,angleRad,initialAngleRad].every(Number.isFinite)||width<=0||height<=0)throw Error('INVALID_GEOMETRY');
  const frame=transformFrame(shape,initialAngleRad),center=frame.center;
@@ -20,6 +20,7 @@ export function transformFrame(shape:Shape,angleRad=0){
  * fixed, positive scales forbid accidental flips, and every hole/curve follows. */
 export function dragShapeTransform(shape:Shape,handle:TransformHandle,start:Point,current:Point,options:{uniform?:boolean;angleRad?:number}={}){
  const angle=options.angleRad??0,frame=transformFrame(shape,angle),center=frame.center;
+ if(handle==='move')return {shape:mapShapeContour(shape,p=>({xMm:p.xMm+current.xMm-start.xMm,yMm:p.yMm+current.yMm-start.yMm})),width:frame.width,height:frame.height,angleRad:angle};
  if(handle==='rotate'){let delta=Math.atan2(current.yMm-center.yMm,current.xMm-center.xMm)-Math.atan2(start.yMm-center.yMm,start.xMm-center.xMm);if(options.uniform)delta=Math.round(delta/(Math.PI/12))*Math.PI/12;return {shape:mapShapeContour(shape,p=>rotate(p,center,delta)),width:frame.width,height:frame.height,angleRad:angle+delta};}
  const [sx,sy]=signs[handle],a=rotate(start,center,-angle),b=rotate(current,center,-angle),anchor={xMm:center.xMm-sx*frame.width/2,yMm:center.yMm-sy*frame.height/2};
  let scaleX=sx?Math.max(.01,(frame.width+sx*(b.xMm-a.xMm))/Math.max(.01,frame.width)):1,scaleY=sy?Math.max(.01,(frame.height+sy*(b.yMm-a.yMm))/Math.max(.01,frame.height)):1;

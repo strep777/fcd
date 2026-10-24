@@ -1,6 +1,6 @@
 import {build} from 'esbuild';
 import {parse,compileScript} from '@vue/compiler-sfc';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import {mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {resolve,dirname} from 'node:path';
@@ -17,8 +17,8 @@ window.language=ref('zh');window.fpcad={fitSpecies:async(id,revision,targets)=>{
 const app=createApp({render:()=>h(ModelTools,{language:window.language.value})});app.use(pinia);app.provide('advancedMode',ref(false));app.mount('#app');`;
 await build({stdin:{contents:entry,resolveDir:resolve('.'),loader:'ts'},bundle:true,format:'iife',platform:'browser',outfile:resolve(directory,'fixture.js'),plugins:[{name:'production-vue',setup(build){build.onLoad({filter:/\.vue$/},async({path})=>{const {descriptor}=parse(await readFile(path,'utf8'));return {contents:compileScript(descriptor,{id:'model-sizing',inlineTemplate:true}).content+'\nconst style=document.createElement("style");style.textContent='+JSON.stringify(descriptor.styles.map(s=>s.content).join('\n'))+';document.head.append(style);',loader:'ts',resolveDir:dirname(path)};});}}]});
 await writeFile(resolve(directory,'index.html'),'<html><style>body{font:13px sans-serif;margin:0;width:480px}button,input,select{font:inherit}label{display:block}input{border:1px solid #999}button{padding:8px}</style><div id="app"></div><script src="fixture.js"></script></html>');
-await writeFile(resolve(directory,'main.cjs'),`const {app,BrowserWindow}=require('electron');app.setPath('userData',${JSON.stringify(resolve(directory,'profile'))});app.whenReady().then(()=>new BrowserWindow({width:1000,height:680,useContentSize:true,show:false,webPreferences:{contextIsolation:true,backgroundThrottling:false}}).loadFile(${JSON.stringify(resolve(directory,'index.html'))}));app.on('window-all-closed',()=>app.quit());`);
-const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;const app=await electron.launch({args:['--fpcad-background-test',...(process.env.FPCAD_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[]),resolve(directory,'main.cjs')],env}),page=await app.firstWindow(),errors=[],checks=[];page.on('pageerror',e=>errors.push(e.message));
+await writeFile(resolve(directory,'fixture.json'),JSON.stringify({html:resolve(directory,'index.html'),width:1000,height:680}));
+const env={...process.env};const app=await desktop.launch({args:['--fpcad-background-test',...(process.env.FPCAD_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[]),resolve(directory,'fixture.json')],env}),page=await app.firstWindow(),errors=[],checks=[];page.on('pageerror',e=>errors.push(e.message));
 try{
  await hiddenWindowId(app,page);const constraint=page.getByRole('checkbox',{name:'遵循身体尺寸约束',exact:true});await constraint.waitFor();assert(await constraint.isChecked());assert.equal(await page.getByLabel('Model width mm',{exact:true}).count(),0);assert((await page.locator('.model-dimensions').innerText()).includes('整体包围框（含手臂、尾巴与翼）'));
  const targetInputs=page.locator('.body-targets input');for(const value of await targetInputs.evaluateAll(inputs=>inputs.map(input=>input.value)))assert(/^\d+\.\d{2}$/.test(value),'Expected two decimal input, got '+JSON.stringify(value));

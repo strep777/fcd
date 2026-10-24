@@ -3,7 +3,17 @@ import {edgeKey} from './refine';
 
 /** The 5% P95 threshold remains a review warning. Every face still has hard
  * bounds on area, edge stretch and combined distortion. */
-export const designQualityFailure=(report:Pick<SurfaceReport,'distortionMax'|'areaErrorMax'|'edgeErrorMax'>)=>report.distortionMax>.15||report.areaErrorMax>.15||report.edgeErrorMax>.1;
+export const designQualityFailure=(report:Pick<SurfaceReport,'distortionMax'|'areaErrorMax'|'edgeErrorMax'|'seamErrorMax'|'seamLengthErrorMm'>)=>report.distortionMax>.15||report.areaErrorMax>.15||report.edgeErrorMax>.1||(report.seamErrorMax??0)>.0005||(report.seamLengthErrorMm??0)>.25;
+
+/** Sum absolute length errors, so opposite signs cannot conceal a local
+ * mismatch. Each of two sewn panels contributes at most 0.25 mm. */
+export function measureBoundaryStrain(mesh:Surface,report:SurfaceReport,points=new Map(mesh.vertices.map(v=>[v.id,v]))):SurfaceReport{
+ const ids=new Set(report.faceIds),edges=new Map<string,{a:string;b:string;count:number}>(),uv=new Map(report.uv.map(p=>[p.vertexId,p]));
+ for(const f of mesh.faces)if(ids.has(f.id))for(let i=0;i<3;i++){const a=f.vertices[i],b=f.vertices[(i+1)%3],key=edgeKey(a,b),e=edges.get(key)??{a,b,count:0};e.count++;edges.set(key,e);}
+ let seamErrorMax=0,seamLengthErrorMm=0;
+ for(const e of edges.values())if(e.count===1){const a=points.get(e.a)!,b=points.get(e.b)!,p=uv.get(e.a)!,q=uv.get(e.b)!,length=Math.hypot(a.xMm-b.xMm,a.yMm-b.yMm,a.zMm-b.zMm),error=Math.abs(Math.hypot(p.xMm-q.xMm,p.yMm-q.yMm)-length);seamErrorMax=Math.max(seamErrorMax,error/length);seamLengthErrorMm+=error;}
+ return {...report,seamErrorMax,seamLengthErrorMm};
+}
 
 /** Physical face components; region labels here are visible material domains. */
 export function designComponents(faces:Surface['faces']){

@@ -1,13 +1,13 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
-import { _electron as electron } from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
-const directory=await mkdtemp(resolve('.local/tests/session-delete-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
+const directory=await mkdtemp(resolve('.local/tests/session-delete-')),env={...process.env,FPCAD_DATA_DIR:directory};
 let app,page;const errors=[];
-async function launch(){app=await electron.launch({executablePath,args:desktopArgs,env});page=await app.firstWindow();page.on('pageerror',e=>errors.push(String(e)));await page.waitForFunction(()=>!!window.fpcad);}
+async function launch(){app=await desktop.launch({executablePath,args:desktopArgs,env});page=await app.firstWindow();page.on('pageerror',e=>errors.push(String(e)));await page.waitForFunction(()=>!!window.fpcad);}
 const read=()=>page.evaluate(async()=>{const r=await window.fpcad.read();if(!r.ok)throw Error(r.error.code);return r.data;});
 async function remove(id){await page.locator(`[data-delete-session-id="${id}"]`).click();await page.getByRole('button',{name:'永久删除',exact:true}).click();await page.locator(`[data-delete-session-id="${id}"]`).waitFor({state:'detached'});}
 try{

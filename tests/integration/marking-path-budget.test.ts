@@ -16,6 +16,17 @@ it('partitions true sharp detail without losing area or creating a manufacturing
 },30000);
 it('preserves ordinary paths byte for byte',async()=>{const rings:XY[][]=[[[0,0],[100,0],[100,100],[0,100]]];expect(await bounded(rings)).toBe(rings);});
 
+it('partitions projected samples exactly when a side-on face amplifies tiny image-space detail',async()=>{
+ const ring:XY[]=[...Array.from({length:2201},(_,i)=>[i/22,.0005*Math.sin(i*Math.PI/11)] as XY),[100,.01],[0,.01]],before=structuredClone(ring);
+ const result=await boundedMarkingRings([ring],12,jobs=>clip(worker,jobs,12),true);
+ expect(ring).toEqual(before);expect(result.length).toBeGreaterThan(1);expect(result.every(r=>r.length<=2000)).toBe(true);
+ // The surface depth changes 100 mm across 0.01 projected mm. Compare actual
+ // material domains after that affine lift; net area alone could hide lost tips.
+ const lift=(r:XY[])=>r.map(([x,y])=>[x,y*10000] as XY),original=[lift(ring)],mapped=result.map(lift);
+ const differences=await clip(worker,[{subjects:original,subtract:mapped},{subjects:mapped,subtract:original}],9);
+ expect(differences.flat().reduce((sum,r)=>sum+Math.abs(area(r)),0)).toBeLessThan(1e-7);
+});
+
 it('keeps a separate island inside a shallow outer notch after budget compaction',async()=>{
  const outer:XY[]=[...Array.from({length:2500},(_,i)=>[10*i/2500,0] as XY),[10,0],[10,10],[6,10],[6,9.9995],[4,9.9995],[4,10],[0,10]],island:XY[]=[[4.5,9.9996],[5.5,9.9996],[5.5,9.9999],[4.5,9.9999]],stableArea=(r:XY[])=>r.reduce((s,p,i)=>{const q=r[(i+1)%r.length],o=r[0];return s+(p[0]-o[0])*(q[1]-o[1])-(q[0]-o[0])*(p[1]-o[1]);},0)/2;
  for(const [angle,tx,ty] of [[0,0,0],[.35,500000,-400000]]){

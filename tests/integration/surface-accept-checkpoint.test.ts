@@ -31,7 +31,7 @@ it.each(['insert','prune'] as const)('surface acceptance rolls back every persis
   if(failure==='prune')expect(beforeStatus.recovery).toHaveLength(10);
   repo.db.exec(`CREATE TRIGGER fail_accept_recovery BEFORE ${failure==='insert'?'INSERT':'DELETE'} ON recovery BEGIN SELECT RAISE(ABORT,'INJECTED_RECOVERY_${failure.toUpperCase()}'); END;`);
   let checkpoints=0;
-  const accept=()=>repo.commit({type:'unwrap.accept'},requestId,fingerprint,()=>{checkpoints++;repo.checkpointWithinTransaction();});
+  const accept=()=>repo.commit({type:'unwrap.accept'},requestId,fingerprint,checkpoint=>{checkpoints++;checkpoint();});
 
   expect(()=>accept()).toThrow('INJECTED_RECOVERY_'+failure.toUpperCase());
   expect(checkpoints,'the injected failure must occur in the recovery callback after acceptance writes').toBe(1);

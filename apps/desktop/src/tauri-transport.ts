@@ -1,13 +1,39 @@
-import { contextBridge,ipcRenderer } from 'electron';
-import type { DesktopApi,Request,Response } from '../../../packages/schema/index';
+import {invoke} from '@tauri-apps/api/core';
+import {listen} from '@tauri-apps/api/event';
+import {setNativeDialogOpen} from './modules/useDelayedActivity';
+let dialogReady:Promise<unknown>|undefined;
+async function hostInvoke(channel:string,payload:unknown){
+ // Register before sending: a native dialog can open as soon as the host reads it.
+ dialogReady??=listen('fpcad:dialog-state',event=>{
+  const value=event.payload;
+  if(value&&typeof value==='object'&&'open' in value&&typeof value.open==='boolean')setNativeDialogOpen(value.open);
+ }).catch(error=>{dialogReady=undefined;throw error;});
+ try{await dialogReady;return await invoke<any>('desktop_request',{channel,payload});}
+ catch(error){setNativeDialogOpen(false);throw error;}
+}
+function subscribe(channel:string,callback:(value:unknown)=>void){let stopped=false;const pending=listen(channel,event=>{if(!stopped)callback(event.payload);});return ()=>{stopped=true;void pending.then(unlisten=>unlisten()).catch(()=>{});};}
+import type { DesktopApi,Request } from '../../../packages/schema/index';
 import {surfaceProgressSchema} from '../../../packages/schema/index';
-const send=(method:string,payload:unknown,projectId?:string,expectedRevision?:number):Promise<Response>=>ipcRenderer.invoke('fpcad:request',{protocolVersion:1,requestId:crypto.randomUUID(),method,payload,...(projectId?{projectId,expectedRevision}:{})} as Request);
-const api:Omit<DesktopApi,"assistantSettings"|"editLibraryRegion"|"autoPlaceMarkings"|"assistant"|"patternPreview"|"patternOverview"|"autoReference"|"splitAllReferences"|"workflowFile"|"patternBundle"|"patternOutput"|"inferMarking"|"surfaceMarking"|"editSurfaceMarking"|"brushSurfaceMarking"|"textureMarking"|"corner"|"cancelSurface"|"pairNotches"|"exportSurface"|"fitSpecies"|"morphTemplate"|"sculptSurface"|"importPattern"|"editMarkingSource"|"importTemplate"|"exportTemplate"|"fitTemplate"|"maskReference"|"allowance"|"offset"|"cancelJob"|"acceptResult"|"discardResult"|"onChanged"|"onStorageError"|"onSurfaceProgress"|"boolean"|"nest"|"importSurface"|"generateSpecies"|"assembleSpecies"|"generateBody"|"unwrapSurface"|"acceptSurface"|"editMarking"|"projectMarking"|"importReference"|"segmentReference"|"acceptReference">={read:()=>send('session.read',{}),activate:sessionId=>send('session.activate',{sessionId}),deleteSession:sessionId=>send('session.delete',{sessionId}),create:p=>send('project.create',p),open:()=>send('project.open',{}),save:(id,r,saveAs)=>send('project.save',{saveAs},id,r),apply:(id,r,p)=>send('command.apply',p,id,r),undo:(id,r)=>send('command.undo',{},id,r),redo:(id,r)=>send('command.redo',{},id,r),validate:(id,r)=>send('validation.run',{},id,r),export:(id,r,format,warningAckIds,paper,nested)=>send('export.create',{format,warningAckIds,...(paper?{paper}:{}),...(nested?{nested}:{})},id,r),restore:(id,r,revision)=>send('recovery.restore',{revision},id,r)};
-const full:DesktopApi={...api,
- assistantSettings:request=>ipcRenderer.invoke('fpcad:assistant-settings',request),
+import {isCancellableSurfaceRequest} from '../../../packages/schema/cancellable-methods';
+type TextApi={ [K in keyof DesktopApi]:DesktopApi[K] extends (...args:infer A)=>Promise<unknown>?(...args:A)=>Promise<string>:DesktopApi[K] };
+const inFlight=new Map<string,{projectId:string;revision:number}>();
+const send=async(method:string,payload:unknown,projectId?:string,expectedRevision?:number):Promise<string>=>{
+ const requestId=crypto.randomUUID();
+ if(projectId&&expectedRevision!==undefined&&isCancellableSurfaceRequest(method,payload))inFlight.set(requestId,{projectId,revision:expectedRevision});
+ try{
+  const response=await hostInvoke('fpcad:request-text',{protocolVersion:1,requestId,method,payload,...(projectId?{projectId,expectedRevision}:{})} as Request);
+  if(typeof response==='string')return response;
+  if(response instanceof ArrayBuffer)return new TextDecoder().decode(response);
+  throw Error('INVALID_RESPONSE');
+ }
+ finally{inFlight.delete(requestId);}
+};
+const api:Omit<TextApi,"assistantSettings"|"editLibraryRegion"|"autoPlaceMarkings"|"assistant"|"patternPreview"|"patternOverview"|"autoReference"|"splitAllReferences"|"workflowFile"|"patternBundle"|"patternOutput"|"inferMarking"|"surfaceMarking"|"editSurfaceMarking"|"brushSurfaceMarking"|"textureMarking"|"corner"|"cancelSurface"|"pairNotches"|"exportSurface"|"fitSpecies"|"morphTemplate"|"sculptSurface"|"importPattern"|"editMarkingSource"|"importTemplate"|"exportTemplate"|"fitTemplate"|"maskReference"|"allowance"|"offset"|"cancelJob"|"acceptResult"|"discardResult"|"onChanged"|"onStorageError"|"onSurfaceProgress"|"boolean"|"nest"|"importSurface"|"generateSpecies"|"assembleSpecies"|"generateBody"|"unwrapSurface"|"acceptSurface"|"editMarking"|"projectMarking"|"importReference"|"segmentReference"|"acceptReference">={read:()=>send('session.read',{}),activate:sessionId=>send('session.activate',{sessionId}),deleteSession:sessionId=>send('session.delete',{sessionId}),create:p=>send('project.create',p),open:()=>send('project.open',{}),save:(id,r,saveAs)=>send('project.save',{saveAs},id,r),apply:(id,r,p)=>send('command.apply',p,id,r),undo:(id,r)=>send('command.undo',{},id,r),redo:(id,r)=>send('command.redo',{},id,r),validate:(id,r)=>send('validation.run',{},id,r),export:(id,r,format,warningAckIds,paper,nested)=>send('export.create',{format,warningAckIds,...(paper?{paper}:{}),...(nested?{nested}:{})},id,r),restore:(id,r,revision)=>send('recovery.restore',{revision},id,r)};
+const full:TextApi={...api,
+ assistantSettings:async request=>JSON.stringify(await hostInvoke('fpcad:assistant-settings',request)),
  editLibraryRegion:(id,r,pieceId,edit)=>send('library.region.edit',{pieceId,edit},id,r),
  autoPlaceMarkings:(id,r,pieceIds,parts)=>send('marking.auto',{pieceIds,...(parts?{parts}:{})},id,r),
- assistant:action=>ipcRenderer.invoke("fpcad:assistant",action),
+ assistant:async action=>JSON.stringify(await hostInvoke("fpcad:assistant",action)),
  autoReference:(id,r,layout,heightMm,clusters,excludeBackground,mode,subject)=>send('reference.auto',{layout,heightMm,clusters,excludeBackground,...(mode?{mode}:{}),...(subject?{subject}:{})},id,r),
  splitAllReferences:(id,r,heightMm,clusters,excludeBackground,mode,subject,swapViews)=>send('reference.splitAll',{heightMm,clusters,excludeBackground,...(mode?{mode}:{}),...(subject?{subject}:{}),...(swapViews?{swapViews}:{})},id,r),
  workflowFile:(id,r,action)=>send('workflow.file',{action},id,r),
@@ -42,7 +68,7 @@ const full:DesktopApi={...api,
  assembleSpecies:(id,r)=>send('species.assemble',{},id,r),
  generateSpecies:(id,r,parameters)=>send('species.generate',parameters,id,r),
  generateBody:(id,r,parameters)=>send('body.generate',parameters,id,r),
- cancelSurface:(id,r)=>send('surface.cancel',{},id,r),
+ cancelSurface:(id,r)=>send('surface.cancel',{targetRequestIds:[...inFlight].filter(([,task])=>task.projectId===id&&task.revision===r).map(([requestId])=>requestId)},id,r),
  unwrapSurface:(id,r,options={})=>send('surface.unwrap',options,id,r),
  acceptSurface:(id,r,acknowledgeReview)=>send('surface.accept',{acknowledgeReview},id,r),
  nest:(id,r,options)=>send('nesting.run',options,id,r),
@@ -51,12 +77,9 @@ const full:DesktopApi={...api,
  cancelJob:(id,r,jobId)=>send('job.cancel',{jobId},id,r),
  acceptResult:(id,r,jobId,resultHash)=>send('result.accept',{jobId,resultHash},id,r),
  discardResult:(id,r,jobId)=>send('result.discard',{jobId},id,r),
- onChanged:callback=>{const listener=()=>callback();ipcRenderer.on('fpcad:changed',listener);return ()=>ipcRenderer.removeListener('fpcad:changed',listener);},
- onStorageError:callback=>{const listener=()=>callback();ipcRenderer.on('fpcad:storage-error',listener);return ()=>ipcRenderer.removeListener('fpcad:storage-error',listener);},
- onSurfaceProgress:callback=>{const listener=(event:Electron.IpcRendererEvent,value:unknown)=>{if(event.sender!==ipcRenderer)return;const progress=surfaceProgressSchema.safeParse(value);if(progress.success)callback(progress.data);};ipcRenderer.on('fpcad:surface-progress',listener);return ()=>ipcRenderer.removeListener('fpcad:surface-progress',listener);}
+ onChanged:callback=>subscribe('fpcad:changed',()=>callback()),
+ onStorageError:callback=>subscribe('fpcad:storage-error',()=>callback()),
+ onSurfaceProgress:callback=>subscribe('fpcad:surface-progress',value=>{const progress=surfaceProgressSchema.safeParse(value);if(progress.success)callback(progress.data);})
 };
-// Transfer large immutable results as JSON text; callbacks retain their narrow event channels.
-const transport=Object.fromEntries(Object.entries(full).map(([key,fn])=>[key,key==='onChanged'||key==='onStorageError'||key==='onSurfaceProgress'?fn:async(...args:unknown[])=>JSON.stringify(await (fn as (...args:unknown[])=>Promise<Response>)(...args))]));
-contextBridge.exposeInMainWorld('fpcadTransport',transport);
-
-contextBridge.exposeInMainWorld('fpcadLocale',process.argv.includes('--fpcad-background-test')?'zh-CN':navigator.language);
+Object.defineProperty(window,'fpcadTransport',{value:Object.freeze(full)});
+Object.defineProperty(window,'fpcadLocale',{value:(window as any).__fpcadTestLocale??navigator.language});

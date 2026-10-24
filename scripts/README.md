@@ -5,7 +5,8 @@
 | 任务 | 入口 |
 | --- | --- |
 | Rust 编译、测试与工具链选择 | `cargo.mjs`，对应 `build:rust` / `test:rust` |
-| Electron、工作线程和 Vue 构建 | `build.mjs`，对应 `build` |
+| Vue、Node.js 后台与工作线程构建 | `build.mjs`，对应 `build:frontend` |
+| Tauri v2 原生宿主构建 | `tauri.mjs`，`build` 会顺序构建前端和原生宿主 |
 | 启动已构建应用 | `start.mjs`，对应 `start` |
 | 双击构建并启动源码 | 根目录 `启动新版FurryCAD.bat` |
 | Windows 发布包与最新版本指针 | `package.mjs`，对应 `package` |
@@ -19,7 +20,9 @@
 | 文档链接校验 | `check-docs.mjs`，对应 `docs:check` |
 | 本地测试数据与发布目录维护 | `clear-test-data.ps1`、`prune-releases.ps1`；`clear-legacy-builds.ps1` 是发布包清理的兼容入口 |
 
-构建需要真实的 `target/release/fpcad-worker.exe`。打包脚本还需要安装完成的 Electron 运行时；仅执行 `npm ci --ignore-scripts` 不会下载该运行时。
+构建需要真实的 `target/release/fpcad-worker.exe`。构建还需要 Rust、MSVC 与 WebView2。Node.js 24 运行时随资源分发；Tauri CLI 生成 Windows 安装包。
+
+构建前关闭正在运行的 FurryPattern CAD 和桌面测试。`generated-output.mjs` 会在清理前检查 Windows 可执行文件及原生模块是否被占用；检查失败会保留原构建，避免只删除一部分资源。
 
 清理脚本先使用 `-WhatIf` 检查目标。`.local/workspace/`、已有 `.tools/`、回归样本、生产资源和需要保留的发布包具有不同用途，不能统一视为缓存删除。
 

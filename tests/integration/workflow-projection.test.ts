@@ -6,7 +6,8 @@ import {parseObj} from '../../apps/desktop/main/surface';
 import {surfaceMarking} from '../../apps/desktop/main/markings';
 import {fragmentPatternRings} from '../../apps/desktop/main/fragment-mapping';
 import {editSurfaceCuts,cutComponents} from '../../apps/desktop/main/cut-tools';
-import {mirrorPaintShape} from '../../packages/surface/symmetry';
+import {mirrorPaintShape,mirrorSurfacePoint} from '../../packages/surface/symmetry';
+import {surfaceCurveSegments} from '../../packages/surface/surface-curve';
 import {candidateSeamPreview} from '../../packages/surface/candidate-seams';
 import type {Binding,CutProjection,SurfaceRun} from '../../packages/schema/index';
 const worker=resolve('target/release/fpcad-worker.exe'),frame:CutProjection={origin:[0,0,0],axes:[[1,0,0],[0,1,0],[0,0,1]]};
@@ -27,6 +28,19 @@ it('trimmed UV mapping preserves two independent fragments on the same model tri
 });
 it('world-anchored cuts persist as continuous real seams, with mirrored cuts in the other region',async()=>{
  const p=project();p.pieces=[];p.surface=parseObj('v -100 0 0\nv 0 0 0\nv 100 0 0\nv -100 100 0\nv 0 100 0\nv 100 100 0\ng left\nf 1 2 5\nf 1 5 4\ng right\nf 2 3 6\nf 2 6 5');
- const before=structuredClone(p),result=await editSurfaceCuts(worker,p,{type:'surface.curve',name:'Surface path',kind:'freehand',surfaceAnchored:true,controlPoints:[20,50,80].map(yMm=>({id:randomUUID(),xMm:40,yMm,zMm:0})),projection:frame,tension:1,closed:false,symmetric:true,regions:['right']});
- expect(p).toEqual(before);expect(result.surface.cutLines).toHaveLength(2);for(const line of result.surface.cutLines!){expect(line.surfaceAnchored).toBe(true);expect(cutComponents(line.edges)).toHaveLength(1);}
+ const before=structuredClone(p),result=await editSurfaceCuts(worker,p,{type:'surface.curve',name:'Closed surface path',kind:'pen',surfaceAnchored:true,controlPoints:[[40,20],[60,50],[40,80]].map(([xMm,yMm])=>({id:randomUUID(),xMm,yMm,zMm:0})),projection:frame,tension:1,closed:true,symmetric:true,regions:['left','right']});
+ expect(p).toEqual(before);expect(result.surface.cutLines).toHaveLength(2);for(const line of result.surface.cutLines!){expect(line.surfaceAnchored).toBe(true);expect(line.closed).toBe(true);expect(cutComponents(line.edges)).toHaveLength(1);}
+});
+
+it.each([false,true])('a mirrored anchored cut outside selected regions fails exactly as its preview and preserves the saved project (editing: %s)',async editing=>{
+ let p=project();p.pieces=[];p.surface=parseObj('v -100 0 0\nv 0 0 0\nv 100 0 0\nv -100 100 0\nv 0 100 0\nv 100 100 0\ng left\nf 1 2 5\nf 1 5 4\ng right\nf 2 3 6\nf 2 6 5');
+ const controlPoints=[[40,20],[60,50],[40,80]].map(([xMm,yMm])=>({id:randomUUID(),xMm,yMm,zMm:0})),base={type:'surface.curve' as const,name:'Restricted anchored pen',kind:'pen' as const,surfaceAnchored:true,controlPoints,projection:frame,tension:.5,closed:true,symmetric:false,regions:['right']};
+ if(editing)p={...p,...await editSurfaceCuts(worker,p,base)};
+ const before=structuredClone(p),mirrorPoints=controlPoints.map(point=>mirrorSurfacePoint(p.surface!,point));
+ expect(surfaceCurveSegments(p.surface!,controlPoints,true,'preview',base.regions).length).toBeGreaterThan(0);
+ expect(()=>surfaceCurveSegments(p.surface!,mirrorPoints,true,'mirror-preview',base.regions)).toThrow('CUT_OUTSIDE_SURFACE');
+ // The opposite side is real geometry; only the selected region excludes it.
+ expect(surfaceCurveSegments(p.surface!,mirrorPoints,true,'unrestricted-mirror-preview',['left','right']).length).toBeGreaterThan(0);
+ await expect(editSurfaceCuts(worker,p,{...base,...(editing?{id:p.surface!.cutLines![0].id}:{}),symmetric:true})).rejects.toThrow('CUT_OUTSIDE_SURFACE');
+ expect(p).toEqual(before);
 });

@@ -1665,6 +1665,29 @@
                       "parameters": {
                         "type": "object",
                         "properties": {
+                          "bodyMode": {
+                            "type": "string",
+                            "enum": [
+                              "dtd",
+                              "padded",
+                              "costume"
+                            ]
+                          },
+                          "hipPaddingMm": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          },
+                          "thighPaddingMm": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          },
+                          "calfPaddingMm": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          },
                           "species": {
                             "type": "string",
                             "enum": [
@@ -2070,7 +2093,8 @@
                     "type": "string",
                     "enum": [
                       "lscm-cg-1",
-                      "lscm-arap-1"
+                      "lscm-arap-1",
+                      "lscm-arap-seamed-1"
                     ]
                   },
                   "cutPreview": {
@@ -2875,6 +2899,14 @@
                         "report": {
                           "type": "object",
                           "properties": {
+                            "seamErrorMax": {
+                              "type": "number",
+                              "minimum": 0
+                            },
+                            "seamLengthErrorMm": {
+                              "type": "number",
+                              "minimum": 0
+                            },
                             "boundaryToleranceMm": {
                               "type": "number",
                               "minimum": 0,
@@ -3293,6 +3325,9 @@
                     "surfaceShape": {
                       "type": "object",
                       "properties": {
+                        "wrap": {
+                          "type": "boolean"
+                        },
                         "anchorFaceId": {
                           "type": "string",
                           "format": "uuid",
@@ -5616,6 +5651,29 @@
                       "parameters": {
                         "type": "object",
                         "properties": {
+                          "bodyMode": {
+                            "type": "string",
+                            "enum": [
+                              "dtd",
+                              "padded",
+                              "costume"
+                            ]
+                          },
+                          "hipPaddingMm": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          },
+                          "thighPaddingMm": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          },
+                          "calfPaddingMm": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          },
                           "species": {
                             "type": "string",
                             "enum": [
@@ -6509,6 +6567,14 @@
                     "report": {
                       "type": "object",
                       "properties": {
+                        "seamErrorMax": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "seamLengthErrorMm": {
+                          "type": "number",
+                          "minimum": 0
+                        },
                         "boundaryToleranceMm": {
                           "type": "number",
                           "minimum": 0,
@@ -6914,6 +6980,9 @@
                     "surfaceShape": {
                       "type": "object",
                       "properties": {
+                        "wrap": {
+                          "type": "boolean"
+                        },
                         "anchorFaceId": {
                           "type": "string",
                           "format": "uuid",
@@ -7754,6 +7823,9 @@
               "surfaceShape": {
                 "type": "object",
                 "properties": {
+                  "wrap": {
+                    "type": "boolean"
+                  },
                   "anchorFaceId": {
                     "type": "string",
                     "format": "uuid",
@@ -9857,6 +9929,29 @@
                 "parameters": {
                   "type": "object",
                   "properties": {
+                    "bodyMode": {
+                      "type": "string",
+                      "enum": [
+                        "dtd",
+                        "padded",
+                        "costume"
+                      ]
+                    },
+                    "hipPaddingMm": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 200
+                    },
+                    "thighPaddingMm": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 200
+                    },
+                    "calfPaddingMm": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 200
+                    },
                     "species": {
                       "type": "string",
                       "enum": [
@@ -10262,7 +10357,8 @@
               "type": "string",
               "enum": [
                 "lscm-cg-1",
-                "lscm-arap-1"
+                "lscm-arap-1",
+                "lscm-arap-seamed-1"
               ]
             },
             "cutPreview": {
@@ -11067,6 +11163,14 @@
                   "report": {
                     "type": "object",
                     "properties": {
+                      "seamErrorMax": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "seamLengthErrorMm": {
+                        "type": "number",
+                        "minimum": 0
+                      },
                       "boundaryToleranceMm": {
                         "type": "number",
                         "minimum": 0,
@@ -11487,6 +11591,14 @@
               "report": {
                 "type": "object",
                 "properties": {
+                  "seamErrorMax": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "seamLengthErrorMm": {
+                    "type": "number",
+                    "minimum": 0
+                  },
                   "boundaryToleranceMm": {
                     "type": "number",
                     "minimum": 0,
@@ -13661,6 +13773,9 @@
               "surfaceShape": {
                 "type": "object",
                 "properties": {
+                  "wrap": {
+                    "type": "boolean"
+                  },
                   "anchorFaceId": {
                     "type": "string",
                     "format": "uuid",

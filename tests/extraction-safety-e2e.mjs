@@ -1,17 +1,18 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {chooseProject} from './ui-navigation.mjs';
 import {referenceTools,pickReference} from './reference-controls.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
+import upng from '@pdf-lib/upng';
 import {desktopArgs,executablePath} from './desktop-launch.mjs';
-const directory=await mkdtemp(resolve('.local/tests/extraction-safety-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];
+const directory=await mkdtemp(resolve('.local/tests/extraction-safety-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];
 page.on('pageerror',error=>errors.push(error.message));
 async function verifySourceGeometry(project,label){
- const root=await app.evaluate(({app})=>app.getAppPath()),worker=resolve(root,'dist/bin',process.platform==='win32'?'fpcad-worker.exe':'fpcad-worker'),regions=project.patternLibrary,geometry=[];
+ const root=await app.evaluate(({host})=>host.getAppPath()),worker=resolve(root,'dist/bin',process.platform==='win32'?'fpcad-worker.exe':'fpcad-worker'),regions=project.patternLibrary,geometry=[];
  assert(regions.length>0&&regions.every(r=>r.piece.closed&&r.piece.nodes.length>=3),label+': every source must be a closed editable contour');
  assert.deepEqual(new Set(regions.map(r=>r.view)),new Set(['front','back']),label+': both original views must retain their sources');
  for(let start=0;start<regions.length;start+=20){const pieces=regions.slice(start,start+20).map(r=>r.piece),result=spawnSync(worker,[],{windowsHide:true,input:JSON.stringify({protocolVersion:1,pieces}),encoding:'utf8',timeout:10000,maxBuffer:8*1024*1024});assert.equal(result.status,0,label+': native worker '+(result.error?.message??result.stderr));const parsed=JSON.parse(result.stdout);assert(parsed.ok,label+': '+JSON.stringify(parsed));assert.deepEqual(parsed.geometry.map(g=>g.id),pieces.map(p=>p.id));geometry.push(...parsed.geometry);}
@@ -38,13 +39,20 @@ try{
  checks.push({name:'advanced real-image sources have native-valid geometry, calibrated image coordinates and independent cropped views',...advancedMetrics});
  await page.reload();await chooseProject(page);await page.locator('.region-card').first().waitFor();assert.equal(await page.locator('.mode-switch').count(),0);
  assert.equal(await page.locator('.region-card path').first().getAttribute('vector-effect'),'non-scaling-stroke');
- const height=page.getByRole('spinbutton',{name:'参考高度 mm'});await height.fill('0');
- for(const name of ['上传双视图并自动拆分','按当前标定重新拆分'])assert(await page.getByRole('button',{name,exact:true}).isDisabled());
+ for(const label of ['双视图布局','参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0);
+ // A valid 2 px wide image cannot contain two accepted view crops. Exercise
+ // rejection through the real picker/button, instead of a removed parameter.
+ const codec=upng.default??upng,narrowImage=resolve(directory,'too-narrow-dual.png');await writeFile(narrowImage,Buffer.from(codec.encode([new Uint8Array(2*2*4).fill(255).buffer],2,2,0)));
+ await app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});},narrowImage);
+ await page.getByRole('button',{name:'上传双视图并自动拆分',exact:true}).click();
+ const inputFailure=page.locator('.error-banner');await inputFailure.waitFor();assert.match(await inputFailure.innerText(),/参考图限|IMAGE_LIMIT/);
+ await page.waitForFunction(()=>!document.querySelector('.auto-reference button.primary')?.disabled);
+ for(const name of ['上传双视图并自动拆分','按当前标定重新拆分'])assert(await page.getByRole('button',{name,exact:true}).isEnabled());
  assert.equal(await page.getByRole('button',{name:'交换正面 / 背面并重新拆分',exact:true}).count(),0);
  assert(await page.getByRole('alert').isVisible());
  assert.deepEqual((await page.evaluate(()=>window.fpcad.read())).data.project,advanced);
- await height.fill('1800');await page.locator('[aria-label="搜索花纹"]').fill('不存在的花纹');assert(await page.locator('.library-groups [role=status]').isVisible());await page.locator('[aria-label="搜索花纹"]').fill('');
- checks.push({name:'mode restoration, stable outline strokes, invalid-input blocking and search empty state'});
+ await inputFailure.getByRole('button',{name:'×',exact:true}).click();await page.locator('[aria-label="搜索花纹"]').fill('不存在的花纹');assert(await page.locator('.library-groups [role=status]').isVisible());await page.locator('[aria-label="搜索花纹"]').fill('');
+ checks.push({name:'fixed extraction defaults, stable outline strokes, actual narrow-image rejection without mutation, retry availability and search empty state'});
  await desktopScreenshot(app,page,{path:'test-results/flat-advanced.png'});
  r=await page.evaluate(async()=>{const s=await window.fpcad.read();return window.fpcad.splitAllReferences(s.data.project.id,s.data.project.revision,1800,6,true,'simple','character');});assert(r.ok,JSON.stringify(r));
  assert(r.data.project.patternLibrary.length<=120);const simpleMetrics=await verifySourceGeometry(r.data.project,'simple');

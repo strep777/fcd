@@ -1,0 +1,22 @@
+[package]
+name = "furrypattern-cad-desktop"
+version = "0.8.0"
+edition = "2021"
+rust-version = "1.90"
+
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+serde_json = { version = "1", features = ["float_roundtrip"] }
+tokio = { version = "1", features = ["sync"] }
+rfd = "0.15"
+dunce = "1"
+
+[[bin]]
+name = "FurryPatternCAD"
+path = "src/main.rs"

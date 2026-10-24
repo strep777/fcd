@@ -1,15 +1,15 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
-const directory=await mkdtemp(resolve('.local/tests/provider-ui-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
+const directory=await mkdtemp(resolve('.local/tests/provider-ui-')),env={...process.env,FPCAD_DATA_DIR:directory};
 const calls=[],server=createServer((req,res)=>{calls.push(req.url);res.setHeader('Content-Type','application/json');res.end(JSON.stringify(req.url==='/api/tags'?{models:[{name:'local-test:latest'}]}:{error:'wrong API'}));});
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),errors=[],checks=[];page.on('pageerror',e=>errors.push(e.message));
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),errors=[],checks=[];page.on('pageerror',e=>errors.push(e.message));
 try{
- assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().some(w=>w.isVisible())),false);
+ assert.equal(await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows().some(w=>w.isVisible())),false);
  await page.getByRole('button',{name:'AI 助手',exact:true}).click();await page.locator('.provider-card').first().waitFor();
  const card=page.locator('.provider-card').first();await card.locator('select').selectOption('ollama');
  assert.equal(await card.locator('input[type=url]').inputValue(),'http://127.0.0.1:11434');

@@ -1,7 +1,14 @@
 import {locale,localize} from '../localization';
 const sources:Record<string,[string,string]>={obj:['OBJ 模型','OBJ model'],glb:['GLB 模型','GLB model'],'species-template-1':['内置物种模型','Built-in species model'],'torso-loft-1':['参数躯干','Parametric torso'],'custom-template-1':['自定义模板','Custom template'],'sculpt-1':['雕刻模型','Sculpted model']};
 const species:Record<string,string>={canine:'犬科',feline:'猫科',rabbit:'兔',bear:'熊',deer:'鹿',dragon:'龙'};
-export function modelRecordName(name:string,surface:{template?:{id:string;parameters:{species:string;legType:string}}},zh:boolean){const template=surface.template;if(locale.value==='ja'&&template&&name===template.id)return localize(template.parameters.species)+' · '+localize(template.parameters.legType==='digitigrade'?'Digitigrade':'Plantigrade');return zh&&template&&name===template.id?(species[template.parameters.species]??template.parameters.species)+' · '+(template.parameters.legType==='digitigrade'?'趾行腿':'植行腿'):name;}
+export function modelRecordName(name:string,surface:{template?:{id:string;parameters:{species:string;legType:string;bodyMode?:'dtd'|'padded'|'costume'}}},zh:boolean){
+ const template=surface.template;if(!template||name!==template.id)return name;
+ const mode=template.parameters.bodyMode;
+ if(mode==='dtd')return zh?'DTD 人体基体':localize('DTD wearer base');
+ if(mode==='padded')return zh?'一体填充外形':localize('Integrated padded body');
+ const label=locale.value==='ja'?localize(template.parameters.species)+' · '+localize(template.parameters.legType==='digitigrade'?'Digitigrade':'Plantigrade'):zh?(species[template.parameters.species]??template.parameters.species)+' · '+(template.parameters.legType==='digitigrade'?'趾行腿':'植行腿'):name;
+ return mode==='costume'?(zh?'兽装外形':localize('Costume exterior'))+' · '+label:label;
+}
 const measurements:Record<string,string>={height:'头耳至足底身高',neckGirth:'颈围',chestGirth:'胸围',waistGirth:'腰围',hipGirth:'臀围',headWidth:'头宽',headHeight:'头部高度',tailCenterlineLength:'尾中心线长',upperArmGirth:'上臂围',forearmGirth:'前臂围',thighGirth:'大腿围',shinGirth:'小腿围'};
 const parts:Record<string,string>={torso:'躯干',body:'身体',head:'头部',neck:'颈部',snout:'口鼻',ear:'耳朵',arm:'手臂',hand:'手掌',leg:'腿',foot:'足',tail:'尾巴',wing:'翼',horn:'角',claw:'爪',paw:'手足',palm:'手掌','palm-pad':'掌垫',hoof:'蹄',finger:'手指',toe:'足趾','hand-claw':'手爪','foot-claw':'足爪'};
 function sided(name:string,labels:Record<string,string>){const match=name.match(/^(.*)-(left|right)$/),base=match?.[1]??name;return (match?(match[2]==='left'?'左':'右'):'')+(labels[base]??base);}

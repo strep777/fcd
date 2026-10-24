@@ -1,14 +1,14 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {fitReferenceView} from './reference-controls.mjs';
 import {waitForState} from './wait-state.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {desktopArgs,executablePath} from './desktop-launch.mjs';
 import {penPoint} from './pen-helpers.mjs';
-const dir=await mkdtemp(resolve('.local/tests/workspace-interactions-')),env={...process.env,FPCAD_DATA_DIR:dir};delete env.ELECTRON_RUN_AS_NODE;
-let app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow();const errors=[],checks=[];
+const dir=await mkdtemp(resolve('.local/tests/workspace-interactions-')),env={...process.env,FPCAD_DATA_DIR:dir};
+let app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow();const errors=[],checks=[];
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok);return r.data;};
 const openHome=async()=>{await page.locator('.project-picker .project-card').filter({hasText:'交互验收'}).click();await page.waitForSelector('.image-tools');};
 try{
@@ -23,7 +23,7 @@ try{
  const before=(await read()).project;
  for(const [x,y] of [[200,220],[300,220],[300,320],[200,320]]){const p=await penPoint(page,x,y);await page.mouse.click(p.x,p.y);}await page.getByRole('button',{name:'闭合路径',exact:true}).click();assert.equal(await page.locator('.pen-node').count(),4);
  assert.equal((await read()).project.revision,before.revision);
- await page.locator('.image-tools').getByRole('button',{name:'选择花纹 / 节点',exact:true}).click();const a=await penPoint(page,200,220),b=await page.locator('.mask-view').evaluate(svg=>{const p=new DOMPoint(190,210).matrixTransform(svg.getScreenCTM());return {x:p.x,y:p.y};});await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:6});await page.mouse.up();assert(Math.abs(Number(await page.locator('.pen-node').first().getAttribute('cx'))-190)<1);
+ await page.locator('.image-tools').getByRole('button',{name:'选择花纹',exact:true}).click();const a=await penPoint(page,200,220),b=await page.locator('.mask-view').evaluate(svg=>{const p=new DOMPoint(190,210).matrixTransform(svg.getScreenCTM());return {x:p.x,y:p.y};});await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:6});await page.mouse.up();assert(Math.abs(Number(await page.locator('.pen-node').first().getAttribute('cx'))-190)<1);
  await page.getByRole('button',{name:'确认选区并加入花纹库',exact:true}).click();await waitForState(page,async()=>!!(await window.fpcad.read()).data.project.referenceRun?.accepted);const run=(await read()).project.referenceRun;const source=before.references.find(r=>r.id===run.referenceId);assert.equal(source.sheet.x,0);assert.equal(run.mask.width,source.width);checks.push('original sheet coordinates and editable nodes; explicit compute');
  assert(run.accepted);assert.equal((await read()).project.revision,before.revision+1);assert.equal(await page.locator('.pen-node').count(),0);await page.locator('.workspace-heading strong').click();await fitReferenceView(page);await page.locator('.image-tools').getByRole('button',{name:'两点标定',exact:true}).click();
  for(const [x,y] of [[950,200],[950,400]]){const q=await penPoint(page,x,y);await page.mouse.click(q.x,q.y);}
@@ -36,6 +36,6 @@ try{
  await page.getByRole('button',{name:'全选花纹',exact:true}).click();await page.getByRole('button',{name:/删除所选/}).click();await page.getByRole('button',{name:'确认删除',exact:true}).click();await waitForState(page,async()=>!(await window.fpcad.read()).data.project.patternLibrary.length);await page.locator('.project-toolbar').getByRole('button',{name:/撤销/}).click();await waitForState(page,async n=>(await window.fpcad.read()).data.project.patternLibrary.length===n,total);checks.push('quick delete, select all, atomic batch delete and undo');
  assert.equal(await page.locator('.cross-view-completion').count(),0);await page.getByLabel('界面模式',{exact:true}).selectOption('true');assert.equal(await page.locator('.cross-view-completion').count(),1);checks.push('simple and advanced mode');
  await desktopScreenshot(app,page,{path:'test-results/workspace-interactions.png'});assert.deepEqual(errors,[]);
- await app.close();app=await electron.launch({executablePath,args:desktopArgs,env});page=await app.firstWindow();await page.waitForSelector('.project-picker');assert.equal(await page.locator('.workspace').count(),0);assert.equal((await read()).project.patternLibrary.length,total);checks.push('restart shows project chooser and preserves work');
+ await app.close();app=await desktop.launch({executablePath,args:desktopArgs,env});page=await app.firstWindow();await page.waitForSelector('.project-picker');assert.equal(await page.locator('.workspace').count(),0);assert.equal((await read()).project.patternLibrary.length,total);checks.push('restart shows project chooser and preserves work');
  await writeFile('test-results/workspace-interactions.json',JSON.stringify({passed:true,checks,errors},null,2));console.log(JSON.stringify({passed:true,checks}));
 }catch(e){await desktopScreenshot(app,page,{path:'test-results/workspace-interactions-failure.png'}).catch(()=>{});await writeFile('test-results/workspace-interactions.json',JSON.stringify({passed:false,error:String(e),checks,errors},null,2));throw e;}finally{await app.close();}

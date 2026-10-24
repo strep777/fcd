@@ -19,7 +19,11 @@ it('atomically rejects resize when a bound cut is also the paint source',async()
 it('resized independent paint produces valid new colored cuts with scaled hole area',async()=>{
  const worker=resolve('target/release/fpcad-worker.exe'),p=project();p.pieces=[];p.surface=parseObj('v 0 0 0\nv 100 0 0\nv 100 100 0\nv 0 100 0\nf 1 2 3\nf 1 3 4');
  const source=rectangle(60,40);source.holes=[[[20,10],[20,30],[40,30],[40,10]].map(([xMm,yMm])=>({id:randomUUID(),xMm,yMm}))];
- const shape=sourceSurfaceShape(source,{xMm:50,yMm:50,zMm:0},{origin:[0,0,0],axes:[[1,0,0],[0,1,0],[0,0,1]]});expect(Object.keys(shape).slice(0,2)).toEqual(['nodes','holes']);p.markings=[await surfaceMarking(worker,p,shape,source.color,source.name)];expect(staleMarkingIds(p).size).toBe(0);
+ const shape=sourceSurfaceShape(source,{xMm:50,yMm:50,zMm:0},{origin:[0,0,0],axes:[[1,0,0],[0,1,0],[0,0,1]]});
+ expect(shape.nodes).toEqual([{xMm:-30,yMm:-20},{xMm:30,yMm:-20},{xMm:30,yMm:20},{xMm:-30,yMm:20}]);
+ expect(shape.holes).toEqual([[{xMm:-10,yMm:-10},{xMm:-10,yMm:10},{xMm:10,yMm:10},{xMm:10,yMm:-10}]]);
+ expect(shape.wrap).toBe(true);expect(shape.origin).toEqual([50,50,0]);expect(shape.axes).toEqual([[1,0,0],[0,1,0],[0,0,1]]);
+ p.markings=[await surfaceMarking(worker,p,shape,source.color,source.name)];expect(staleMarkingIds(p).size).toBe(0);
  const repo=new Repository(':memory:');repo.open(p,null);repo.commit({type:'surface.resize',scale:2},randomUUID(),'resize');const resized=repo.snapshot()!;
  const candidate=await cutPreview(worker,resized.surface!,resized,{method:'lscm',automaticCuts:true,colorBoundaryCuts:true},resolve('dist/assets'));
  repo.commit({type:'unwrap.candidate',run:candidate.run,markings:candidate.markings},randomUUID(),'candidate');repo.commit({type:'unwrap.accept'},randomUUID(),'accept');const accepted=repo.snapshot()!;

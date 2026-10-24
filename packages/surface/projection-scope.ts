@@ -1,6 +1,7 @@
 import type {Surface} from '../schema/index';
 import {shapePoint,type Shape} from './attached-edit';
 import {sampleShapeContour} from './shape-contour';
+import {decalChart} from './decal-chart';
 
 /** A decal belongs to the connected front-facing sheet under its drop point.
  * The footprint bounds stop a second limb being reached via a distant shoulder,
@@ -9,11 +10,12 @@ export function projectionFaces(surface:Surface,shape:Shape,restrictFootprint=tr
  if(!shape.anchorFaceId)return shape.regions?new Set(surface.faces.filter(f=>shape.regions!.includes(f.region)).map(f=>f.id)):undefined;
  const points=sampleShapeContour(shape),xs=points.map(p=>p.xMm),ys=points.map(p=>p.yMm);
  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys),pad=Math.max(1e-5,Math.hypot(maxX-minX,maxY-minY)*.01);
- const vertices=new Map(surface.vertices.map(v=>[v.id,shapePoint(shape,v)]));
+ const chart=decalChart(surface,shape),vertices=chart??new Map(surface.vertices.map(v=>[v.id,shapePoint(shape,v)]));
  const eligible=new Set<string>();
  const faces=surface.faces.filter(f=>{
   if(shape.regions&&!shape.regions.includes(f.region))return false;
   const [a,b,c]=f.vertices.map(id=>vertices.get(id)!);
+  if(!a||!b||!c)return false;
   if((b.xMm-a.xMm)*(c.yMm-a.yMm)-(b.yMm-a.yMm)*(c.xMm-a.xMm)<=1e-9)return false;
   if(!restrictFootprint||Math.max(a.xMm,b.xMm,c.xMm)>=minX-pad&&Math.min(a.xMm,b.xMm,c.xMm)<=maxX+pad&&Math.max(a.yMm,b.yMm,c.yMm)>=minY-pad&&Math.min(a.yMm,b.yMm,c.yMm)<=maxY+pad)eligible.add(f.id);
   return true;

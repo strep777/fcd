@@ -613,6 +613,9 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "wrap": {
+                            "type": "boolean"
+                          },
                           "anchorFaceId": {
                             "type": "string",
                             "format": "uuid",
@@ -3383,6 +3386,9 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "wrap": {
+                            "type": "boolean"
+                          },
                           "anchorFaceId": {
                             "type": "string",
                             "format": "uuid",
@@ -5063,6 +5069,29 @@
                               "parameters": {
                                 "type": "object",
                                 "properties": {
+                                  "bodyMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "dtd",
+                                      "padded",
+                                      "costume"
+                                    ]
+                                  },
+                                  "hipPaddingMm": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 200
+                                  },
+                                  "thighPaddingMm": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 200
+                                  },
+                                  "calfPaddingMm": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 200
+                                  },
                                   "species": {
                                     "type": "string",
                                     "enum": [
@@ -5956,6 +5985,14 @@
                             "report": {
                               "type": "object",
                               "properties": {
+                                "seamErrorMax": {
+                                  "type": "number",
+                                  "minimum": 0
+                                },
+                                "seamLengthErrorMm": {
+                                  "type": "number",
+                                  "minimum": 0
+                                },
                                 "boundaryToleranceMm": {
                                   "type": "number",
                                   "minimum": 0,
@@ -6361,6 +6398,9 @@
                             "surfaceShape": {
                               "type": "object",
                               "properties": {
+                                "wrap": {
+                                  "type": "boolean"
+                                },
                                 "anchorFaceId": {
                                   "type": "string",
                                   "format": "uuid",
@@ -7360,6 +7400,33 @@
               "properties": {
                 "type": {
                   "type": "string",
+                  "const": "patterns.allowance"
+                },
+                "widthMm": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000
+                },
+                "join": {
+                  "type": "string",
+                  "enum": [
+                    "miter",
+                    "round",
+                    "bevel"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "widthMm"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
                   "const": "marking.put"
                 },
                 "marking": {
@@ -7584,6 +7651,9 @@
                     "surfaceShape": {
                       "type": "object",
                       "properties": {
+                        "wrap": {
+                          "type": "boolean"
+                        },
                         "anchorFaceId": {
                           "type": "string",
                           "format": "uuid",
@@ -8642,6 +8712,9 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "wrap": {
+                            "type": "boolean"
+                          },
                           "anchorFaceId": {
                             "type": "string",
                             "format": "uuid",
@@ -10322,6 +10395,29 @@
                               "parameters": {
                                 "type": "object",
                                 "properties": {
+                                  "bodyMode": {
+                                    "type": "string",
+                                    "enum": [
+                                      "dtd",
+                                      "padded",
+                                      "costume"
+                                    ]
+                                  },
+                                  "hipPaddingMm": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 200
+                                  },
+                                  "thighPaddingMm": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 200
+                                  },
+                                  "calfPaddingMm": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 200
+                                  },
                                   "species": {
                                     "type": "string",
                                     "enum": [
@@ -11215,6 +11311,14 @@
                             "report": {
                               "type": "object",
                               "properties": {
+                                "seamErrorMax": {
+                                  "type": "number",
+                                  "minimum": 0
+                                },
+                                "seamLengthErrorMm": {
+                                  "type": "number",
+                                  "minimum": 0
+                                },
                                 "boundaryToleranceMm": {
                                   "type": "number",
                                   "minimum": 0,
@@ -11620,6 +11724,9 @@
                             "surfaceShape": {
                               "type": "object",
                               "properties": {
+                                "wrap": {
+                                  "type": "boolean"
+                                },
                                 "anchorFaceId": {
                                   "type": "string",
                                   "format": "uuid",
@@ -15175,6 +15282,29 @@
                         "parameters": {
                           "type": "object",
                           "properties": {
+                            "bodyMode": {
+                              "type": "string",
+                              "enum": [
+                                "dtd",
+                                "padded",
+                                "costume"
+                              ]
+                            },
+                            "hipPaddingMm": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 200
+                            },
+                            "thighPaddingMm": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 200
+                            },
+                            "calfPaddingMm": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 200
+                            },
                             "species": {
                               "type": "string",
                               "enum": [
@@ -17257,6 +17387,29 @@
                         "parameters": {
                           "type": "object",
                           "properties": {
+                            "bodyMode": {
+                              "type": "string",
+                              "enum": [
+                                "dtd",
+                                "padded",
+                                "costume"
+                              ]
+                            },
+                            "hipPaddingMm": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 200
+                            },
+                            "thighPaddingMm": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 200
+                            },
+                            "calfPaddingMm": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 200
+                            },
                             "species": {
                               "type": "string",
                               "enum": [
@@ -17772,6 +17925,9 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "wrap": {
+                            "type": "boolean"
+                          },
                           "anchorFaceId": {
                             "type": "string",
                             "format": "uuid",
@@ -18349,7 +18505,8 @@
                       "type": "string",
                       "enum": [
                         "lscm-cg-1",
-                        "lscm-arap-1"
+                        "lscm-arap-1",
+                        "lscm-arap-seamed-1"
                       ]
                     },
                     "cutPreview": {
@@ -19154,6 +19311,14 @@
                           "report": {
                             "type": "object",
                             "properties": {
+                              "seamErrorMax": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "seamLengthErrorMm": {
+                                "type": "number",
+                                "minimum": 0
+                              },
                               "boundaryToleranceMm": {
                                 "type": "number",
                                 "minimum": 0,
@@ -19572,6 +19737,9 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "wrap": {
+                            "type": "boolean"
+                          },
                           "anchorFaceId": {
                             "type": "string",
                             "format": "uuid",
@@ -21834,6 +22002,14 @@
                       "report": {
                         "type": "object",
                         "properties": {
+                          "seamErrorMax": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "seamLengthErrorMm": {
+                            "type": "number",
+                            "minimum": 0
+                          },
                           "boundaryToleranceMm": {
                             "type": "number",
                             "minimum": 0,
@@ -22239,6 +22415,9 @@
                       "surfaceShape": {
                         "type": "object",
                         "properties": {
+                          "wrap": {
+                            "type": "boolean"
+                          },
                           "anchorFaceId": {
                             "type": "string",
                             "format": "uuid",
@@ -24571,6 +24750,9 @@
             "shape": {
               "type": "object",
               "properties": {
+                "wrap": {
+                  "type": "boolean"
+                },
                 "anchorFaceId": {
                   "type": "string",
                   "format": "uuid",
@@ -24920,6 +25102,9 @@
                 "shape": {
                   "type": "object",
                   "properties": {
+                    "wrap": {
+                      "type": "boolean"
+                    },
                     "anchorFaceId": {
                       "type": "string",
                       "format": "uuid",
@@ -25333,6 +25518,9 @@
             "shape": {
               "type": "object",
               "properties": {
+                "wrap": {
+                  "type": "boolean"
+                },
                 "anchorFaceId": {
                   "type": "string",
                   "format": "uuid",
@@ -26062,6 +26250,29 @@
         "payload": {
           "type": "object",
           "properties": {
+            "bodyMode": {
+              "type": "string",
+              "enum": [
+                "dtd",
+                "padded",
+                "costume"
+              ]
+            },
+            "hipPaddingMm": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 200
+            },
+            "thighPaddingMm": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 200
+            },
+            "calfPaddingMm": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 200
+            },
             "species": {
               "type": "string",
               "enum": [
@@ -26826,7 +27037,17 @@
         },
         "payload": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "targetRequestIds": {
+              "maxItems": 1024,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            }
+          },
           "additionalProperties": false
         }
       },

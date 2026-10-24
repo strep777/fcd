@@ -6,7 +6,7 @@ import {resolve,dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 // Render the actual inspector components with persisted legacy records. This
-// checks their visible UI without requiring an Electron window or app build.
+// checks their visible UI without requiring an WebView2 window or app build.
 await mkdir('.local/tests',{recursive:true});
 await mkdir('test-results',{recursive:true});
 const directory=resolve(await mkdtemp('.local/tests/surface-inspector-'));

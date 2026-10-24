@@ -47,10 +47,14 @@ await check('cutting paint draws real colored material through paint IPC and nev
   await f.click(f.byLabel('Select'));await f.pointEvent('onClick',40,40);assert.equal(f.props.mode,'cutting');assert.equal(f.emits.filter(e=>e.event==='marking').length,0,'clicking painted material in cutting must not trigger mapping navigation');
  }finally{f.app.unmount();}
 });
-await check('freehand seam defaults to a clean path; editable compact knots appear only on explicit request',async()=>{
+await check('surface pen creates an editable closed cut and node visibility remains an explicit control',async()=>{
  const f=await mount(fixtureProject(),{mode:'cutting',controls:false});try{
-  await f.click(f.button('Front'));await f.click(f.byLabel('Freehand cut line'));await f.pointEvent('onPointerdown',20,25);for(let i=1;i<=40;i++)await f.pointEvent('onPointermove',20+i*1.5,25+i*.6);assert.equal(capture().handles.length,0);await f.pointEvent('onPointerup',80,49);assert.equal(capture().handles.length,0,'completed seam must not display a row of default node markers');assert(capture().draft.length>=2);
-  const label=walk(f.root).find(n=>n.tag==='label'&&n.textContent==='Edit control nodes');assert(label);label.children.find(n=>n.tag==='input').attrs['onUpdate:modelValue'](true);await flush();assert.equal(capture().handles.length,2,'explicit editing still exposes the reduced physical anchors');assert(!f.button('Save cut line').attrs.disabled);
+  await f.click(f.button('Front'));await f.click(f.byLabel('Surface pen'));
+  for(const [x,y]of [[20,25],[70,25],[70,70],[20,70]])await f.pointEvent('onClick',x,y);
+  assert.equal(capture().handles.length,4,'each clicked pen anchor remains independently editable');assert(capture().cuts.filter(segment=>segment.key.startsWith('pen-draft-')).length>=4,'the closed path must have an actual surface preview');assert(capture().cuts.every(segment=>segment.nodes===false),'surface cut segments do not add tessellation endpoint dots');
+  const label=walk(f.root).find(n=>n.tag==='label'&&n.textContent==='Edit control nodes');assert(label);const visibility=label.children.find(n=>n.tag==='input');visibility.attrs['onUpdate:modelValue'](false);await flush();assert.equal(capture().handles.length,0,'hiding control nodes keeps the cut preview clean');assert(capture().cuts.filter(segment=>segment.key.startsWith('pen-draft-')).length>=4,'hiding knots must preserve the closed cut preview');
+  visibility.attrs['onUpdate:modelValue'](true);await flush();assert.equal(capture().handles.length,4);assert(!f.button('Save cut line').attrs.disabled);
+  await f.click(f.button('Save cut line'));assert.equal(f.calls.length,1);assert.equal(f.calls[0][2].type,'surface.curve');assert.equal(f.calls[0][2].kind,'pen');assert.equal(f.calls[0][2].closed,true);assert.equal(f.calls[0][2].controlPoints.length,4);
  }finally{f.app.unmount();}
 });
 await check('saved multi-segment seams are rendered without mesh endpoint dots or editable handles',async()=>{
@@ -85,7 +89,7 @@ await check('cutting paint keeps its chosen color across continued strokes and s
 await check('drawing-part options explain their scope and cancelling or changing models clears the pending cut state',async()=>{
  const f=await mount(fixtureProject(),{mode:'cutting',controls:false});try{
   assert(walk(f.root).some(n=>n.tag==='small'&&n.textContent==='Limits hand-drawn cut lines only; automatic cutting scope is unchanged.'));
-  await f.click(f.byLabel('Freehand cut line'));assert.equal(f.emits.findLast(e=>e.event==='cutDraftActive').value,true);await f.click(f.button('Cancel path edits'));assert.equal(f.emits.findLast(e=>e.event==='cutDraftActive').value,false);
+  await f.click(f.byLabel('Surface pen'));assert.equal(f.emits.findLast(e=>e.event==='cutDraftActive').value,true);await f.click(f.button('Cancel path edits'));assert.equal(f.emits.findLast(e=>e.event==='cutDraftActive').value,false);
   await f.click(f.byLabel('Surface pen'));await f.pointEvent('onClick',20,20);assert.equal(f.emits.findLast(e=>e.event==='cutDraftActive').value,true);
   const next=JSON.parse(JSON.stringify(f.store.data.project));next.surface.id=id('replacement-surface');f.store.data={...f.store.data,project:next};await flush();assert.equal(f.emits.findLast(e=>e.event==='cutDraftActive').value,false);assert.equal(capture().draft.length,0);
   await f.click(f.byLabel('Surface pen'));assert.equal(f.emits.findLast(e=>e.event==='cutDraftActive').value,true);f.props.mode='mapping';await flush();assert.equal(f.emits.findLast(e=>e.event==='cutDraftActive').value,false);
@@ -97,10 +101,15 @@ await check('pending cut drafts block both the compute control and its handler u
   f.props.cutDraftActive=false;await flush();assert.equal(f.button('Compute & preview cut lines').attrs.disabled,false);await f.click(f.button('Compute & preview cut lines'));assert.equal(calls.length,1);
  }finally{f.app.unmount();}
 });
-await check('numeric saved-path edits retain actual-surface anchors instead of silently switching to projected cuts',async()=>{
+await check('legacy saved-path repair uses the surface pen and retains actual-surface anchors until the closed cut is saved',async()=>{
  const p=fixtureProject(),line={id:id('anchored-saved-path'),name:'Anchored saved path',kind:'pen',enabled:true,closed:false,symmetric:false,surfaceAnchored:true,tension:.5,regions:['lower-part','upper-part'],controlPoints:p.surface.vertices.slice(0,3),projection:{origin:[50,50,0],axes:[[1,0,0],[0,1,0],[0,0,1]]},edges:[]};p.surface.cutLines=[line];
- const f=await mount(p,{component:'cuttools',controls:false});try{
-  const choose=walk(f.root).find(n=>n.tag==='button'&&n.attrs.class==='select-cut');assert(choose);await f.click(choose);await f.click(f.button('Apply path edits'));assert.equal(f.calls.length,1);const command=f.calls[0][2];assert.equal(command.type,'surface.curve');assert.equal(command.id,line.id);assert.equal(command.surfaceAnchored,true);assert.deepEqual(command.projection,line.projection);assert.deepEqual(command.controlPoints,line.controlPoints);
+ const list=await mount(p,{component:'cuttools',controls:false});let request;
+ try{
+  const choose=walk(list.root).find(n=>n.tag==='button'&&n.attrs.class==='select-cut');assert(choose);await list.click(choose);await list.click(list.button('Repair closure with pen'));request=list.emits.findLast(e=>e.event==='draw')?.value;assert.deepEqual(request,{kind:'pen',lineId:line.id});assert.equal(list.calls.length,0,'opening the pen must not mutate or commit the old open path');assert.deepEqual(list.store.data.project.surface.cutLines,[line]);
+ }finally{list.app.unmount();}
+ const f=await mount(p,{mode:'cutting',controls:false});try{
+  f.props.cutRequest={...request,nonce:1};await flush();assert(f.button('Save cut line').attrs.disabled,'the old open path cannot save until closure is confirmed');await f.click(f.button('Close path'));assert(!f.button('Save cut line').attrs.disabled);await f.click(f.button('Save cut line'));
+  assert.equal(f.calls.length,1);const command=f.calls[0][2];assert.equal(command.type,'surface.curve');assert.equal(command.id,line.id);assert.equal(command.surfaceAnchored,true);assert.equal(command.closed,true);assert.deepEqual(command.projection,line.projection);assert.deepEqual(command.controlPoints,line.controlPoints);
  }finally{f.app.unmount();}
 });
-await mkdir(output,{recursive:true});const passed=checks.every(c=>c.passed);await writeFile(output+'/current-brush-component.json',JSON.stringify({passed,verification:'Production Vue handlers; custom GPU/DOM/IPC host, no Electron or screenshot verification',checks},null,2));console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;
+await mkdir(output,{recursive:true});const passed=checks.every(c=>c.passed);await writeFile(output+'/current-brush-component.json',JSON.stringify({passed,verification:'Production Vue handlers; custom GPU/DOM/IPC host, no WebView2 or screenshot verification',checks},null,2));console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;

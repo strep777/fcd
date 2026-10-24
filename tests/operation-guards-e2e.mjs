@@ -1,16 +1,16 @@
 import {chooseProject} from './ui-navigation.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,readFile,writeFile,readdir} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {desktopArgs,executablePath} from './desktop-launch.mjs';
-const directory=await mkdtemp(resolve('.local/tests/operation-guards-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];
+const directory=await mkdtemp(resolve('.local/tests/operation-guards-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];
 page.on('pageerror',e=>errors.push(e.message));
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data;};
 const identity=s=>({project:s.project,history:s.history,recovery:s.recovery,recent:s.recent,savedRevision:s.savedRevision,canUndo:s.canUndo,canRedo:s.canRedo});
-const invoke=async(method,payload,scope=true,overrides={})=>{const p=(await read()).project,handle=await app.browserWindow(page);let windowId;try{windowId=await handle.evaluate(w=>{if(w.isVisible())throw Error('Guard tests must keep their window hidden');return w.id;});}finally{await handle.dispose();}return app.evaluate(async({ipcMain,BrowserWindow},{windowId,request})=>{const window=BrowserWindow.fromId(windowId);if(!window||window.isVisible())throw Error('Expected hidden test window');return ipcMain._invokeHandlers.get('fpcad:request')({sender:window.webContents,senderFrame:window.webContents.mainFrame},request);},{windowId,request:{protocolVersion:1,requestId:randomUUID(),method,payload,...(scope?{projectId:p.id,expectedRevision:p.revision}:{}),...overrides}});};
+const invoke=async(method,payload,scope=true,overrides={})=>{const p=(await read()).project;return app.request({protocolVersion:1,requestId:randomUUID(),method,payload,...(scope?{projectId:p.id,expectedRevision:p.revision}:{}),...overrides});};
 const reject=async(label,action,expected,allowCheckpoint=false)=>{const before=identity(await read()),r=await action();assert(!r.ok,label+': '+JSON.stringify(r));if(expected)assert(expected.includes(r.error.code),label+': '+r.error.code);const after=identity(await read());if(allowCheckpoint){delete before.recovery;delete after.recovery;}assert.deepEqual(after,before,label+' changed state after rejection');checks.push({label,code:r.error.code});};
 const chooseOpen=async path=>app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},path);
 try{
@@ -22,7 +22,12 @@ try{
  await reject('missing workflow node',()=>invoke('command.apply',{type:'workflow.node',node:{key:'piece:'+randomUUID(),title:'不存在的节点',notes:'',completed:true}}),['ENTITY_MISSING']);
  const missing=randomUUID(),missingCommands=[{type:'piece.delete',pieceId:missing},{type:'model.activate',modelId:missing},{type:'model.delete',modelId:missing},{type:'model.rename',modelId:missing,name:'名称'},{type:'library.region.delete',pieceId:missing},{type:'material.delete',materialId:missing},{type:'marking.delete',markingId:missing},{type:'marking.lock',markingId:missing,locked:true},{type:'marking.review',markingId:missing,reviewed:true},{type:'reference.delete',referenceId:missing},{type:'seam.delete',seamId:missing}];
  for(const command of missingCommands)await reject('missing entity / '+command.type,()=>invoke('command.apply',command),['ENTITY_MISSING']);
+ // Native choices precede resource reads. Select actual isolated destinations
+ // so these cases reach the missing-resource guards rather than cancel early.
+ const missingOutputs={glb:join(directory,'unavailable-model.glb'),fpctemplate:join(directory,'unavailable-template.fpctemplate')};
+ await app.evaluate(({dialog},paths)=>{dialog.showSaveDialog=async(_window,options)=>{const path=paths[options.filters?.[0]?.extensions?.[0]];return path?{canceled:false,filePath:path}:{canceled:true};};},missingOutputs);
  for(const [method,payload,codes] of [['surface.unwrap',{},['SURFACE_MISSING']],['surface.accept',{acknowledgeReview:true},['JOB_NOT_SUCCEEDED']],['reference.accept',{},['STALE_RESULT']],['surface.export',{},['SURFACE_MISSING']],['template.export',{},['TEMPLATE_MISSING']],['seam.notches',{seamId:missing,count:3,depthMm:3},['STALE_SEAM','ENTITY_MISSING']],['recovery.restore',{revision:999},['RECOVERY_INVALID']],['result.accept',{jobId:missing,resultHash:'0'.repeat(64)},['JOB_MISSING']],['job.cancel',{jobId:missing},['JOB_MISSING']],['patterns.preview',{pieceIds:[missing],paper:{widthMm:210,heightMm:297,marginMm:10,overlapMm:10},warningAckIds:[]},['ENTITY_MISSING']]])await reject('out of order / '+method,()=>invoke(method,payload),codes);
+ for(const path of Object.values(missingOutputs))await assert.rejects(readFile(path),{code:'ENOENT'});
  const seeded=await page.evaluate(async()=>{const r=await window.fpcad.read(),piece={id:crypto.randomUUID(),name:'校验片',nodes:[[0,0],[100,0],[100,200],[0,200]].map(([xMm,yMm])=>({id:crypto.randomUUID(),xMm,yMm})),closed:true,allowanceMm:10,cutQty:1,mirror:false,material:'布料',furRad:Math.PI/2,color:'#73c9b6'};return window.fpcad.apply(r.data.project.id,r.data.project.revision,{type:'piece.put',piece});});assert(seeded.ok);const piece=seeded.data.project.pieces[0];
  for(const [field,value] of [['allowanceMm',-1],['cutQty',1.5],['furRad',Infinity],['name','   '],['color','#wrong']])await reject('invalid piece '+field,()=>invoke('command.apply',{type:'piece.put',piece:{...piece,[field]:value}}),['VALIDATION_ERROR']);
  await reject('duplicate contour identity',()=>invoke('command.apply',{type:'piece.put',piece:{...piece,nodes:piece.nodes.map((n,i)=>i===1?{...n,id:piece.nodes[0].id}:n)}}),['VALIDATION_ERROR']);

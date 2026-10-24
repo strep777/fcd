@@ -1,14 +1,14 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {waitForState} from './wait-state.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {executablePath,desktopArgs,testedBuild} from './desktop-launch.mjs';
 import {workflow,openDetails} from './ui-navigation.mjs';
 await mkdir('.local/tests',{recursive:true});await mkdir('test-results/audit',{recursive:true});
-const directory=await mkdtemp(resolve('.local/tests/audit-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow();
+const directory=await mkdtemp(resolve('.local/tests/audit-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow();
 page.setDefaultTimeout(5000);
 const errors=[],results=[];page.on('pageerror',e=>errors.push(e.message));
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data;};
@@ -75,16 +75,25 @@ try{
   await page.reload();await workflow(page,'workflow');await page.getByRole('tab',{name:'接缝',exact:true}).click();assert.match(await page.locator('.seam-row').innerText(),/失效|Stale/);assert(!await page.locator('.seam-row').getByRole('button',{name:'生成配对剪口',exact:true}).isEnabled());
  });
  await check('drafts-survive-background-refresh',async()=>{
-  await seed();await openDetails(page,'缝份');const join=page.locator('.property-group select').first(),width=page.locator('.property-group label').filter({hasText:/^缝份/}).locator('input');await join.selectOption('bevel');await width.fill('23');
+  await seed();await page.getByLabel('界面模式',{exact:true}).selectOption('true');await openDetails(page,'拼接间距');const spacing=page.locator('.pattern-spacing'),join=spacing.locator('label').filter({hasText:'拼接间距连接方式'}).locator('select'),width=spacing.getByLabel('拼接间距大小 mm',{exact:true});assert.equal(await join.count(),1);await join.selectOption('bevel');await width.fill('23');
   await openDetails(page,'节点与三次 Bézier');const handle=page.locator('.advanced-tools label').filter({hasText:'C1 Y'}).locator('input');await handle.fill('-27');
   await page.evaluate(async()=>{const r=await window.fpcad.read(),p=r.data.project;return window.fpcad.offset(p.id,p.revision,p.pieces[0].id,10,'miter');});
   await page.locator('.activity-toggle').click();await page.locator('.activity-panel .tabs button').nth(1).click();await page.getByRole('button',{name:'采用结果',exact:true}).waitFor();
   assert.equal(await join.inputValue(),'bevel');assert.equal(await width.inputValue(),'23');assert.equal(await handle.inputValue(),'-27');
  });
  await check('reference-calibration-undo',async()=>{
-  await seed();const png=await app.evaluate(({nativeImage})=>nativeImage.createFromBitmap(Buffer.alloc(20*20*4,255),{width:20,height:20}).toPNG().toString('base64')),path=resolve(directory,'calibration.png');await writeFile(path,Buffer.from(png,'base64'));
+  await seed();const png=await app.evaluate(({rasterImage})=>rasterImage.createFromBitmap(Buffer.alloc(20*20*4,255),{width:20,height:20}).toPNG().toString('base64')),path=resolve(directory,'calibration.png');await writeFile(path,Buffer.from(png,'base64'));
   await app.evaluate(({dialog},path)=>dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]}),path);await workflow(page,'references');await page.getByRole('button',{name:'导入单张原图',exact:true}).click();await page.locator('.image-tools').getByRole('button',{name:'两点标定',exact:true}).click();
-  const field=page.getByLabel('标定真实距离',{exact:true});await field.fill('2000');await page.getByRole('button',{name:'保存标定',exact:true}).click();await page.getByRole('button',{name:'↶ 撤销',exact:true}).click();assert.equal(await field.inputValue(),'1800');
+  const field=page.getByLabel('标定真实距离',{exact:true}),before=(await read()).project,referenceId=before.references[0].id;
+  const publishedRevision=revision=>page.waitForFunction(revision=>new RegExp(`\\bR${revision}\\b`).test(document.querySelector('.app-shell>footer')?.textContent??''),revision,{timeout:5000});
+  await field.fill('2000');await page.getByRole('button',{name:'保存标定',exact:true}).click();
+  await waitForState(page,async({projectId,referenceId,revision})=>{const r=await window.fpcad.read();return r.ok&&r.data.project.id===projectId&&r.data.project.revision===revision&&r.data.project.references.find(ref=>ref.id===referenceId)?.calibration?.distanceMm===2000;},{projectId:before.id,referenceId,revision:before.revision+1},{timeout:5000});
+  await publishedRevision(before.revision+1);assert.equal(await field.inputValue(),'2000');
+  await page.getByRole('button',{name:'↶ 撤销',exact:true}).click();
+  await waitForState(page,async({projectId,referenceId,revision})=>{const r=await window.fpcad.read();return r.ok&&r.data.project.id===projectId&&r.data.project.revision===revision&&!r.data.project.references.find(ref=>ref.id===referenceId)?.calibration;},{projectId:before.id,referenceId,revision:before.revision+2},{timeout:5000});
+  // Wait for the committed revision to render, never for the desired input
+  // value: a stale calibration draft at the published revision must still fail.
+  await publishedRevision(before.revision+2);assert.equal(await field.inputValue(),'1800');
  });
  await check('pen-button-and-open-path-guards',async()=>{
   await page.locator('.image-tools').getByRole('button',{name:'钢笔选区',exact:true}).click();const svg=page.locator('.mask-view');await svg.scrollIntoViewIfNeeded();const box=await svg.boundingBox(),before=await svg.locator('.pen-node').count();assert(box);

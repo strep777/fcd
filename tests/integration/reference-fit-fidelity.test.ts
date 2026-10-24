@@ -5,9 +5,8 @@ import type {Reference} from '../../packages/schema/index';
 import {segmentReference} from '../../apps/desktop/main/references';
 import {contourBoundaryError,safeContour} from '../../packages/reference/contour-topology';
 
-// The original PNG path does not use Electron's decoder. Keep this test on
+// The original PNG path does not use desktop host's decoder. Keep this test on
 // the same public service invoked by the advanced colour-selection UI.
-vi.mock('electron',()=>({nativeImage:{}}));
 async function reference(scale:number,shape:'diamond'|'ellipse'|'ring'='diamond',size=150){
  const width=size,height=size,rgba=Buffer.alloc(width*height*4,255);
  for(let y=0;y<height;y++)for(let x=0;x<width;x++){

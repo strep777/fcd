@@ -1,15 +1,15 @@
 import {desktopScreenshot} from './desktop-screenshot.mjs';
 import {fitReferenceView} from './reference-controls.mjs';
 import {waitForState} from './wait-state.mjs';
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {desktopArgs,executablePath} from './desktop-launch.mjs';
 import UPNG from '@pdf-lib/upng';
 import {penPoint} from './pen-helpers.mjs';
-const dir=await mkdtemp(resolve('.local/tests/reference-workflow-')),env={...process.env,FPCAD_DATA_DIR:dir};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];
+const dir=await mkdtemp(resolve('.local/tests/reference-workflow-')),env={...process.env,FPCAD_DATA_DIR:dir};
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok);return r.data.project;};
 try{
  await page.setViewportSize({width:1500,height:1000});page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>!!window.fpcad);

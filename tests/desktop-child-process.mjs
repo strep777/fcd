@@ -3,8 +3,8 @@ import {syncBuiltinESMExports} from 'node:module';
 import {promisify} from 'node:util';
 
 // Imported by the desktop test runner before Playwright. In particular, its
-// Windows Electron launcher uses a shell child whose console must stay hidden.
-// Keep Electron arguments, environment, sandbox and original test budgets intact.
+// Windows WebView2 launcher uses a shell child whose console must stay hidden.
+// Keep WebView2 arguments, environment, sandbox and original test budgets intact.
 export function hideChildProcessWindows(target, platform = process.platform) {
   if (platform !== 'win32') return;
   for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync']) {

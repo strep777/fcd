@@ -13,4 +13,4 @@ for(const rect of [{x:0,y:0,width:720,height:540},{x:137,y:58,width:1020,height:
   await f.click(f.button('Confirm marking edit'));assert.equal(calls.length,1);assert.deepEqual(calls[0].slice(0,3),[id('project'),1,id('scoped-marking')]);assert.equal(calls[0][3].anchorFaceId,id('lower'));assert.deepEqual(calls[0][3].regions,['lower-part']);assert.notDeepEqual(calls[0][3].nodes,nodes);assert.deepEqual(calls[0][3].origin,shape.origin);checks.push({case:`${rect.width}x${rect.height}: off-centre node grab and real edit IPC preserve anchorFaceId/regions`,passed:true});
  }finally{f.app.unmount();}
 }
-await writeFile('test-results/surface-scope-component.json',JSON.stringify({passed:true,verification:'Actual SurfacePanel SFC, pointer callbacks and edit IPC contract; custom DOM/GPU host, not Electron pixels',checks},null,2));console.log(JSON.stringify({passed:true,checks}));
+await writeFile('test-results/surface-scope-component.json',JSON.stringify({passed:true,verification:'Actual SurfacePanel SFC, pointer callbacks and edit IPC contract; custom DOM/GPU host, not WebView2 pixels',checks},null,2));console.log(JSON.stringify({passed:true,checks}));

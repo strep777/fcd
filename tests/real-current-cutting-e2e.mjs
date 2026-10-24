@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import {DatabaseSync,backup} from 'node:sqlite';
 import {mkdtemp,writeFile,readFile,stat,realpath} from 'node:fs/promises';
 import {resolve,sep} from 'node:path';
@@ -14,7 +14,7 @@ const directory=await mkdtemp(resolve('.local/tests/real-current-cutting-')),sou
 try{await backup(source,resolve(directory,'workspace.sqlite'));}finally{source.close();}
 const db=new DatabaseSync(resolve(directory,'workspace.sqlite')),resource=value=>typeof value==='string'&&value.startsWith('sqlite-resource:')?JSON.parse(db.prepare('SELECT json FROM resources WHERE digest=?').get(value.slice(16)).json):value;
 const target=db.prepare('SELECT id,state FROM sessions ORDER BY rowid DESC').all().map(row=>({id:row.id,project:JSON.parse(row.state)})).find(row=>resource(row.project.surface)?.faces?.length===(resumeDirectory?8802:8534));assert(target,'The real project with its expected original or refined surface is required');const sourceCount=target.project.patternLibrary?.length??0,markingCount=target.project.markings?.length??0;assert(sourceCount>0&&markingCount>0,'The latest project must contain its real source library and attached paint');db.prepare("INSERT OR REPLACE INTO settings VALUES('active',?)").run(target.id);db.close();
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(30000);
+const env={...process.env,FPCAD_DATA_DIR:directory};const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(30000);
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data.project;};
 const state=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok);return r.data;};
 const controls=()=>page.locator('.surface-controls'),drawingTools=()=>page.locator('#cutting-drawing-tools'),tools=()=>page.locator('.surface-cut-panel'),draft=()=>page.locator('.curve-cut-draft');

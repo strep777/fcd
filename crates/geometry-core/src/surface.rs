@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Vertex {
     pub id: String,
@@ -8,13 +8,13 @@ pub struct Vertex {
     pub y_mm: f64,
     pub z_mm: f64,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, PartialEq)]
 pub struct Face {
     pub id: String,
     pub vertices: [String; 3],
     pub region: String,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Mesh {
     #[serde(default)]
     pub repair_cuts: bool,
@@ -22,6 +22,8 @@ pub struct Mesh {
     pub method: String,
     #[serde(default)]
     pub iterations: Option<usize>,
+    #[serde(default)]
+    pub initial_uv: Option<Vec<Uv>>,
     pub vertices: Vec<Vertex>,
     pub faces: Vec<Face>,
 }
@@ -36,6 +38,10 @@ pub struct Patch {
     pub boundary: Vec<String>,
     pub area_error_max: f64,
     pub edge_error_max: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seam_error_max: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seam_length_error_mm: Option<f64>,
     pub distortion_mean: f64,
     pub distortion_p95: f64,
     pub distortion_max: f64,
@@ -50,7 +56,7 @@ pub struct FaceDistortion {
     pub angle_error: f64,
     pub distortion: f64,
 }
-#[derive(Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Uv {
     pub vertex_id: String,
@@ -150,13 +156,41 @@ fn has_overlap(faces: &[[usize; 3]], uv: &[[f64; 2]]) -> Result<bool, &'static s
     }
     Ok(false)
 }
+type ConformalInitialization = (Vec<[f64; 2]>, Vec<f64>);
+
+/// Only the immutable conformal initialization is reused. ARAP and all final
+/// overlap/distortion checks still run for the requested method and iterations.
+/// The cache belongs to one native session and holds at most one input mesh.
+#[derive(Default)]
+pub struct UnwrapCache {
+    mesh: Option<(Vec<Vertex>, Vec<Face>)>,
+    charts: BTreeMap<Vec<usize>, ConformalInitialization>,
+    coordinates: usize,
+}
+
 pub fn unwrap_mesh(mesh: &Mesh) -> Result<Vec<Patch>, &'static str> {
+    unwrap_mesh_cached(mesh, &mut UnwrapCache::default())
+}
+
+pub fn unwrap_mesh_cached(
+    mesh: &Mesh,
+    cache: &mut UnwrapCache,
+) -> Result<Vec<Patch>, &'static str> {
     if mesh.vertices.len() < 3
         || mesh.vertices.len() > 200_000
         || mesh.faces.is_empty()
         || mesh.faces.len() > 50_000
     {
         return Err("MESH_LIMIT");
+    }
+    if !cache
+        .mesh
+        .as_ref()
+        .is_some_and(|(vertices, faces)| vertices == &mesh.vertices && faces == &mesh.faces)
+    {
+        cache.mesh = Some((mesh.vertices.clone(), mesh.faces.clone()));
+        cache.charts.clear();
+        cache.coordinates = 0;
     }
     let mut ids = BTreeMap::new();
     for (i, v) in mesh.vertices.iter().enumerate() {
@@ -232,7 +266,7 @@ pub fn unwrap_mesh(mesh: &Mesh) -> Result<Vec<Patch>, &'static str> {
             }
         }
         group.sort_unstable();
-        parameterize_with_cuts(mesh, &faces, &adjacency, &group, &mut patches)?;
+        parameterize_with_cuts(mesh, &faces, &adjacency, &group, &mut patches, cache)?;
         if patches.len() > 500 {
             return Err("MESH_LIMIT");
         }
@@ -247,11 +281,12 @@ fn parameterize_with_cuts(
     adjacency: &[Vec<usize>],
     group: &[usize],
     patches: &mut Vec<Patch>,
+    cache: &mut UnwrapCache,
 ) -> Result<(), &'static str> {
     if patches.len() >= 500 {
         return Err("MESH_LIMIT");
     }
-    match parameterize(mesh, faces, group) {
+    match parameterize(mesh, faces, group, cache) {
         Ok(patch) => {
             patches.push(patch);
             Ok(())
@@ -299,7 +334,7 @@ fn parameterize_with_cuts(
                         }
                     }
                     component.sort_unstable();
-                    parameterize_with_cuts(mesh, faces, adjacency, &component, patches)?;
+                    parameterize_with_cuts(mesh, faces, adjacency, &component, patches, cache)?;
                 }
             }
             Ok(())
@@ -455,7 +490,12 @@ fn convex_disk_start(
     Ok(uv)
 }
 
-fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Patch, &'static str> {
+fn parameterize(
+    mesh: &Mesh,
+    faces: &[[usize; 3]],
+    group: &[usize],
+    cache: &mut UnwrapCache,
+) -> Result<Patch, &'static str> {
     if group.len() > 50_000 {
         return Err("PATCH_LIMIT");
     }
@@ -501,146 +541,199 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
     if !pinned_length.is_finite() || pinned_length <= 0. {
         return Err("NUMERICAL_FAILURE");
     }
-    let fixed = BTreeMap::from([
-        (locals[&first] * 2, 0.),
-        (locals[&first] * 2 + 1, 0.),
-        // Solve in unit UV coordinates; the measured edge fit below restores mm.
-        (locals[&second] * 2, 1.),
-        (locals[&second] * 2 + 1, 0.),
-    ]);
-    let n = globals.len() * 2;
-    let mut free_index = vec![None; n];
-    let mut count = 0;
-    for (i, item) in free_index.iter_mut().enumerate() {
-        if !fixed.contains_key(&i) {
-            *item = Some(count);
-            count += 1;
+    let (mut uv, area3) = if let Some(initial) = cache.charts.get(group) {
+        initial.clone()
+    } else {
+        let fixed = BTreeMap::from([
+            (locals[&first] * 2, 0.),
+            (locals[&first] * 2 + 1, 0.),
+            // Solve in unit UV coordinates; the measured edge fit below restores mm.
+            (locals[&second] * 2, 1.),
+            (locals[&second] * 2 + 1, 0.),
+        ]);
+        let n = globals.len() * 2;
+        let mut free_index = vec![None; n];
+        let mut count = 0;
+        for (i, item) in free_index.iter_mut().enumerate() {
+            if !fixed.contains_key(&i) {
+                *item = Some(count);
+                count += 1;
+            }
         }
-    }
-    let mut rows: Vec<(Vec<(usize, f64)>, f64)> = vec![];
-    let mut area3 = vec![];
-    for &i in group {
-        let [a, b, c] = faces[i];
-        let e1 = sub(&mesh.vertices[b], &mesh.vertices[a]);
-        let e2 = sub(&mesh.vertices[c], &mesh.vertices[a]);
-        let l = length(e1);
-        let x = dot(e1, e2) / l;
-        let h = length(cross(e1, e2)) / l;
-        let area = l * h / 2.;
-        area3.push(area);
-        let w = area.sqrt();
-        let gx = [-1. / l, 1. / l, 0.];
-        let gy = [(x - l) / (l * h), -x / (l * h), 1. / h];
-        let indices = [locals[&a], locals[&b], locals[&c]];
-        for imaginary in [false, true] {
-            let mut coefficients = vec![];
-            let mut rhs = 0.;
-            for j in 0..3 {
-                let terms = if imaginary {
-                    [(indices[j] * 2, gy[j] * w), (indices[j] * 2 + 1, gx[j] * w)]
-                } else {
-                    [
-                        (indices[j] * 2, gx[j] * w),
-                        (indices[j] * 2 + 1, -gy[j] * w),
-                    ]
-                };
-                for (index, value) in terms {
-                    if let Some(&v) = fixed.get(&index) {
-                        rhs -= value * v;
+        let mut rows: Vec<(Vec<(usize, f64)>, f64)> = vec![];
+        let mut area3 = vec![];
+        for &i in group {
+            let [a, b, c] = faces[i];
+            let e1 = sub(&mesh.vertices[b], &mesh.vertices[a]);
+            let e2 = sub(&mesh.vertices[c], &mesh.vertices[a]);
+            let l = length(e1);
+            let x = dot(e1, e2) / l;
+            let h = length(cross(e1, e2)) / l;
+            let area = l * h / 2.;
+            area3.push(area);
+            let w = area.sqrt();
+            let gx = [-1. / l, 1. / l, 0.];
+            let gy = [(x - l) / (l * h), -x / (l * h), 1. / h];
+            let indices = [locals[&a], locals[&b], locals[&c]];
+            for imaginary in [false, true] {
+                let mut coefficients = vec![];
+                let mut rhs = 0.;
+                for j in 0..3 {
+                    let terms = if imaginary {
+                        [(indices[j] * 2, gy[j] * w), (indices[j] * 2 + 1, gx[j] * w)]
                     } else {
-                        coefficients.push((free_index[index].unwrap(), value));
+                        [
+                            (indices[j] * 2, gx[j] * w),
+                            (indices[j] * 2 + 1, -gy[j] * w),
+                        ]
+                    };
+                    for (index, value) in terms {
+                        if let Some(&v) = fixed.get(&index) {
+                            rhs -= value * v;
+                        } else {
+                            coefficients.push((free_index[index].unwrap(), value));
+                        }
                     }
                 }
+                rows.push((coefficients, rhs));
             }
-            rows.push((coefficients, rhs));
         }
-    }
-    let mut rhs = vec![0.; count];
-    let mut diagonal = vec![0.; count];
-    for (row, b) in &rows {
-        for &(i, c) in row {
-            rhs[i] += c * b;
-            diagonal[i] += c * c;
+        let mut rhs = vec![0.; count];
+        let mut diagonal = vec![0.; count];
+        for (row, b) in &rows {
+            for &(i, c) in row {
+                rhs[i] += c * b;
+                diagonal[i] += c * c;
+            }
         }
-    }
-    if diagonal.iter().any(|&d| d < 1e-14) {
-        return Err("NUMERICAL_FAILURE");
-    }
-    let mut stiffness = vec![BTreeMap::<usize, f64>::new(); count];
-    for (row, _) in &rows {
-        for &(i, a) in row {
-            for &(j, b) in row { *stiffness[i].entry(j).or_default() += a * b; }
-        }
-    }
-    let stiffness: Vec<Vec<(usize, f64)>> = stiffness.into_iter().map(|r| r.into_iter().collect()).collect();
-    let multiply = |x: &[f64]| stiffness.iter().map(|row| row.iter().map(|&(j, a)| a * x[j]).sum()).collect::<Vec<f64>>();
-    let inner = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a, b)| a * b).sum::<f64>();
-    let mut solution = crate::sparse::Factor::new(&stiffness).map(|f| f.solve(&rhs)).filter(|x| x.iter().all(|v| v.is_finite())).unwrap_or_else(|| vec![0.; count]);
-    let mut r: Vec<f64> = rhs.iter().zip(multiply(&solution)).map(|(b, a)| b - a).collect();
-    let mut z: Vec<_> = r.iter().zip(&diagonal).map(|(r, d)| r / d).collect();
-    let mut direction = z.clone();
-    let mut rz = inner(&r, &z);
-    let initial = inner(&rhs, &rhs).sqrt();
-    let mut converged = inner(&r, &r).sqrt() <= 1e-9 * initial.max(1.);
-    for _ in 0..3000 {
-        if converged {
-            break;
-        }
-        let ad = multiply(&direction);
-        let denom = inner(&direction, &ad);
-        if denom <= 1e-25 {
+        if diagonal.iter().any(|&d| d < 1e-14) {
             return Err("NUMERICAL_FAILURE");
         }
-        let alpha = rz / denom;
-        for i in 0..count {
-            solution[i] += alpha * direction[i];
-            r[i] -= alpha * ad[i];
+        let mut stiffness = vec![BTreeMap::<usize, f64>::new(); count];
+        for (row, _) in &rows {
+            for &(i, a) in row {
+                for &(j, b) in row {
+                    *stiffness[i].entry(j).or_default() += a * b;
+                }
+            }
         }
-        if inner(&r, &r).sqrt() <= 1e-9 * initial.max(1.) {
-            converged = true;
-            break;
+        let stiffness: Vec<Vec<(usize, f64)>> = stiffness
+            .into_iter()
+            .map(|r| r.into_iter().collect())
+            .collect();
+        let multiply = |x: &[f64]| {
+            stiffness
+                .iter()
+                .map(|row| row.iter().map(|&(j, a)| a * x[j]).sum())
+                .collect::<Vec<f64>>()
+        };
+        let inner = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a, b)| a * b).sum::<f64>();
+        let mut solution = crate::sparse::Factor::new(&stiffness)
+            .map(|f| f.solve(&rhs))
+            .filter(|x| x.iter().all(|v| v.is_finite()))
+            .unwrap_or_else(|| vec![0.; count]);
+        let mut r: Vec<f64> = rhs
+            .iter()
+            .zip(multiply(&solution))
+            .map(|(b, a)| b - a)
+            .collect();
+        let mut z: Vec<_> = r.iter().zip(&diagonal).map(|(r, d)| r / d).collect();
+        let mut direction = z.clone();
+        let mut rz = inner(&r, &z);
+        let initial = inner(&rhs, &rhs).sqrt();
+        let mut converged = inner(&r, &r).sqrt() <= 1e-9 * initial.max(1.);
+        for _ in 0..3000 {
+            if converged {
+                break;
+            }
+            let ad = multiply(&direction);
+            let denom = inner(&direction, &ad);
+            if denom <= 1e-25 {
+                return Err("NUMERICAL_FAILURE");
+            }
+            let alpha = rz / denom;
+            for i in 0..count {
+                solution[i] += alpha * direction[i];
+                r[i] -= alpha * ad[i];
+            }
+            if inner(&r, &r).sqrt() <= 1e-9 * initial.max(1.) {
+                converged = true;
+                break;
+            }
+            z = r.iter().zip(&diagonal).map(|(r, d)| r / d).collect();
+            let next = inner(&r, &z);
+            let beta = next / rz;
+            for i in 0..count {
+                direction[i] = z[i] + beta * direction[i];
+            }
+            rz = next;
         }
-        z = r.iter().zip(&diagonal).map(|(r, d)| r / d).collect();
-        let next = inner(&r, &z);
-        let beta = next / rz;
-        for i in 0..count {
-            direction[i] = z[i] + beta * direction[i];
+        if !converged {
+            return Err("UNWRAP_NOT_CONVERGED");
         }
-        rz = next;
-    }
-    if !converged {
-        return Err("UNWRAP_NOT_CONVERGED");
-    }
-    let coordinate = |i: usize| {
-        fixed
-            .get(&i)
-            .copied()
-            .unwrap_or_else(|| solution[free_index[i].unwrap()])
+        let coordinate = |i: usize| {
+            fixed
+                .get(&i)
+                .copied()
+                .unwrap_or_else(|| solution[free_index[i].unwrap()])
+        };
+        let mut uv: Vec<[f64; 2]> = (0..globals.len())
+            .map(|i| [coordinate(2 * i), coordinate(2 * i + 1)])
+            .collect();
+        let mut numerator = 0.;
+        let mut denominator = 0.;
+        for &(a, b) in edges.keys() {
+            let l2 = norm2(uv[locals[&a]], uv[locals[&b]]);
+            let l3 = length(sub(&mesh.vertices[a], &mesh.vertices[b]));
+            numerator += l2 * l3;
+            denominator += l2 * l2;
+        }
+        if !denominator.is_finite() || denominator <= 0. {
+            return Err("NUMERICAL_FAILURE");
+        }
+        let scale = numerator / denominator;
+        for p in &mut uv {
+            p[0] *= scale;
+            p[1] *= scale;
+        }
+        if cache.coordinates + uv.len() <= 200_000 {
+            cache.coordinates += uv.len();
+            cache
+                .charts
+                .insert(group.to_vec(), (uv.clone(), area3.clone()));
+        }
+        (uv, area3)
     };
-    let mut uv: Vec<[f64; 2]> = (0..globals.len())
-        .map(|i| [coordinate(2 * i), coordinate(2 * i + 1)])
-        .collect();
-    let mut numerator = 0.;
-    let mut denominator = 0.;
-    for &(a, b) in edges.keys() {
-        let l2 = norm2(uv[locals[&a]], uv[locals[&b]]);
-        let l3 = length(sub(&mesh.vertices[a], &mesh.vertices[b]));
-        numerator += l2 * l3;
-        denominator += l2 * l2;
-    }
-    if !denominator.is_finite() || denominator <= 0. {
-        return Err("NUMERICAL_FAILURE");
-    }
-    let scale = numerator / denominator;
-    for p in &mut uv {
-        p[0] *= scale;
-        p[1] *= scale;
-    }
     let local_faces: Vec<_> = group
         .iter()
         .map(|&i| faces[i].map(|g| locals[&g]))
         .collect();
-    if (mesh.method == "arap" || mesh.method == "arap-balanced")
+    if let Some(seed) = &mesh.initial_uv {
+        let points: BTreeMap<_, _> = seed
+            .iter()
+            .map(|v| (v.vertex_id.as_str(), [v.x_mm, v.y_mm]))
+            .collect();
+        if points.len() != seed.len() || points.values().flatten().any(|v| !v.is_finite()) {
+            return Err("NUMERICAL_FAILURE");
+        }
+        uv = globals
+            .iter()
+            .map(|&g| {
+                points
+                    .get(mesh.vertices[g].id.as_str())
+                    .copied()
+                    .ok_or("INVALID_MESH")
+            })
+            .collect::<Result<_, _>>()?;
+        if local_faces
+            .iter()
+            .any(|f| crate::numerical::positive_area2(f.map(|i| uv[i])).is_none())
+            || has_overlap(&local_faces, &uv)?
+        {
+            return Err("UNWRAP_FLIPPED");
+        }
+    }
+    if (mesh.method == "arap" || mesh.method == "arap-balanced" || mesh.method == "arap-seamed")
         && (local_faces
             .iter()
             .any(|f| crate::numerical::positive_area2(f.map(|i| uv[i])).is_none())
@@ -653,15 +746,53 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
             &boundary.iter().map(|g| locals[g]).collect::<Vec<_>>(),
         )?;
     }
+    if mesh.method == "arap-seamed" && mesh.initial_uv.is_none() {
+        let ordinary = Mesh {
+            method: "arap".into(),
+            ..mesh.clone()
+        };
+        crate::arap::refine(
+            &ordinary,
+            &globals,
+            &local_faces,
+            &mut uv,
+            [locals[&first], locals[&second]],
+            30,
+        )?;
+        if crate::arap::quality_ratios(mesh, &globals, &local_faces, &uv)
+            .iter()
+            .any(|&r| r > 1.)
+        {
+            let _ = crate::arap::refine_balanced(
+                &ordinary,
+                &globals,
+                &local_faces,
+                &mut uv,
+                [locals[&first], locals[&second]],
+                30,
+            );
+        }
+    }
+    let seam_ready = mesh.method != "arap-seamed"
+        || crate::arap::quality_ratios(mesh, &globals, &local_faces, &uv)
+            .iter()
+            .all(|&r| r <= 1.);
     let initial_uv = uv.clone();
-    let mut arap = if mesh.method == "arap" || mesh.method == "arap-balanced" {
+    let mut arap = if mesh.method == "arap"
+        || mesh.method == "arap-balanced" && mesh.initial_uv.is_none()
+        || mesh.method == "arap-seamed" && seam_ready
+    {
         Some(crate::arap::refine(
             mesh,
             &globals,
             &local_faces,
             &mut uv,
             [locals[&first], locals[&second]],
-            mesh.iterations.unwrap_or(30).clamp(1, 100),
+            if mesh.method == "arap-seamed" {
+                30
+            } else {
+                mesh.iterations.unwrap_or(30).clamp(1, 100)
+            },
         )?)
     } else {
         None
@@ -674,7 +805,7 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
             report.converged = false;
         }
     }
-    if mesh.method == "arap-balanced"
+    if (mesh.method == "arap-balanced" || mesh.method == "arap-seamed" && seam_ready)
         && crate::arap::quality_ratios(mesh, &globals, &local_faces, &uv)
             .iter()
             .any(|&r| r > 1.)
@@ -748,6 +879,21 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
     let max = *errors.last().unwrap();
     let min_x = uv.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min);
     let min_y = uv.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min);
+    let seam = if mesh.method == "arap-seamed" {
+        let mut relative = 0_f64;
+        let mut absolute = 0_f64;
+        for i in 0..boundary.len() {
+            let a = boundary[i];
+            let b = boundary[(i + 1) % boundary.len()];
+            let rest = length(sub(&mesh.vertices[a], &mesh.vertices[b]));
+            let error = (norm2(uv[locals[&a]], uv[locals[&b]]) - rest).abs();
+            relative = relative.max(error / rest);
+            absolute += error;
+        }
+        Some((relative, absolute))
+    } else {
+        None
+    };
     Ok(Patch {
         face_distortion,
         face_ids: group.iter().map(|&i| mesh.faces[i].id.clone()).collect(),
@@ -766,6 +912,8 @@ fn parameterize(mesh: &Mesh, faces: &[[usize; 3]], group: &[usize]) -> Result<Pa
             .collect(),
         area_error_max: max_area,
         edge_error_max: max_edge,
+        seam_error_max: seam.map(|s| s.0),
+        seam_length_error_mm: seam.map(|s| s.1),
         distortion_mean: weighted / total_area,
         distortion_p95: p95,
         distortion_max: max,
@@ -809,6 +957,7 @@ mod numerical_unwrap_tests {
     fn mesh(points: &[[f64; 3]], faces: &[[usize; 3]], method: &str) -> Mesh {
         Mesh {
             repair_cuts: false,
+            initial_uv: None,
             method: method.into(),
             iterations: Some(100),
             vertices: points

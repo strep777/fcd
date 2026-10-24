@@ -78,4 +78,4 @@ for(const mode of ['node draft','free transform','moving'])await check('mapping 
  }finally{f.app.unmount();}
 });
 await mkdir('test-results/current-cutting',{recursive:true});const passed=checks.every(c=>c.passed);
-await writeFile('test-results/current-cutting/final-regression-trim-material-preview-component.json',JSON.stringify({passed,verification:'Actual SurfacePanel Vue custom renderer with independent analytic XY grid probes; GPU child props and Canvas fallback projected paths inspected; no Electron/build/solver',checks},null,2));console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;
+await writeFile('test-results/current-cutting/final-regression-trim-material-preview-component.json',JSON.stringify({passed,verification:'Actual SurfacePanel Vue custom renderer with independent analytic XY grid probes; GPU child props and Canvas fallback projected paths inspected; no WebView2/build/solver',checks},null,2));console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;

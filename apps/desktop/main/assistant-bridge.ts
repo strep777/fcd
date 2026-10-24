@@ -2,7 +2,7 @@ import {createServer,type Server,type IncomingMessage,type ServerResponse} from 
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {requestSchema,type Request,type Response,type AssistantConnection} from '../../../packages/schema/index';
 export const assistantMethods=['session.read','validation.run','command.apply','command.undo','command.redo','surface.unwrap','surface.accept','marking.project','marking.surface','marking.edit','marking.source.edit','marking.infer','pattern.corner','pattern.boolean','pattern.allowance','pattern.offset','result.accept','result.discard','job.cancel','nesting.run','patterns.preview'] as const;
-export const assistantCommands=['project.rename','piece.put','piece.delete','piece.split','workflow.node','surface.curve','surface.section','surface.cutScope','surface.cutLine.meta','surface.cutLine.delete','surface.split','model.rename','model.activate','material.put','material.delete','seam.put','seam.delete'] as const;
+export const assistantCommands=['project.rename','piece.put','piece.delete','piece.split','workflow.node','surface.curve','surface.cutScope','surface.cutLine.meta','surface.cutLine.delete','surface.split','model.rename','model.activate','material.put','material.delete','seam.put','seam.delete'] as const;
 const failure=(code:string)=>({ok:false as const,error:{code,messageKey:code}});
 /** Session-only authority: loopback, no browser origins, bounded requests, explicit capabilities. */
 export class AssistantBridge {

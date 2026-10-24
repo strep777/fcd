@@ -68,7 +68,7 @@ function touches(a:P,b:P,c:P,d:P){
  return cross(a,b,c)*cross(a,b,d)<0&&cross(c,d,a)*cross(c,d,b)<0||on(a,c,d)||on(b,c,d)||on(c,a,b)||on(d,a,b);
 }
 /** A raster recovery pass must not close a slit, cross a hole, or invert a contour. */
-export function safeContour(candidate:Piece,original:Piece,pixelMm:number,sourceAreaAllowance:readonly number[]=[],boundaryCheck?:{stepMm:number;limitMm:number}){
+export function safeContour(candidate:Piece,original:Piece,pixelMm:number,sourceAreaAllowance:readonly number[]=[],boundaryCheck?:{stepMm:number;limitMm:number},areaReference?:Piece){
  try{
   if(sourceAreaAllowance.some(v=>!Number.isFinite(v)||v<0))return false;
   // Flattened samples are a geometric error-checking budget, not editable
@@ -77,6 +77,9 @@ export function safeContour(candidate:Piece,original:Piece,pixelMm:number,source
   const rings=flattened(candidate,Math.min(.01,pixelMm*.025)),outer=rings[0],before=flattened(original,Math.min(.01,pixelMm*.025));if(outer.length>12000)return false;
   if(rings.length!==before.length||rings.reduce((n,r)=>n+r.length,0)>24000)return false;
   for(let i=0;i<rings.length;i++){const a=area(rings[i]),b=area(before[i]);if(rings[i].length<3||a*b<=0||Math.abs(a-b)>Math.max(pixelMm*pixelMm,Math.abs(b)*.03,sourceAreaAllowance[i]??0))return false;}
+  // Localization and curve approximation share one material-area budget.
+  // A measured baseline must not reset it and allow two successive shrinkages.
+  if(areaReference&&areaReference!==original){const baseline=flattened(areaReference,Math.min(.01,pixelMm*.025));if(baseline.length!==rings.length)return false;for(let i=0;i<rings.length;i++){const a=area(rings[i]),b=area(baseline[i]);if(a*b<=0||Math.abs(a-b)>Math.max(pixelMm*pixelMm,Math.abs(b)*.03,sourceAreaAllowance[i]??0))return false;}}
   const edges=rings.flatMap((ring,r)=>ring.map((a,i)=>({a,b:ring[(i+1)%ring.length],r,i,length:ring.length}))),boxes:Box[]=edges.map(({a,b})=>[Math.min(a.xMm,b.xMm)-1e-9,Math.min(a.yMm,b.yMm)-1e-9,Math.max(a.xMm,b.xMm)+1e-9,Math.max(a.yMm,b.yMm)+1e-9]),index=boxIndex(boxes);
   for(let i=0;i<edges.length;i++){const a=edges[i];if(Math.hypot(a.a.xMm-a.b.xMm,a.a.yMm-a.b.yMm)<1e-9)return false;for(const j of index.query(boxes[i])){if(j<=i)continue;const b=edges[j];if(a.r===b.r&&(Math.abs(a.i-b.i)===1||Math.abs(a.i-b.i)===a.length-1))continue;if(touches(a.a,a.b,b.a,b.b))return false;}}
   for(let i=1;i<rings.length;i++){if(!inside(rings[i][0],outer))return false;for(let j=1;j<i;j++)if(inside(rings[i][0],rings[j])||inside(rings[j][0],rings[i]))return false;}

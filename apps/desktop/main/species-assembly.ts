@@ -7,6 +7,7 @@ import type {Manifold} from 'manifold-3d';
 import {surfaceSchema,type Surface} from '../../../packages/schema/index';
 import {DomainError} from './repository';
 import {validateSurface} from './surface';
+import {fairWearerJoins} from './wearer-fairing';
 /** Close each original recipe part and union solids, keeping part provenance from Manifold run IDs. */
 export async function assembleSpecies(source:Surface,assetDirectory=existsSync('node_modules/manifold-3d')?resolve('node_modules/manifold-3d'):resolve('dist/assets')):Promise<Surface>{
  if(!source.template||source.source!=='species-template-1'||source.assembly)throw new DomainError('TEMPLATE_REQUIRED');
@@ -40,8 +41,13 @@ export async function assembleSpecies(source:Surface,assetDirectory=existsSync('
  let union=hold(wasm.Manifold.union(solids));const components=union.decompose();owned.push(...components);if(components.length!==1)throw new DomainError('DISCONNECTED_TEMPLATE');
  // Keep the new rounded silhouettes and small paw features. A custom-template import budget
  // (3000 vertices / 5000 triangles) is unrelated to the supported 50000-face unwrap budget.
+ const wearerMode=source.template.parameters.bodyMode==='dtd'||source.template.parameters.bodyMode==='padded';
+ if(wearerMode){
+  const joined=union.getMesh();fairWearerJoins(joined);union=hold(wasm.Manifold.ofMesh(joined));
+  if(union.status()!=='NoError'||union.volume()<=0)throw new DomainError('NON_MANIFOLD');
+ }
  const maxVertices=8000,maxFaces=12000;
- union=hold(union.simplify(.25));let toleranceMm=.25,mesh=union.getMesh();for(const tolerance of [.1,.25,.5]){if(mesh.numVert<=maxVertices&&mesh.numTri<=maxFaces)break;union=hold(union.simplify(tolerance));mesh=union.getMesh();toleranceMm+=tolerance;}
+ union=hold(union.simplify(.25));let toleranceMm=.25,mesh=union.getMesh();for(const tolerance of (wearerMode?[.1,.25,.5,1,2]:[.1,.25,.5])){if(mesh.numVert<=maxVertices&&mesh.numTri<=maxFaces)break;union=hold(union.simplify(tolerance));mesh=union.getMesh();toleranceMm+=tolerance;}
  union=hold(wasm.Manifold.ofMesh(mesh));mesh=union.getMesh();if(mesh.numVert>maxVertices||mesh.numTri>maxFaces)throw new DomainError('MESH_LIMIT');
  // Boolean intersections calculated in double precision can become almost-identical adjacent
  // vertices in the float32 output. Collapse only existing edges below one micron; spatially
@@ -68,8 +74,8 @@ export async function assembleSpecies(source:Surface,assetDirectory=existsSync('
  // silhouette counts a folded wing or lowered arm as chest/waist circumference.
  // Keep the measurement on the exact part solid used by the exterior union.
  const torso=solids[parts.indexOf('torso')];if(!torso)throw new DomainError('ASSEMBLY_MEASUREMENT');
- const rotated=hold(torso.rotate([90,0,0])),hip=p.legLengthMm,shoulderY=p.heightMm-p.earHeightMm-p.headLengthMm-70;
- for(const [name,y] of [['hipGirth',hip+.01],['waistGirth',hip+(shoulderY-hip)*.35],['chestGirth',hip+(shoulderY-hip)*.8],['neckGirth',p.heightMm-p.earHeightMm-p.headLengthMm]] as const){const cross=rotated.slice(y);try{const rings=cross.toPolygons();const centered=rings.filter(r=>{let inside=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const a=r[i],b=r[j];if((a[1]>0)!==(b[1]>0)&&0<(b[0]-a[0])*(-a[1])/(b[1]-a[1])+a[0])inside=!inside;}return inside;});if(centered.length!==1)throw new DomainError('ASSEMBLY_MEASUREMENT');const ring=centered[0],actual=ring.reduce((sum,a,i)=>{const b=ring[(i+1)%ring.length];return sum+Math.hypot(a[0]-b[0],a[1]-b[1]);},0),target=source.template.measurements.find(m=>m.name===name)!.targetMm;add(name,target,actual);}finally{cross.delete();}}
+ const rotated=hold((wearerMode?union:torso).rotate([90,0,0])),hip=p.legLengthMm,wearer=p.bodyMode==='dtd'||p.bodyMode==='padded',neckY=wearer?p.heightMm*.86:p.heightMm-p.earHeightMm-p.headLengthMm,shoulderY=neckY-70;
+ for(const [name,y] of [['hipGirth',hip+.01],['waistGirth',hip+(shoulderY-hip)*(wearer?.36:.35)],['chestGirth',hip+(shoulderY-hip)*(wearer?.78:.8)],['neckGirth',wearer?neckY-25:neckY]] as const){const cross=rotated.slice(y);try{const rings=cross.toPolygons();const centered=rings.filter(r=>{let inside=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const a=r[i],b=r[j];if((a[1]>0)!==(b[1]>0)&&0<(b[0]-a[0])*(-a[1])/(b[1]-a[1])+a[0])inside=!inside;}return inside;});if(centered.length!==1)throw new DomainError('ASSEMBLY_MEASUREMENT');const ring=centered[0],actual=ring.reduce((sum,a,i)=>{const b=ring[(i+1)%ring.length];return sum+Math.hypot(a[0]-b[0],a[1]-b[1]);},0),target=source.template.measurements.find(m=>m.name===name)!.targetMm;add(name,target,actual);}finally{cross.delete();}}
  const result=surfaceSchema.parse({...source,id:randomUUID(),topologyVersion:source.topologyVersion+1,vertices:resultVertices,faces:resultFaces,cutConstraints:undefined,assembly:{algorithm:'manifold-union-3.5.4',sourceHash:createHash('sha256').update(JSON.stringify(source)).digest('hex'),components:1,volumeMm3:union.volume(),toleranceMm,inputFaces:source.faces.length,measurements},template:{...source.template,warnings:['ASSEMBLED_DIMENSIONS_REQUIRE_REVIEW','MANUFACTURING_TRIAL_REQUIRED']}});validateSurface(result);return result;
  }finally{for(const m of owned.reverse())m.delete();}
 }

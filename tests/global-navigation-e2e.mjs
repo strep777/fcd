@@ -1,18 +1,18 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,mkdir} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
-import {activity,chooseProject} from './ui-navigation.mjs';
-const directory=await mkdtemp(resolve('.local/tests/global-navigation-')),env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];
+import {activity,chooseProject,waitForIdle} from './ui-navigation.mjs';
+const directory=await mkdtemp(resolve('.local/tests/global-navigation-')),env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({executablePath,args:desktopArgs,env}),page=await app.firstWindow(),checks=[],errors=[];
 page.on('pageerror',error=>errors.push(error.message));
 const read=()=>page.evaluate(async()=>{const r=await window.fpcad.read();if(!r.ok)throw Error(r.error.code);return r.data;});
-const settled=()=>page.waitForFunction(()=>!(/处理中|Working/.test(document.querySelector('.app-shell>footer')?.textContent??'')));
+const settled=()=>waitForIdle(page);
 const toolbar=()=>page.locator('.project-toolbar');
 async function create(name){await toolbar().getByRole('button',{name:'＋ 新建项目',exact:true}).click();await page.getByRole('dialog').locator('input').fill(name);await page.getByRole('button',{name:'创建 →',exact:true}).click();await page.locator('.workflow-nav').waitFor();await page.locator('.assistant-page').waitFor({state:'detached'});await settled();}
 try{
- assert(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().every(w=>!w.isVisible())));
+ assert(await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows().every(w=>!w.isVisible())));
  await toolbar().getByRole('button',{name:'AI 助手',exact:true}).click();await page.locator('.assistant-page').waitFor();await create('Global navigation A');checks.push('Creating a project from AI assistant enters the editor');
  const saved=join(directory,'global-project.fpcad');await app.evaluate(({dialog},path)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:path});},saved);
  await toolbar().getByRole('button',{name:'另存为',exact:true}).click();await settled();assert((await readFile(saved)).length>0);assert.equal((await read()).savedRevision,(await read()).project.revision);
@@ -27,5 +27,5 @@ try{
  await toolbar().getByRole('button',{name:'AI 助手',exact:true}).click();await toolbar().getByRole('button',{name:'项目首页',exact:true}).click();assert(await page.locator('.welcome').isVisible());assert.equal(await page.locator('.assistant-page').count(),0);
  await page.locator(`[data-delete-session-id="${second}"]`).click();await page.getByRole('button',{name:'永久删除',exact:true}).click();await page.locator(`[data-delete-session-id="${second}"]`).waitFor({state:'detached'});assert((await read()).recent.length>=1);assert((await readFile(saved)).length>0);checks.push('Project home exits the assistant and deleting an inactive project retains saved files and remaining projects');
  for(const language of ['en','ja','zh']){await page.getByLabel('Language',{exact:true}).selectOption(language);await page.setViewportSize({width:1000,height:680});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
- assert(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().every(w=>!w.isVisible())));assert.deepEqual(errors,[]);await mkdir('test-results/current-functional',{recursive:true});await writeFile('test-results/current-functional/global-navigation-ui.json',JSON.stringify({passed:true,testedBuild,directory,checks,errors},null,2));console.log(JSON.stringify({passed:true,checks:checks.length}));
+ assert(await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows().every(w=>!w.isVisible())));assert.deepEqual(errors,[]);await mkdir('test-results/current-functional',{recursive:true});await writeFile('test-results/current-functional/global-navigation-ui.json',JSON.stringify({passed:true,testedBuild,directory,checks,errors},null,2));console.log(JSON.stringify({passed:true,checks:checks.length}));
 }catch(error){await mkdir('test-results/current-functional',{recursive:true});await writeFile('test-results/current-functional/global-navigation-ui.json',JSON.stringify({passed:false,testedBuild,directory,checks,errors,error:String(error)},null,2));throw error;}finally{await app.close();}

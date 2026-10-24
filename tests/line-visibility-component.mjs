@@ -4,7 +4,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import {mount,fixtureProject,capture,flush,id,walk} from './surface-viewport-host.mjs';
 
 // Real SurfacePanel SFC and handlers; only the display child and host DOM/IPC
-// are substituted. No Electron window or production geometry mock is used.
+// are substituted. No WebView2 window or production geometry mock is used.
 function layeredProject(){
  const p=fixtureProject(),mesh=p.surface;mesh.vertices=[];mesh.faces=[];
  for(const [name,zMm]of [['front',10],['rear',-10]]){
@@ -61,5 +61,5 @@ await check('section handle belongs to a clipped visible segment and dragging it
  }finally{f.app.unmount();}
 });
 await mkdir('test-results/current-cutting',{recursive:true});const passed=checks.every(c=>c.passed);
-await writeFile('test-results/current-cutting/final-regression-line-visibility-component.json',JSON.stringify({passed,verification:'Actual SurfacePanel Vue custom renderer; display children and DOM/IPC host substituted; no Electron pixels',checks},null,2));
+await writeFile('test-results/current-cutting/final-regression-line-visibility-component.json',JSON.stringify({passed,verification:'Actual SurfacePanel Vue custom renderer; display children and DOM/IPC host substituted; no WebView2 pixels',checks},null,2));
 console.log(JSON.stringify({passed,checks}));if(!passed)process.exitCode=1;

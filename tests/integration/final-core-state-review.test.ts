@@ -12,6 +12,7 @@ import {analyze} from '../../apps/desktop/main/worker';
 
 const worker=resolve('target/release/fpcad-worker.exe');
 const commit=(repo:Repository,command:Parameters<Repository['commit']>[0])=>repo.commit(command,randomUUID(),command.type);
+const businessSnapshot=(p:NonNullable<ReturnType<Repository['snapshot']>>)=>{const {revision,updatedAt,...business}=p;return business;};
 
 it('compact dense color cuts retain independent archive/model snapshots through acceptance, checkpoint, switching, undo, file save and database reopen',async()=>{
  const n=20,rows:string[]=[];for(let y=0;y<=n;y++)for(let x=0;x<=n;x++)rows.push(`v ${x*10} ${y*10} 0`);
@@ -35,11 +36,11 @@ it('compact dense color cuts retain independent archive/model snapshots through 
   repo.checkpoint();expect(repo.snapshot()).toEqual(accepted);
   commit(repo,{type:'surface.set',surface:parseObj('v 0 0 0\nv 10 0 0\nv 0 10 0\nf 1 2 3')});
   const alternate=repo.snapshot()!;expect(alternate.surface!.id).not.toBe(modelId);
-  commit(repo,{type:'model.activate',modelId});expect(repo.snapshot()!.bindings).toEqual(accepted.bindings);
+  commit(repo,{type:'model.activate',modelId});const activated=repo.snapshot()!;expect(activated.bindings).toEqual(accepted.bindings);expect(activated.activeCutId).toBe(entry.id);
   commit(repo,{type:'cutting.activate',entryId:entry.id});const restored=repo.snapshot()!;
   expect(restored.surface).toEqual(entry.surface);expect(restored.cuttingLibrary![0]).toEqual(entry);
   expect(bindingIssues(restored)).toEqual([]);expect(markingIssues(restored)).toEqual([]);
-  repo.historyMove(false);expect(repo.snapshot()!.activeCutId).toBeUndefined();repo.historyMove(false);expect(repo.snapshot()!.surface).toEqual(alternate.surface);
+  repo.historyMove(false);expect(businessSnapshot(repo.snapshot()!)).toEqual(businessSnapshot(activated));repo.historyMove(false);expect(repo.snapshot()!.surface).toEqual(alternate.surface);
   repo.historyMove(true);repo.historyMove(true);const current=repo.snapshot()!;
   expect(current.activeCutId).toBe(entry.id);expect(current.cuttingLibrary![0]).toEqual(entry);
   expect((await analyze(worker,current)).flatMap(g=>g.issues.filter(i=>i.severity==='error'))).toEqual([]);
@@ -47,7 +48,7 @@ it('compact dense color cuts retain independent archive/model snapshots through 
   repo.markSaved(destination,current.revision);repo.checkpoint();expect(repo.status().savedRevision).toBe(current.revision);
   const session=repo.sessionId;repo.close();repo=new Repository(database);
   expect(repo.sessionId).toBe(session);expect(repo.snapshot()).toEqual(current);expect(repo.status().savedRevision).toBe(current.revision);
-  repo.historyMove(false);expect(repo.snapshot()!.activeCutId).toBeUndefined();repo.historyMove(true);
+  repo.historyMove(false);expect(businessSnapshot(repo.snapshot()!)).toEqual(businessSnapshot(activated));repo.historyMove(true);
   expect(repo.snapshot()!.cuttingLibrary![0]).toEqual(entry);expect(bindingIssues(repo.snapshot()!)).toEqual([]);
  }finally{repo.close();}
 },30000);

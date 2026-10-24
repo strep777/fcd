@@ -3,11 +3,14 @@ import {shapePoint,type Point,type World} from './attached-edit';
 import {triangleWeights} from './triangles';
 import type {SurfaceOutline} from './marking-outline';
 import {boxIndex,type Box} from './spatial';
+import {decalChart} from './decal-chart';
+import type {Shape} from './attached-edit';
 
 /** Resolve a persistent contour coordinate on the same front-facing triangles
  * used by projection. Editing remains in that frame; its handles are in 3D. */
 export function surfaceFramePoint(surface:Surface,frame:CutProjection,regions?:string[],faceScope?:Set<string>){
- const vertices=new Map(surface.vertices.map(v=>[v.id,{world:v,point:shapePoint(frame,v),depth:frame.axes[2].reduce((s,n,i)=>s+n*([v.xMm,v.yMm,v.zMm][i]-frame.origin[i]),0)}]));
+ const chart='nodes' in frame?decalChart(surface,frame as Shape):undefined;
+ const vertices=new Map(surface.vertices.map(v=>[v.id,{world:v,point:chart?.get(v.id)??shapePoint(frame,v),depth:chart?0:frame.axes[2].reduce((s,n,i)=>s+n*([v.xMm,v.yMm,v.zMm][i]-frame.origin[i]),0)}]));
  const triangles=surface.faces.filter(f=>(!regions||regions.includes(f.region))&&(!faceScope||faceScope.has(f.id))).map(f=>f.vertices.map(id=>vertices.get(id)!)).filter(t=>{const [a,b,c]=t.map(v=>v.point);return (b.xMm-a.xMm)*(c.yMm-a.yMm)-(b.yMm-a.yMm)*(c.xMm-a.xMm)>1e-9;});
  // Keep the broad phase at least as permissive as the barycentric test:
  // points a few ulps outside an edge must not lose their visible handle.

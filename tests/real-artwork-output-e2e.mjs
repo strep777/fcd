@@ -1,4 +1,4 @@
-import {_electron as electron} from 'playwright';
+import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,copyFile,readFile,writeFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
@@ -11,8 +11,8 @@ const input=process.env.FPCAD_REAL_CUT_PROJECT;
 assert(input,'Set FPCAD_REAL_CUT_PROJECT to an accepted real-artwork test project');
 const directory=await mkdtemp(resolve('.local/tests/real-artwork-output-')),projectFile=join(directory,'roundtrip.fpcad');
 await copyFile(input,projectFile);
-const env={...process.env,FPCAD_DATA_DIR:directory};delete env.ELECTRON_RUN_AS_NODE;
-const app=await electron.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];
+const env={...process.env,FPCAD_DATA_DIR:directory};
+const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];
 page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
 const record=message=>{checks.push(message);console.log(message);};
 async function state(){return page.evaluate(async()=>{

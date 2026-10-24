@@ -1,11 +1,12 @@
 import {insertTrimBoundary} from './trim-boundary';
+import {weldClosedTrimDarts} from './trim-weld';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import type Module from 'manifold-3d';
 import {triangulateMaterialTiles,type MaterialTile} from '../../../packages/surface/material-tiles';
 import {randomUUID} from 'node:crypto';
 import type {Project,SurfaceRun,Binding,UnwrapOptions} from '../../../packages/schema/index';
-import {materialCutMesh,openMaterialMesh,composeMaterialStation,type MaterialFace} from '../../../packages/surface/design-cuts';
+import {materialCutMesh,openMaterialMesh,refineMaterialProvenance,type MaterialFace} from '../../../packages/surface/design-cuts';
 import {clip} from './markings';
 import {hash,DomainError} from './repository';
 import {pieceGeometryHash,cutColorHash,unwrapSurface} from './surface';
@@ -58,9 +59,10 @@ export async function unwrapDesignSurface(worker:string,project:Project,working:
  let run=await unwrapSurface(worker,working.surface,project,{...options,optimizeCuts:false},undefined,mesh=>{working.surface=mesh;},(mesh,children)=>{
   // Compose every new station with its original-model barycentric triangle.
   // Neighbouring charts refined only for conformity require the same update.
-  for(const [parent,rows] of children){const source=working.provenance.get(parent);if(!source)throw new DomainError('STALE_BINDING');working.provenance.delete(parent);for(const child of rows){const barycentric=child.triangle.map(point=>composeMaterialStation(point,source.barycentric));working.provenance.set(child.face.id,{...source,barycentric:barycentric as [[number,number,number],[number,number,number],[number,number,number]]});}}
+  const provenance=refineMaterialProvenance(working.provenance,children);if(!provenance)return false;
+  working.provenance=provenance;
   working.surface=mesh;
- }),distortionSeams=0,manufacturingSeams=run.designCutReport?.manufacturingSeams??0;
+ },project.surface),distortionSeams=0,manufacturingSeams=run.designCutReport?.manufacturingSeams??0;
  run.designCutReport={materialDomains:working.materialDomains,userSeams:project.surface!.cutLines?.filter(l=>l.enabled).length??0,topologySeams:working.topologySeams+(run.designCutReport?.topologySeams??0),distortionSeams:distortionSeams+(run.designCutReport?.distortionSeams??0),manufacturingSeams};return {run,distortionSeams};
 }
 /** Refined solver faces are temporary. Store an exact barycentric material mesh
@@ -70,6 +72,7 @@ export function restoreDesignBindings(project:Project,working:Awaited<ReturnType
  for(const binding of run.bindings){const uv=new Map(binding.report.uv.map(v=>[v.vertexId,v])),used=new Set<string>(),triangles:NonNullable<Binding['trim']>['triangles']=[],originalFaces=new Set<string>(),metadata:MaterialFace[]=[];
   for(const id of binding.report.faceIds){const face=faces.get(id),material=working.provenance.get(id);if(!face||!material)throw new DomainError('STALE_BINDING');face.vertices.forEach(v=>used.add(v));originalFaces.add(material.faceId);metadata.push(material);triangles.push({faceId:material.faceId,vertices:face.vertices,barycentric:material.barycentric});}
   binding.trim={vertices:[...used].map(id=>{const p=uv.get(id)!;return {id,xMm:p.xMm,yMm:p.yMm};}),triangles,boundary:binding.report.boundary,holes:[]};
+  weldClosedTrimDarts(binding.trim,source);
   const originalUv=new Map<string,{vertexId:string;xMm:number;yMm:number}>();
   // UV corners are diagnostic support; the exact inverse uses trim triangles.
   for(let i=0;i<metadata.length;i++){const m=metadata[i],t=triangles[i],p=t.vertices.map(id=>uv.get(id)!),a=m.barycentric.map(b=>[b[1],b[2]]),den=(a[1][0]-a[0][0])*(a[2][1]-a[0][1])-(a[2][0]-a[0][0])*(a[1][1]-a[0][1]);if(Math.abs(den)<1e-14)continue;

@@ -8,6 +8,7 @@ import {circlePiece} from '../../../../packages/pattern/shapes';
 import {mapPiece,moveNode,duplicatePiece,piecePath,pointBounds} from '../../../../packages/pattern/edit';
 import {messages,issueMessages} from '../i18n';
 import {outputBudgetIssues} from '../../../../packages/manufacturing/output-limits';
+import {patternSpacingMatches} from '../../../../packages/manufacturing/pattern-spacing';
 import {cameraBox,zoomCamera} from '../../../../packages/ui/viewport';
 import {previewRuler,pieceDimensions} from '../../../../packages/ui/pattern-preview';
 import type {Piece,Point,Join,Paper} from '../../../../packages/schema/index';
@@ -23,14 +24,15 @@ const draftClosed=ref(true);
 const tool=ref<'pan'|'select'|'node'|'polygon'|'measure'>('select'),draft=ref<Point[]>([]),preview=ref<Piece|null>(null),svg=ref<SVGSVGElement>();
 const fitWidth=ref(650),viewportSize=ref({width:800,height:600});
 const view=ref({x:-60,y:-330,w:650,h:480}),snap=ref(true),selectedNode=ref('');
-const nodeX=ref(0),nodeY=ref(0),candidateDistance=ref(10),candidateJoin=ref<Join>('miter'),holeTarget=ref(''),measurement=ref<Point[]>([]),mappedPoint=ref<{pieceId:string;xMm:number;yMm:number}|null>(null),paperPreset=ref('A4'),paper=ref<Paper>({widthMm:210,heightMm:297,marginMm:10,overlapMm:10});
+const nodeX=ref(0),nodeY=ref(0),spacingMm=ref(10),spacingJoin=ref<Join>('miter'),holeTarget=ref(''),measurement=ref<Point[]>([]),mappedPoint=ref<{pieceId:string;xMm:number;yMm:number}|null>(null),paperPreset=ref('A4'),paper=ref<Paper>({widthMm:210,heightMm:297,marginMm:10,overlapMm:10});
+const spacingValid=computed(()=>Number.isFinite(spacingMm.value)&&spacingMm.value>=0&&spacingMm.value<=1000);
 const draftHistory=useDraftHistory(()=>({nodes:draft.value,closed:draftClosed.value,hole:holeTarget.value}),value=>{draft.value=value.nodes;draftClosed.value=value.closed;holeTarget.value=value.hole;},()=>stage.value==='pattern'&&tool.value==='polygon',()=>store.busy);
 
 watch(paperPreset,key=>{const sizes:Record<string,[number,number]>={A4:[210,297],A3:[297,420],A2:[420,594],A1:[594,841],A0:[841,1189]};if(sizes[key]){paper.value.widthMm=sizes[key][0];paper.value.heightMm=sizes[key][1];}});
 
 function selectPiece(id:string,focus=true){selectedId.value=id;if(id&&focus)void nextTick(()=>focusSelection());}
 async function importSvg(){const p=project.value;if(p)await store.run(()=>window.fpcad.importPattern(p.id,p.revision,1));}
-async function offsetCandidate(){const p=project.value,s=selected.value;if(!p||!s)return;openJobs();await store.run(()=>window.fpcad.offset(p.id,p.revision,s.id,candidateDistance.value,candidateJoin.value));}
+async function applyPatternSpacing(){const p=project.value;if(!p||store.busy||!p.pieces.length||!spacingValid.value||patternSpacingMatches(p,spacingMm.value,spacingJoin.value))return;await store.run(()=>window.fpcad.apply(p.id,p.revision,{type:'patterns.allowance',widthMm:spacingMm.value,join:spacingJoin.value}),{label:language.value==='zh'?'正在应用所有裁片的拼接间距':localize('Applying joining spacing to all patterns'),cancel:()=>window.fpcad.cancelSurface(p.id,p.revision)});}
 const measureMm=computed(()=>measurement.value.length===2?Math.hypot(measurement.value[1].xMm-measurement.value[0].xMm,measurement.value[1].yMm-measurement.value[0].yMm):0);
 let drag:{start:Point;piece:Piece;nodeId?:string;pointerId:number;projectId:string;revision:number}|null=null;
 let pan:{start:DOMPoint;matrix:DOMMatrix;view:typeof view.value;pointerId:number}|null=null;
@@ -106,12 +108,11 @@ async function applyNode(){const p=selected.value;if(!p)return;await put(moveNod
 
 const allNodes=(piece?:Piece)=>piece?[...piece.nodes,...(piece.holes??[]).flat()]:[];
 watch(selected,()=>{if(!allNodes(selected.value).some(n=>n.id===selectedNode.value))selectedNode.value='';});
-watch(()=>selected.value?.id,()=>{candidateDistance.value=selected.value?.allowanceMm??10;candidateJoin.value=selected.value?.join??'miter';});
-watch(()=>selected.value?.allowanceMm,value=>{candidateDistance.value=value??10;});
-watch(()=>selected.value?.join,value=>{candidateJoin.value=value??'miter';});
+watch([()=>project.value?.id,()=>project.value?.defaultAllowanceMm],()=>{spacingMm.value=project.value?.defaultAllowanceMm??10;},{immediate:true});
+watch(()=>selected.value?.join,value=>{spacingJoin.value=value??'miter';});
 watch(()=>allNodes(selected.value).find(n=>n.id===selectedNode.value), (point,previous)=>{if(point&&(point.id!==previous?.id||point.xMm!==previous.xMm||point.yMm!==previous.yMm)){nodeX.value=point.xMm;nodeY.value=point.yMm;}},{immediate:true});
 watch(()=>[project.value?.id,project.value?.pieces.length] as const,([id,count],[previousId,previousCount])=>{if(id!==previousId||(count??0)-(previousCount??0)>1)void nextTick(()=>fit());});
 watch(()=>project.value?.surfaceRun,async()=>{await nextTick();if(candidateMode.value)fit();});
 
-return {openJobs,measureMm,store,language,t,stage,project,selectedId,choiceIds,selected,filteredPieces,geometry,issues,draftClosed,tool,draft,preview,svg,view,viewportSize,zoomPercent,scaleRuler,previewBounds,snap,selectedNode,nodeX,nodeY,candidateDistance,candidateJoin,holeTarget,paperPreset,paper,measurement,mappedPoint,candidateMode,shownMarkings,previewPieces,shownPieces,previewPaper,paperSize,bounds,fmt,label,cutPath,cachedPiecePath,cachedAnchor,poly,allNodes,selectPiece,importSvg,offsetCandidate,showChoices,startHole,cancel,stopGesture,changeTool,changePreviewTool,put,rectangle,circle,startOpenPath,finish,down,move,up,zoom,zoomBy,setZoomPercent,fit,focusSelection,update,resize,transform,duplicate,remove,applyNode};
+return {openJobs,measureMm,store,language,t,stage,project,selectedId,choiceIds,selected,filteredPieces,geometry,issues,draftClosed,tool,draft,preview,svg,view,viewportSize,zoomPercent,scaleRuler,previewBounds,snap,selectedNode,nodeX,nodeY,spacingMm,spacingJoin,spacingValid,holeTarget,paperPreset,paper,measurement,mappedPoint,candidateMode,shownMarkings,previewPieces,shownPieces,previewPaper,paperSize,bounds,fmt,label,cutPath,cachedPiecePath,cachedAnchor,poly,allNodes,selectPiece,importSvg,applyPatternSpacing,showChoices,startHole,cancel,stopGesture,changeTool,changePreviewTool,put,rectangle,circle,startOpenPath,finish,down,move,up,zoom,zoomBy,setZoomPercent,fit,focusSelection,update,resize,transform,duplicate,remove,applyNode};
 }

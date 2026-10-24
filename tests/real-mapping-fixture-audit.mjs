@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 import sharp from 'sharp';
 export const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
 export async function testedArtifacts(executable,appDirectory){
- const applicationDirectory=executable?resolve(dirname(resolve(executable)),'resources/app'):resolve(appDirectory??'.');
+ const applicationDirectory=executable?resolve(dirname(resolve(executable))):resolve(appDirectory??'.');
  const paths={main:resolve(applicationDirectory,'dist/main/main.cjs'),surfaceWorker:resolve(applicationDirectory,'dist/main/surface-worker.cjs'),nativeWorker:resolve(applicationDirectory,'dist/bin',process.platform==='win32'?'fpcad-worker.exe':'fpcad-worker')};
  const artifacts={applicationDirectory};for(const [name,path]of Object.entries(paths)){const bytes=await readFile(path);artifacts[name]={path,sha256:sha256(bytes),bytes:bytes.length};}return artifacts;
 }

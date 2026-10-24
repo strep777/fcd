@@ -1,3 +1,4 @@
+<template><svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="paths[name]??paths.settings"/></svg></template>
 <script setup lang="ts">
 defineProps<{name:string}>();
 const paths:Record<string,string>={
@@ -5,6 +6,7 @@ const paths:Record<string,string>={
  select:'M5 3v17l5-5 4 7 3-2-4-7h7Z',calibrate:'M4 19 19 4M3 15v6h6M15 3h6v6M8 11l5 5M11 8l5 5',
  pen:'m4 20 3-10L18 3l3 3-7 11-10 3Zm0 0 7-7M9 11l4 4M17 4l3 3',
  brushAdd:'M10 15 19 3l3 3-10 11M10 15c-6-2-3 5-8 6 6 2 10-1 10-4M3 4h6M6 1v6',
+ brushSubtract:'M10 15 19 3l3 3-10 11M10 15c-6-2-3 5-8 6 6 2 10-1 10-4M3 4h6',
  eraser:'m3 14 9-11 9 8-8 10H9l-6-7ZM7 9l10 8M9 21h13',
  lasso:'M7 18C0 15 2 5 11 4s12 5 10 9-6 5-12 5c-4 0-5 5 0 4M8 17l3 3',color:'m15 3 6 6-9 9H6v-6l9-9ZM6 18l-3 3M12 6l6 6',
  add:'M12 4v16M4 12h16',close:'m4 12 5 5L20 6',delete:'M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7',
@@ -20,5 +22,4 @@ const paths:Record<string,string>={
  circle:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z',rectangle:'M3 5h18v14H3Z',print:'M6 9V3h12v6M6 17H3V9h18v8h-3M6 14h12v7H6ZM17 11h1'
 };
 </script>
-<template><svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="paths[name]??paths.settings"/></svg></template>
 <style scoped>.tool-icon{display:block;width:21px;height:21px;flex:none;pointer-events:none}</style>
