@@ -1,42 +1,29 @@
-# 账号与可选云服务规划
+# 可选联网服务规划
 
-> 状态：待实现的设计草案，未代表已发布能力或验收通过。
-> 整理日期：2026-10-12；保留早期规划的技术方案，具体范围和指标需实施前复核。
+状态：未部署，未实现账号或项目云同步；整理日期 2026-10-26。当前本地 CAD 和文件交换不依赖云服务，远程模型连接也不等于项目云服务。[统一需求](requirements.md)决定后续范围。
 
-**当前状态：** 当前没有账号、计费、授权服务或项目云同步实现。本地 CAD 不依赖这些服务；服务目标和示例接口尚未经过部署验证。
+## 分别决定服务范围
 
-[返回后续规划](roadmap.md) · [文档导航](../README.md)
+| 候选服务 | 需解决的问题 |
+| --- | --- |
+| 更新清单 | 平台/架构/通道、签名、兼容、分阶段发布和回退；本地打包不等于在线更新 |
+| 模型目录 | 发布兼容元数据，下载按[模型治理](local-ai.md)校验，不静默重算旧项目 |
+| 账号与授权 | 仅商业化需要时实施，按[授权方案](licensing.md)保留离线数据使用 |
+| 团队、SSO、私有部署 | 身份、成员权限、运维和备份单独立项 |
+| 项目同步 | 用户明确启用并展示上传资源，处理冲突及离线副本，不静默覆盖几何 |
 
-## 发布范围
+早期 `api.fpcad.com` 是示例域名，不表示注册、上线或可用。
 
-I9 必需：账号、授权签发/刷新/吊销、订阅状态、更新清单和模型清单服务。cloud-project、团队、SSO、企业私有服务是 Future，接口预留不代表实现。api.fpcad.com 是母文档示例域名，不声称已注册或可用。
+## 保留的接口约定
 
-## REST 约定
+可采用版本化 JSON API、结构化错误和请求 ID，幂等写入用 Idempotency-Key。区分身份无效、无权限、冲突、参数错误、限流及服务故障；仅重试幂等操作并限制退避。服务失败不能阻止本地项目打开。
 
-统一 /api/v1，JSON UTF-8，错误 {code,message,requestId,retryable}，写入接口支持 Idempotency-Key。401 身份无效、403 无能力、409 冲突、422 参数错误、429 限流带 Retry-After、5xx 服务故障。重试限幂等操作，指数退避且有上限；客户端不得因商业服务失败阻断本地工程打开。
+早期候选有登录会话、授权激活/刷新/吊销、能力目录、更新/模型清单和计费 webhook。身份供应商及商业规则确定后再写契约，示例路由不是现有 API。支付状态由可信服务事件确认；登出清凭据，不删项目。
 
-|接口|请求关键字段|响应关键字段|鉴权/行为|
-|---|---|---|---|
-|POST /auth/session|外部认证授权码+PKCE verifier|session/access expiry|采用成熟身份提供方，首版不自造密码算法|
-|POST /license/activate|activationCode,devicePublicId,clientVersion|signedToken,serverTime|授权码交换；幂等|
-|POST /license/refresh|licenseId,currentTokenDigest|signedToken,serverTime|有效会话；不得上传项目|
-|POST /license/revoke|licenseId,reason|revokedAt|本人或组织管理员；审计|
-|GET /license/me|无|licenseSummary|用户会话|
-|GET /features|clientVersion|catalogVersion,features|公开目录不等于实际授权|
-|GET /updates|platform,arch,channel,version|signedManifest|按平台签名与渐进发布|
-|GET /models|runtime,platform|compatibleManifests|仅元数据；下载再校验|
-|POST /billing/webhook|供应商签名事件|receiptId|验证签名/时间窗/eventId去重|
+## 运维与同步条件
 
-账号登出删除会话凭据，不删除项目。计费成功只能经服务端可信支付事件更新授权，不能相信客户端“支付成功”字段。真实支付供应商与税务流程为商业待决，不填入假接口密钥。
+保留服务端私钥管理、事件去重、必要审计、日志脱敏、备份恢复方案。早期 99.5% 可用性、p95 2 秒、RPO 24 小时、RTO 4 小时未测量，不能写为承诺。
 
-## 服务数据与运维
+同步需明确资源范围、冲突副本、revision/ETag、上传取消及本地保留。离线编辑不自动合并几何；字段兼容、协议 major 变更和弃用需可运行迁移验收。训练使用项目数据须另行同意。
 
-accounts、organizations、memberships、plans、subscriptions、licenses、activation_devices、revocations、webhook_events、audit_events 为服务端领域。支付卡数据由支付供应商处理，产品只存必要供应商引用。授权签名私钥使用受控密钥服务，管理员操作留审计且日志不存原 token。
-
-候选服务目标：月可用性99.5%、授权响应p95≤2s、备份RPO≤24h/RTO≤4h；I9 压测与恢复演练后才能承诺。离线令牌缓解短时故障，不代替服务器备份。监控签发失败率、更新失败率、队列延迟及 webhook 重复率。
-
-## 兼容和未来同步
-
-客户端声明能力和 protocol/API 范围，至少覆盖最近两个服务端 minor；不得仅比较版本字符串就忽略字段兼容。新增字段向后兼容、删改字段升 major；弃用提前两个 minor 通告。
-
-Future 云项目上传必须用户明确开启并展示资源范围。使用 revision/ETag 冲突检测和分支副本，禁止最后写入静默覆盖；离线更改不自动合并几何。私有部署可考虑 Docker Compose，但依赖与备份由独立版本设计和评审后纳入范围。
+[返回规划](roadmap.md)

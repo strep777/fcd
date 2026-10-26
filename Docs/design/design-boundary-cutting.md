@@ -1,80 +1,65 @@
-# Cutting from material boundaries and user seams
+# 材料边界、结构缝与版片展开
 
-The desktop defaults to the `design` partition strategy. Material boundaries and saved user cut lines define the initial domains. Anatomical region names remain provenance; mesh face counts and normal-angle thresholds do not define panels in this strategy. The `mesh` strategy remains available for compatibility.
+核对日期：2026-10-26。当前主路线是 `design` 分区，旧 `mesh` 策略用于兼容和其他入口。本文以当前代码为准，替换旧运行记录；历史性能和截图不作为当前验收结果。
 
-## Geometry pipeline
+## 输入与材料语义
 
-1. Normalize each marking fragment using the renderer's even-odd fill rule, then resolve visible layers on each original model triangle. Subtract occluded layers and union equal colors. Overlapping independent markings are not XORed. Union all occupied colors before taking the base-material complement, retaining genuine holes.
-2. Use a common clipping-grid origin for related barycentric operations. Verify each color union against its mutually exclusive visible layers, the occupied union against the independent sum of colors, and the colored-plus-base area against the original triangle. A failed face can retry the complete Boolean pipeline on another grid only within a 1e-6 mm displacement budget. Ordinary UV operations retain their local origin so large translated patterns still have usable numerical precision.
-3. Conform the material contours before triangulation, sharing stations on original model edges and internal material interfaces. Reinsert stations omitted by tessellation, and retain the original face and barycentric coordinates of every resulting triangle. Check material area and complete original-face coverage. Only floating-point-zero triangles may be omitted; a genuinely positive tiny material domain remains subject to the native geometry limits.
-4. Open saved user seams and necessary topology cuts. Planar dangling slits are extended to the outer boundary along existing mesh edges; a hole is not treated as an outer boundary. Existing complete cuts are not extended again.
-5. Unwrap each connected domain. Try measured curvature darts and balanced ARAP before introducing independent panels. Dart trials use the complete domain regardless of tessellation density, with at most four proposals and a 12-second budget checked between trials. A native solve already in progress still follows its worker deadline. Further partitions are justified by failed topology, distortion, or manufacturing checks. Continuous sections can cross triangle interiors. Nonplanar domains also test area-weighted principal directions, allowing longitudinal sections on posed limbs rather than only world-axis slices; their shared attempt budget scales with the initial input size, bounded between 32 and 256. Manufacturing repair retains unchanged solved charts. Rejected chart unions can be reused across repair passes only while their face, vertex-coordinate and material-region identity remains unchanged.
-6. Use the preliminary UV coordinates as a validated seed for a seam-constrained solve. Every boundary edge, including holes, is constrained to its original three-dimensional length. Remaining failures split along existing mesh edges; this final phase does not refine already solved neighbours. Preliminary merging and a second seam-constrained merge each receive their own 30-second search budget. The latter re-tests unions after seam calibration; initial ARAP failures do not permanently retain redundant sewing divisions. Already solved panels remain valid when this optional search stops; all mandatory quality checks still run.
-7. Validate actual manufacturing outlines and allowances. Store the resulting cuts with exact original-model provenance, geometry hashes, and separate reasons for additional seams. Confirming the candidate creates the cutting-library archive.
+输入包含当前毫米表面、已保存且启用的用户裁线、花纹片段、制作方式、材料色板、制版范围及展开选项。花纹还需通过来源、模型版本、手工状态和审阅检查。`detail` 保留为印绘／贴花图案，`sewn` 才形成缝制材料域。
 
-## Acceptance constraints
+[designMaterials](../../apps/desktop/main/design-materials.ts) 解析当前及相关历史色板；[resolveDesignTiles](../../apps/desktop/main/design-cuts.ts) 在每个原始三角面上处理可见材料。图层遮挡按显示顺序解决，独立花纹互相重叠不能整体 XOR。同色可见区域合并；底料是占用区域的补集，明确同源的白色毛料和白色底料可作为同一种材料处理。
 
-Every accepted design report must satisfy maximum area error 15%, maximum edge error 10%, and maximum combined distortion 15%. A percentile warning can still require review even when all hard limits pass. The 500-piece ceiling remains in force.
+面积复核分别比较各色并集与互斥可见层之和、全部占用区域与各色面积之和，以及颜色加底料与原面。只用一个并集和它自己的补集相加，不足以检测该并集本身是否错误。
 
-New `lscm-arap-seamed-1` candidates also require each boundary segment's length error to be at most 0.05%, and the sum of absolute boundary length errors of each panel to be at most 0.25 mm. Opposite signs cannot cancel. Acceptance independently recomputes these limits from original-face barycentric coordinates, rejects duplicate or reversed triangles, checks every face's physical distortion, and verifies that exported outlines cover exactly the finite trim boundary within the declared numerical tolerance. A modified report alone cannot authorize a stretched outline. Older saved algorithm versions remain readable; their existing acceptance behaviour is retained.
+## 从边界到细分网格
 
-Numerical canonicalization is restricted to sub-micrometre coordinates, with displacement, signed-area, per-color and original-face checks. Manufacturing outline normalization can remove a zero-area retrace; that is distinct from changing source artwork or smoothing a visible design. The exact mapped triangle data remains available for assembly and material accounting.
+1. 每面相关布尔运算使用一致的局部网格原点。不一致的面可尝试其他精度网格，但物理位移预算不超过 `1e-6 mm`。
+2. [triangulateMaterialTiles](../../packages/surface/material-tiles.ts) 共享原网格边和材料边的采样站点，再三角化，避免两侧出现不同接点。
+3. 每个临时小三角形保存原面 ID 和三个重心坐标。再细分时继续合成来源，不能只记父临时面的 ID。
+4. 保持材料面积、原面覆盖、方向和孔洞。不能删除真实小材料岛来降低片数，也不能把共享边拟合裂缝当成合法底料缝。
 
-The source extractor also shares each material boundary between its two owners. Independent fits can create thin gaps which correctly become base-material domains during cutting; those defects must be repaired in the source network, rather than hidden by erasing small panels or recoloring the model.
+这一步形成求解网格，不覆盖用户原始模型。持久化版片通过 `Binding.trim` 回指原模型，见[数据契约](data-contracts.md)。
 
-Mesh and UV validity use propagated coordinate-subtraction and determinant error bounds, rather than an absolute physical triangle-area cutoff. This distinction matters when a normal model triangle is subdivided into small, well-shaped material faces. Direction must remain numerically resolvable, and final physical area/edge distortion is still measured for every face. The 2D manufacturing area check applies the same principle to a translated polygon fan, including signed cancellation and summation error; short-edge and self-intersection checks remain separate.
+## 裁线与结构缝
 
-The numerical motivation is described in [Shewchuk's robust geometric predicates](https://www.cs.cmu.edu/~quake/robust.html): determinant signs near zero require roundoff-aware treatment. This implementation uses conservative error bounds and rejects unresolved geometry; it does not implement the paper's full adaptive exact-arithmetic algorithm.
+新曲面锚定裁线保存世界坐标控制点，按相邻锚点和局部法向在曲面上连接。视角变化不重新投影已落点；旧版无 `surfaceAnchored` 的裁线保留原投影语义。分叉、重走、断开或落到无关表面的路径应拒绝，不能跳跃连接。
 
-The pipeline must fail without changing the project when geometry cannot meet its constraints. An empty result, an erased hole, duplicated coverage, or a failed material-area check is not a successful repair.
+[garmentSections](../../packages/surface/garment-sections.ts) 对生成物种模型提供几何前后分缝及部分关节截面；一体填充衣身跳过不需要的脚踝、手腕等分离缝。外部导入网格不自动获得同样规则。这里存在模板先验，不能写成完全不使用部位结构。
 
-Every cut-preview task has a 60-second deadline, including uncolored legacy mesh cuts. Individual solver deadlines, memory limits, cancellation of worker threads and child processes, and atomic candidate publication remain in force. A deadline ends the task as a failure; it does not publish a partial candidate or certify performance. Ordinary projection tasks retain their two-minute deadline.
+已保存用户缝和锁定约束必须保留。自动补缝分别记录拓扑、失真、制造原因。试探切缝仅在原面邻接、材料相同、锁定边和重算质量全部允许时可合回。坐标重合不等于原本属于同一个网格顶点，不能误焊接有意断开的导入网格边。
 
-The native stream reuses only the conformal initialization of the last identical mesh across ARAP retries. Vertex coordinates, IDs, face ordering and material regions must match exactly. The cache is limited to 200,000 UV coordinates and is discarded with the task. Requested ARAP iterations and all final geometry checks still run. Manufacturing checks reuse the same serial native stream instead of repeatedly starting native processes.
+## 展开与修复
 
-## Assembly and editing
+[unwrapSurface](../../apps/desktop/main/surface.ts) 的 design 路线按材料连通域处理，组织平面解析结果、可验证初值、原生 LSCM／ARAP、曲率省道与连续截面。失败后继续分割，再校准接缝长度、尝试合并及制造修复。具体路线由孔洞、曲率、锁定边、错误和预算决定，不是每个输入都走同一顺序。
 
-New surface-anchored pen and brush paths store world-space control points. Consecutive points follow a connected surface section through the anchors and their local normals; triangle intersections become barycentric cuts. Camera changes do not reproject these paths. Legacy lines without `surfaceAnchored` retain their original planar projection. A disconnected or ambiguous section fails instead of jumping to an unrelated sheet.
+连续截面可以穿过三角面内部，主轴与物理面积参与选择，避免所有缝都沿原网格台阶。合并使用 [merge-design-charts.ts](../../packages/surface/merge-design-charts.ts)、[partial-chart-join.ts](../../packages/surface/partial-chart-join.ts) 等；接合初值仍需真实求解和全部验证。
 
-Completed brush strokes fit their outer boundary to bounded cubic controls; holes remain exact and fitting is rejected near narrow hole bridges or invalid topology. Raw pointer samples are transient. Surface paint fitting reserves a 0.25 mm per-edit budget for contour approximation; freehand cut-line reduction uses a 0.5 mm world-space tolerance, independent of viewport zoom. The cutting workspace exposes area paint separately from freehand sewing lines.
+窄片、孔洞和缝份失败由 [panel-neck.ts](../../packages/surface/panel-neck.ts)、[manufacturing-section.ts](../../packages/surface/manufacturing-section.ts) 及制造探针处理。已通过邻片可复用，改变输入、种子或材料身份的域重新计算。修复最多 12 轮；阶段搜索预算和整体超时独立，见[算法总览](algorithm-pipeline.md)。
 
-Opening a saved surface-painted polygon in the node editor prepares the same bounded compact contour as a draft. After cut acceptance or restoration, the editor follows the archive marking ID and source fingerprint to identify the original paint, including repeated archives. Missing, cyclic or mismatched provenance keeps the original contour. Cancellation preserves the saved polygon and its dependencies; confirmation uses the existing marking edit transaction. Existing cubic and spline contours are not fitted again, and reference-sourced markings retain their source editing path.
+## 候选准入
 
-Attached markings support `Ctrl+T` resize and rotation handles with synchronized numeric fields. `Enter` commits the edit and `Esc` discards the draft. A symmetric brush stroke saves and undoes both sides in one transaction; correspondence failures still require review.
+| 检查 | 当前要求 |
+| --- | --- |
+| 原面覆盖 | 保留所选范围内准确原面片段，无重复、遗漏和反向三角形 |
+| 失真 | 每面面积误差 ≤15%，边长误差 ≤10%，综合失真 ≤15%；P95 >5% 仍需审阅 |
+| 接缝 | 新 `lscm-arap-seamed-1` 路线单段相对误差 ≤0.05%，每片绝对误差总和 ≤0.25 mm |
+| 平面有效性 | 无翻转、面间重叠、非法轮廓自交，保留真实孔洞 |
+| 制造轮廓 | 外边界和孔洞与 trim 边界一致；数值规范化不能改动可见设计 |
+| 制造几何 | 缝份偏移、剪口和输出轮廓无阻断性问题 |
+| 资源 | 不超过片数、节点、网格及输出预算 |
+| 状态 | 来源哈希、修订、花纹依赖、制作方式及审阅仍匹配 |
 
-Node and transform gestures capture the displayed surface handle, camera and screen scale at pointer-down. Displacements use a parallel plane through that handle, preserving the grab offset under perspective. Near a silhouette, only the observable motion is retained; this avoids unbounded movement when the stored contour frame faces sideways. Visible handles take priority over navigation, and losing pointer capture rolls back the unfinished gesture. Removing a marking, changing projects or changing model topology clears its draft before another source can be attached in the same tab.
+接受时独立重算原面重心坐标下的物理度量，不能只信候选报告。旧算法版本可读，但不能标成满足新接缝约束。失败、取消、超时或来源变化都不能将未完成结果写成已采用裁片。
 
-When editing an attached contour, node handles are displayed only where the current camera can see their surface positions. Occluded nodes retain their geometry and original indices; rotating the camera can reveal them. Hiding a handle never removes a node or changes the saved contour. New drawing-plane drafts retain their existing controls.
+## 确认、编辑与回看
 
-Before accepting an unwrap candidate, the workspace displays actual UV-island boundaries on the original model at 50% opacity. Fractional material boundaries use trim barycentric provenance. Saved seams, section previews and candidate seams are clipped against the opaque model, including partial occlusion and perspective depth crossings, so back seams do not show through front surfaces. This preview does not commit the candidate or bypass its existing input-hash and review checks.
+计算结果先进入候选状态，确认后以事务保存裁片、绑定、花纹及裁切库快照。修改当前状态不回写历史。更改花纹、模型或版片几何会影响依赖；精确细分可保留原本匹配的绑定，但不能复活已失效依赖或自动批准推断。
 
-Trimmed piece colors use the same exact barycentric fragments in GPU and Canvas previews. A partial binding never paints its whole original triangle. Mapping drafts show the current marking fragments without old trimmed material underneath; stale or inactive bindings also cannot supply selected-piece overlays. The model view supports zoom up to 3200% for small contour edits without changing physical dimensions.
+二维选片可在三维显示真实 trim 区域。拼接页按已保存版片还原，缺片应显示缺口。候选和当前结果的边界、材质及缝份分别读取，不能混用上一轮覆盖层。
 
-The cutting workspace's 2D preview focuses on a selected piece and retains all pieces in the picker. Selecting all pieces restores the overview and its combined dimensions. Screen outline width remains readable when zoomed out; these display changes do not alter geometry, millimetre dimensions or export scale.
+曲面画笔保存一笔操作并生成有界精简轮廓，原始指针采样不等于裁线节点。节点、缩放和旋转在确认前为草稿；丢失捕获、取消、换项目或源对象失效时需清理或回滚。入口见 [surface-marking-edit.ts](../../apps/desktop/main/surface-marking-edit.ts)、[SurfacePanel.vue](../../apps/desktop/src/SurfacePanel.vue)。
 
-The separate assembly tab reconstructs the actual stored cut triangles. Missing or stale pieces leave real gaps. It validates model, marking and piece geometry before displaying the result; it does not substitute the original full model for missing cuts. It reconstructs saved geometry, not cloth tension or sewing deformation.
+## 验证与剩余目标
 
-The manufacturing overview lays out all selected outlines for the screen independently of actual-size print pagination. Pan and drag coalesce pointer movement into frame updates; a completed edit creates one undoable transaction.
+现有测试覆盖颜色接触、孔洞、省道、覆盖、局部合并、历史材料依赖及制造偏移，入口见[测试索引](../../tests/README.md)和[验收矩阵](../planning/acceptance-matrix.md)。本轮未执行这些测试，也未沿用旧文档中的单次片数或耗时。
 
-## Regression coverage
-
-Focused fixtures cover a tessellation-independent four-panel diamond, explicit seams, a developable cylinder, curvature darts, planar holes and dangling slits, occluded color layers, touching colors, tiny material islands, numerical retraces, full original-face coverage, archive restoration, and stale or missing assembly pieces. Runtime results are written to test-results/.
-
-As of 2026-10-18, focused component tests and a rebuilt hidden-desktop check pass for 2D selection focus, readable outlines and zoom-independent dimensions. The desktop check also measures every displayed outline against the SVG and its clipping ancestors in compact, expanded and refitted views.
-
-An earlier 2026-10-18 validation used a saved project with 98 source entries, one attached marking and three saved user seams. Its 8,802-face candidate contained 168 pieces and took about 327 seconds. This is historical evidence, not the current performance result; it predates the seam-length constraints and 60-second task deadline. Current measurements and independent sewing checks are recorded under `test-results/current-repair/`.
-
-The larger continuous-section budget substantially reduces leg zigzags, and depth clipping removes back seams from front views. Local angular seams remain near the crotch, inner thighs and ankles; hands and feet still have dense boundaries. Passing area, distortion and coverage checks does not establish natural seam placement, success on every model, a minimum panel count or suitability for physical sewing. Candidates still require inspection and can be recomputed after adding deliberate sewing lines.
-
-For a short visual check after rebuilding, reuse an already accepted project in an isolated `.local/tests/` directory:
-
-```powershell
-$env:FPCAD_INSPECT_DATA_DIR = '<absolute path to the existing isolated test project>'
-node scripts/test-desktop.mjs --jobs 1 current-cutting-visual-inspect
-```
-
-This hidden-window check reads saved cut geometry without recomputing the model. It checks the overview, a colored piece, outline visibility and unchanged millimetre dimensions while zooming, then writes screenshots and a report under `test-results/current-cutting/`. It requires an isolated test directory and does not use the user workspace as test storage.
-
-### Remaining garment-layout limitation
-
-Principal-axis sections, darts and final chart merging reduce fragmentation, but do not yet constitute a garment seam-layout optimizer. The reported 8,534-face model produced 109 panels with the default UI options; coverage and current strain checks passed, while a roughly 11.5 mm² finger panel and stair-stepped boundaries remained. Passing geometric validation must not be reported as matching the reference garment layouts. Further work must optimize shared seam paths and retain material boundaries, full surface correspondence and sewing-length checks together.
+仍需按实物目标检查连续长缝、可操作片形、左右对称、胯部和填充腿分片。几何合格不等于裁线与参考图同样自然，也不代表片数最少或实物合身。

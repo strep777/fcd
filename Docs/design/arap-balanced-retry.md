@@ -1,52 +1,52 @@
-# Optional balanced ARAP retry
+# ARAP、平衡重试与接缝长度约束
 
-The ordinary `arap` solve is unchanged. The internal worker method
-`arap-balanced` first runs the same ordinary solve, then retries only if
-at least one face exceeds an existing hard maximum. It does not repair an
-invalid initial chart or supply new topology cuts.
+核对日期：2026-10-26。本文描述 [arap.rs](../../crates/geometry-core/src/arap.rs)、[surface.rs](../../crates/geometry-core/src/surface.rs) 及当前调用链；本轮未运行数值测试。
 
-For each ordinary face, let `r` be the maximum of area error / 0.15,
-edge error / 0.10, and combined distortion / 0.15. Up to six retry passes
-increase weights for failing faces by `max(1.5, r^4)`, promoting tiny faces
-to at least the median rest-area influence and capping weights at 1,000,000.
-Weights are fixed within each pass. Rest area times this weight is used
-consistently in the FEM normal equations, local/global objective,
-right-hand side and line search. The best measured maximum distortion is
-retained between passes. These bounded proposals do not guarantee that a
-curved panel can be flattened without seams.
+## 求解目标
 
-The single translation pin and positive-orientation line search remain.
-The retry replaces the ordinary geometry only if it converged, every face
-passes all three hard maxima, and the complete chart has no triangle overlap.
-A failed solve, rejected candidate or overlap-check error retains the ordinary
-geometry and report. A passing ordinary solve skips the retry entirely.
-Existing p95 soft review warnings remain. Retry energy values describe the
-fixed weighted objective and must not be compared to unweighted energy as
-proof of manufacturing quality.
+ARAP 用局部旋转与全局坐标交替更新，使每个三角面的二维映射尽量接近三维局部形状。可用概念式 `Σ A_f·w_f·||J_f-R_f||²` 理解面积加权目标，其中 `J_f` 是局部变换、`R_f` 是旋转，`w_f` 是重试时固定的面权重。实际计算使用元素梯度和稀疏方程，这个概念式不能代替源码实现规范。
 
-Within one native stream, retries on an exactly matching mesh reuse the
-unmodified LSCM initialization. An explicit `initial_uv` seed may separately
-reuse a previous validated chart. The seed must contain finite coordinates
-for every required vertex, with no duplicated IDs, inverted triangles or
-overlap. A malformed seed fails rather than silently falling back.
-Coordinate, face, region or ordering changes invalidate the bounded cache;
-an independent EOF request always starts with an empty cache. Cached and
-uncached requests must return identical geometry and reports.
+面积加权可能弱化很小的材料交界三角形，即使平均误差低，仍可能有局部面不满足制造阈值。因此调用方同时保留最大值、逐面检查、重叠检查和必要分片，不能只凭能量下降接受结果。
 
-Implementation: crates/geometry-core/src/arap.rs and surface.rs. Regression fixtures and native tests cover passing ordinary solves, balanced retry, rejected candidates and unchanged serialized results.
+## 初始化与方法
 
-## Seam-constrained refinement
+| 方法 | 当前用途 | 不能推出的结论 |
+| --- | --- | --- |
+| `lscm` | 保角初始化或验证给定初值；恢复物理尺度后计算质量 | 保角不代表保边长或可缝制 |
+| `arap` | 普通局部／全局优化 | 收敛不代表硬阈值通过 |
+| `arap-balanced` | 对越过硬上限的面增加权重并重试 | 不生成完整服装结构缝，也不保证无需切开 |
+| `arap-seamed` | 加入边界长度残差，优化净样边 | 不自动建立装配工艺或布料物理模型 |
 
-The internal `arap-seamed` method adds scalar boundary-length residuals to the
-ARAP objective. Its Gauss–Newton step uses each edge's current unit direction,
-and a positive-orientation backtracking line search rejects increasing energy.
-One translation anchor remains; a second fixed anchor would incorrectly
-preserve the seed's scale. Coordinates and rest lengths are conditioned
-together before solving and restored to millimetres afterward.
+显式 `initial_uv` 必须包含所有必需顶点的有限坐标，并通过 ID、方向和重叠检查。错误初值失败，不静默当成另一个输入。普通 LSCM 初值若翻转或重叠，当前对单边界域可尝试凸盘初始化；多边界含孔域不能用填满外环的方式擦掉孔洞。
 
-Boundary stiffness is proportional to total weighted rest area and inversely
-proportional to edge count and squared rest length. Thus small seam segments
-retain a relative-length constraint. At most two balancing passes are used
-for this method. Solver convergence is not manufacturing approval: the caller
-checks physical boundary lengths, all triangle distortion limits and overlap,
-and splits a chart if those checks fail.
+`arap-seamed` 收到局部失真过大的初值时，先执行普通松弛和必要平衡，再判断能否开始接缝校准。拼合得到的初值也不能跳过这一步。
+
+## 平衡重试
+
+`refine_balanced` 对每面计算 `r = max(ea/0.15, ee/0.10, d/0.15)`。越界面的权重乘以 `max(1.5, r⁴)`，影响至少提升到中位面面积的量级，权重封顶 1,000,000。最多尝试 `min(6, limit)` 轮；每轮内权重固定，用同一个加权目标构造方程和评价步长。
+
+重试保存测得最大违规比更低的状态。`surface.rs` 只在候选所有硬质量比合格且无面间重叠时替换普通结果；重试失败或仍不合格则保留原结果，让上层继续分片或失败。过程报告与制造准入分开，不能用 `energyAfter < energyBefore` 或单个报告字段作为通过凭据。
+
+## 边界长度求解
+
+`refine_seamed` 加入 `Σ k_e·(||u_b-u_a||-L_e)²`，约束标量长度而非边方向。边可以转动，净样边长度仍向原三维长度靠近。Gauss–Newton 线性化后使用回溯步长，拒绝方向翻转及不合适的更新。
+
+保留一个平移锚点；固定第二点可能锁住初值尺度误差。坐标和目标长度一起归一化，再恢复毫米。边界权重与总面积、边数、边长有关，短边也受到相对长度限制。
+
+当前限制由 [design-partition.ts](../../packages/surface/design-partition.ts) 检查：面积最大误差 15%、边长最大误差 10%、综合失真最大值 15%、边界单段相对误差 0.05%、每片边界绝对误差之和 0.25 mm，孔洞也计入。无法达到要求时补缝、分片或失败，不能扩大阈值掩盖结果。指标定义见[算法总览](algorithm-pipeline.md)。
+
+## 线性系统与数值尺度
+
+当前 ARAP 预先组装固定的稀疏刚度矩阵，局部／全局迭代复用它。以对角线平方根构造 `D`，解变换后的 `A′ = D⁻¹ A D⁻¹`、`b′ = D⁻¹ b`，再由 `x = D⁻¹ y` 恢复坐标。直接求解和后续共轭梯度残差修正使用同一套均衡方程，避免很小的交界三角形放大数值尺度差异。
+
+[sparse.rs](../../crates/geometry-core/src/sparse.rs) 对分解规模、填充和工作量设限，使用消元排序，部分求解可复用符号顺序。这里调整的是等价方程的数值求解，不改变毫米几何、材料归属、物理质量阈值或任务时限。仍然不收敛时返回失败，不能凭求解速度或能量下降替代制造检查。
+
+## 两层缓存
+
+原生 `ConformalCache` 复用同一网格的未改动 LSCM 初始化，最多累计 200,000 个 UV 坐标，网格身份改变即失效。独立请求与长驻流的缓存生命周期不同。
+
+Node 调度层另有 [native-solve-cache.ts](../../apps/desktop/main/native-solve-cache.ts)：按有序坐标、拓扑、区域分组、求解方法、迭代和初值形成身份；仅 UUID 重命名可在等价索引结构下复用，并把报告映射回当前 ID。可重复的几何失败也可能被缓存。缓存不省略最终质量与来源校验，不允许把旧候选直接当成当前结果。
+
+## 回归要求
+
+需比较缓存／无缓存、不同 ID／相同拓扑、有效与无效初值、普通成功与重试成功、失败回退、孔洞、短边和共享边长。算法结论由真实 Rust 工作进程和独立量测支持。现有测试可从 [Rust 核心](../../crates/geometry-core/src/arap.rs)、[native-solve-cache-independent](../../tests/integration/native-solve-cache-independent.test.ts)、[seamed-predeformed-seed-independent](../../tests/integration/seamed-predeformed-seed-independent.test.ts) 定位；列出测试不表示本轮执行通过。
