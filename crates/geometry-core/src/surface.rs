@@ -122,7 +122,7 @@ fn overlapping(a: [usize; 3], b: [usize; 3], uv: &[[f64; 2]]) -> bool {
     false
 }
 /// Conservative sweep broad phase; every intersecting box still receives exact triangle checks.
-fn has_overlap(faces: &[[usize; 3]], uv: &[[f64; 2]]) -> Result<bool, &'static str> {
+pub(crate) fn has_overlap(faces: &[[usize; 3]], uv: &[[f64; 2]]) -> Result<bool, &'static str> {
     let mut boxes: Vec<_> = faces
         .iter()
         .enumerate()

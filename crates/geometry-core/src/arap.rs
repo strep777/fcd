@@ -39,6 +39,7 @@ fn refine_seamed(
     uv: &mut Vec<[f64; 2]>,
     anchor: usize,
     limit: usize,
+    ready: Option<&dyn Fn(&[[f64; 2]]) -> bool>,
 ) -> Result<ArapReport, &'static str> {
     use std::collections::BTreeMap;
     let free: Vec<_> = (0..uv.len()).filter(|&i| i != anchor).collect();
@@ -207,7 +208,7 @@ fn refine_seamed(
             });
         *uv = trial;
         after = value;
-        if converged {
+        if converged || ready.is_some_and(|ready| ready(uv)) {
             break;
         }
     }
@@ -481,6 +482,7 @@ fn refine_with_weights(
         anchors,
         limit,
         weights,
+        scale,
     )?;
     if report.iterations > 0 {
         *uv = local
@@ -498,6 +500,7 @@ fn refine_conditioned(
     anchors: [usize; 2],
     limit: usize,
     weights: Option<&[f64]>,
+    physical_scale: f64,
 ) -> Result<ArapReport, &'static str> {
     let mut elements = vec![];
     for (face_index, &indices) in faces.iter().enumerate() {
@@ -573,7 +576,30 @@ fn refine_conditioned(
         }
     }
     if !springs.is_empty() {
-        return refine_seamed(&elements, &springs, faces, uv, anchors[0], limit);
+        // A balanced retry searches for a manufacturable chart, not further
+        // energy reduction after every acceptance constraint already passes.
+        // Half the seam budget on each bank also bounds their pairwise mismatch.
+        let ready = |points: &[[f64; 2]]| {
+            let mut absolute = 0.;
+            for spring in &springs {
+                let length = (points[spring.a][0] - points[spring.b][0])
+                    .hypot(points[spring.a][1] - points[spring.b][1]);
+                let error = (length - spring.length).abs();
+                if !error.is_finite() || error / spring.length > 0.00025 - 1e-9 {
+                    return false;
+                }
+                absolute += error;
+            }
+            absolute * physical_scale <= 0.125 - 1e-8
+                && quality_ratios(mesh, globals, faces, points)
+                    .iter()
+                    .all(|&r| r <= 1. - 1e-8)
+                && matches!(crate::surface::has_overlap(faces, points), Ok(false))
+        };
+        return refine_seamed(
+            &elements, &springs, faces, uv, anchors[0], limit,
+            if weights.is_some() { Some(&ready) } else { None },
+        );
     }
     let objective = |points: &[[f64; 2]]| energy(&elements, points);
     let before = objective(uv);
@@ -754,6 +780,152 @@ fn refine_conditioned(
 mod tests {
     use super::*;
     use crate::surface::{Face, Vertex};
+
+    fn opened_cone_for_quality(scale: f64) -> (Mesh, Vec<[usize; 3]>, Vec<[f64; 2]>) {
+        let count = 8;
+        let radius = 100. * scale;
+        let height = 50. * scale;
+        let side = radius.hypot(height);
+        let chord = 2. * radius * (std::f64::consts::PI / count as f64).sin();
+        let sector_angle = 2. * (chord / (2. * side)).asin();
+        let mut vertices = vec![Vertex { id: "tip".into(), x_mm: 0., y_mm: 0., z_mm: height }];
+        let mut seed = vec![[0., 0.]];
+        // Distinct first/last vertex identities are the two banks of one
+        // physical cone slit. The ideal developed angles are analytic.
+        for i in 0..=count {
+            let angle = i as f64 * 2. * std::f64::consts::PI / count as f64;
+            vertices.push(Vertex { id: i.to_string(), x_mm: radius * angle.cos(), y_mm: radius * angle.sin(), z_mm: 0. });
+            seed.push([0.95 * side * (i as f64 * sector_angle).cos(), 0.95 * side * (i as f64 * sector_angle).sin()]);
+        }
+        let faces: Vec<_> = (0..count).map(|i| [0, i + 1, i + 2]).collect();
+        let mesh = Mesh {
+            repair_cuts: false, initial_uv: None, method: "arap-seamed".into(), iterations: Some(100), vertices,
+            faces: faces.iter().enumerate().map(|(i, face)| Face {
+                id: i.to_string(), vertices: face.map(|index| if index == 0 { "tip".into() } else { (index - 1).to_string() }), region: "cone".into(),
+            }).collect(),
+        };
+        (mesh, faces, seed)
+    }
+
+    fn assert_independent_ready_quality(mesh: &Mesh, faces: &[[usize; 3]], uv: &[[f64; 2]]) {
+        let mut edges = std::collections::BTreeMap::new();
+        let length3 = |a: usize, b: usize| {
+            let p = &mesh.vertices[a];let q = &mesh.vertices[b];
+            (p.x_mm - q.x_mm).hypot(p.y_mm - q.y_mm).hypot(p.z_mm - q.z_mm)
+        };
+        for face in faces {
+            let world = face.map(|i| &mesh.vertices[i]);
+            let p = face.map(|i| uv[i]);
+            assert!(p.iter().flatten().all(|x| x.is_finite()));
+            let u = [world[1].x_mm-world[0].x_mm, world[1].y_mm-world[0].y_mm, world[1].z_mm-world[0].z_mm];
+            let v = [world[2].x_mm-world[0].x_mm, world[2].y_mm-world[0].y_mm, world[2].z_mm-world[0].z_mm];
+            let physical_area = (u[1]*v[2]-u[2]*v[1]).hypot(u[2]*v[0]-u[0]*v[2]).hypot(u[0]*v[1]-u[1]*v[0])/2.;
+            let flat_area = ((p[1][0]-p[0][0])*(p[2][1]-p[0][1])-(p[1][1]-p[0][1])*(p[2][0]-p[0][0]))/2.;
+            assert!(flat_area > 0. && physical_area > 0.);
+            let area_error = (flat_area/physical_area-1.).abs();
+            let lengths3: [f64; 3] = std::array::from_fn(|i| length3(face[i], face[(i+1)%3]));
+            let lengths2: [f64; 3] = std::array::from_fn(|i| (p[i][0]-p[(i+1)%3][0]).hypot(p[i][1]-p[(i+1)%3][1]));
+            let edge_error = (0..3).map(|i| (lengths2[i]/lengths3[i]-1.).abs()).fold(0_f64,f64::max);
+            let angle = |a: f64,b: f64,c: f64| ((a*a+b*b-c*c)/(2.*a*b)).clamp(-1.,1.).acos();
+            let angle_error = (0..3).map(|i| (angle(lengths3[i],lengths3[(i+1)%3],lengths3[(i+2)%3])-angle(lengths2[i],lengths2[(i+1)%3],lengths2[(i+2)%3])).abs()/std::f64::consts::PI).fold(0_f64,f64::max);
+            assert!(area_error <= 0.15*(1.-1e-8));
+            assert!(edge_error <= 0.10*(1.-1e-8));
+            assert!(0.4*area_error+0.4*edge_error+0.2*angle_error <= 0.15*(1.-1e-8));
+            for i in 0..3 { let a=face[i];let b=face[(i+1)%3];*edges.entry((a.min(b),a.max(b))).or_insert(0)+=1; }
+        }
+        let mut total_absolute=0.;
+        for ((a,b),owners) in edges {
+            if owners != 1 { continue; }
+            let physical=length3(a,b);let flat=(uv[a][0]-uv[b][0]).hypot(uv[a][1]-uv[b][1]);
+            let error=(flat-physical).abs();
+            assert!(error/physical <= 0.00025-1e-9);total_absolute+=error;
+        }
+        assert!(total_absolute <= 0.125-1e-8, "physical boundary error {total_absolute} mm");
+        // This analytic sector must remain injective. Clip every pair of
+        // positively oriented triangles in unit coordinates; adjacent shared
+        // edges have zero intersection area and are not special-cased.
+        let scale=uv.iter().map(|p| p[0].hypot(p[1])).fold(0_f64,f64::max);
+        let local: Vec<_>=uv.iter().map(|p| [p[0]/scale,p[1]/scale]).collect();
+        for i in 0..faces.len() { for j in i+1..faces.len() {
+            let mut polygon: Vec<_>=faces[i].iter().map(|&v| local[v]).collect();
+            let clip=faces[j].map(|v| local[v]);
+            for edge in 0..3 {
+                if polygon.is_empty() { break; }
+                let a=clip[edge];let b=clip[(edge+1)%3];
+                let side=|p: [f64;2]| (b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);
+                let mut output=Vec::new();let mut previous=*polygon.last().unwrap();let mut before=side(previous);
+                for point in polygon { let after=side(point);if (before>=0.)!=(after>=0.) { let t=before/(before-after);output.push([previous[0]+t*(point[0]-previous[0]),previous[1]+t*(point[1]-previous[1])]); }if after>=0. { output.push(point); }previous=point;before=after; }
+                polygon=output;
+            }
+            let area: f64=(0..polygon.len()).map(|k| { let a=polygon[k];let b=polygon[(k+1)%polygon.len()];a[0]*b[1]-a[1]*b[0] }).sum();
+            assert!(area.abs() <= 1e-10, "overlap of source faces {i} and {j}");
+        } }
+    }
+
+    #[test]
+    fn balanced_seamed_quality_ready_preserves_both_slit_banks_at_physical_scales() {
+        for scale in [0.001,1.,1000.] {
+            let (mesh,faces,mut uv)=opened_cone_for_quality(scale);
+            let source: Vec<_>=mesh.vertices.iter().map(|v| (v.id.clone(),[v.x_mm,v.y_mm,v.z_mm])).collect();
+            let globals: Vec<_>=(0..mesh.vertices.len()).collect();
+            let report=refine_balanced(&mesh,&globals,&faces,&mut uv,[0,1],100).unwrap();
+            assert_independent_ready_quality(&mesh,&faces,&uv);
+            assert!(report.iterations < 100);
+            assert!(!report.converged, "meeting manufacturing quality must not claim energy convergence");
+            assert_eq!(mesh.vertices.iter().map(|v| (v.id.clone(),[v.x_mm,v.y_mm,v.z_mm])).collect::<Vec<_>>(),source);
+        }
+    }
+
+    #[test]
+    fn quality_ready_does_not_shorten_ordinary_or_unseamed_balanced_energy_solves() {
+        let (mut mesh,faces,seed)=opened_cone_for_quality(1.);
+        let globals: Vec<_>=(0..mesh.vertices.len()).collect();
+        let mut early=seed.clone();
+        let early_report=refine_balanced(&mesh,&globals,&faces,&mut early,[0,1],100).unwrap();
+        let mut ordinary=seed.clone();
+        let ordinary_report=refine(&mesh,&globals,&faces,&mut ordinary,[0,1],100).unwrap();
+        assert!(ordinary_report.converged);
+        assert!(ordinary_report.iterations > early_report.iterations);
+        assert_independent_ready_quality(&mesh,&faces,&ordinary);
+        mesh.method="arap".into();
+        let mut unseamed=seed;
+        let report=refine_balanced(&mesh,&globals,&faces,&mut unseamed,[0,1],100).unwrap();
+        assert!(report.converged);
+        assert!(report.iterations > early_report.iterations);
+    }
+
+    #[test]
+    fn physical_half_bank_budget_prevents_scale_blind_early_quality_ready() {
+        let faces = [[0,1,4],[1,2,4],[2,3,4],[3,0,4]];
+        let mut reports = Vec::new();
+        for scale in [1.,1e6] {
+            let points = [[0.,0.,0.],[100.,0.,0.],[100.,100.,0.],[0.,100.,0.],[50.,50.,20.]];
+            let mesh = Mesh {
+                repair_cuts: false,initial_uv: None,method: "arap-seamed".into(),iterations: Some(100),
+                vertices: points.iter().enumerate().map(|(i,p)| Vertex {id:i.to_string(),x_mm:p[0]*scale,y_mm:p[1]*scale,z_mm:p[2]*scale}).collect(),
+                faces: faces.iter().enumerate().map(|(i,face)| Face {id:i.to_string(),vertices:face.map(|index|index.to_string()),region:"cap".into()}).collect(),
+            };
+            let mut uv: Vec<_>=points.iter().map(|p|[p[0]*scale*0.95,p[1]*scale*0.95]).collect();
+            let report=refine_balanced(&mesh,&[0,1,2,3,4],&faces,&mut uv,[0,1],100).unwrap();
+            let mut absolute=0.;
+            for i in 0..4 {
+                let j=(i+1)%4;let error=((uv[i][0]-uv[j][0]).hypot(uv[i][1]-uv[j][1])-100.*scale).abs();
+                assert!(error/(100.*scale) <= 0.00025-1e-9);absolute+=error;
+            }
+            if scale==1. {
+                assert_independent_ready_quality(&mesh,&faces,&uv);
+                assert!(!report.converged);
+            } else {
+                // Relative error alone is acceptable at both scales, but the
+                // same physical shape enlarged in mm exceeds the half-bank
+                // absolute budget. It must continue to energy convergence.
+                assert!(absolute > 0.125-1e-8);
+                assert!(report.converged);
+            }
+            reports.push(report);
+        }
+        assert!(reports[1].iterations > reports[0].iterations);
+    }
 
     #[test]
     fn initial_anchor_distance_is_not_a_material_constraint() {

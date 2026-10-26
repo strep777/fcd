@@ -2,6 +2,7 @@ import type {Surface,Marking} from '../schema/index';
 import {refineSurface,edgeKey,type Bary,type FaceCut,type Child} from './refine';
 import {completePlanarSeams} from './complete-planar-seams';
 import {garmentSections} from './garment-sections';
+import {geometricOpeningCuts} from './geometric-opening';
 export type MaterialFace={faceId:string;barycentric:[Bary,Bary,Bary];color:string};
 /** Compose a refined station with its original material triangle. Plane/edge
  * arithmetic can put an exact boundary station a few ulps outside [0, 1].
@@ -11,8 +12,7 @@ export function composeMaterialStation([u,v]:[number,number],parent:[Bary,Bary,B
  const weights=unit([1-(u+v)/1000,u/1000,v/1000]);
  return unit([0,1,2].map(k=>weights.reduce((sum,n,i)=>sum+n*parent[i][k],0)));
 }
-/** A proposed section is optional. Reject unsafe stations before changing any
- * provenance, so the solver can split along existing mesh edges instead. */
+/** Reject unsafe stations before changing any provenance. */
 export function refineMaterialProvenance(provenance:Map<string,MaterialFace>,children:Map<string,Child[]>){
  const next=new Map(provenance);
  for(const [parent,rows] of children){const source=provenance.get(parent);if(!source)throw Error('STALE_BINDING');
@@ -41,8 +41,22 @@ export function openMaterialMesh(source:Surface,provenance:Map<string,MaterialFa
  // material domains get additional sections only after a measured solve fails.
  if(allowTopologyCuts&&new Set([...provenance.values()].map(p=>p.color)).size<=1){const sections=garmentSections(source,newId);if(sections){const updated=refineMaterialProvenance(provenance,sections.children);if(updated){source=sections.surface;provenance=updated;}}}
  const mesh={...source,assembly:undefined,textures:undefined,textureFaces:undefined,cutLines:undefined,cutBaseConstraints:undefined,faces:source.faces.map(f=>({...f,region:'design:'+provenance.get(f.id)!.color}))};
- const completed=allowTopologyCuts?completePlanarSeams(mesh):{surface:mesh,seams:0},opened=openDesignSeams(completed.surface,newId),topology=necessaryTopologyCuts(opened,undefined,true),surface=allowTopologyCuts&&topology.edges.length?openDesignSeams({...opened,cutConstraints:topology.edges.map(e=>({...e,locked:true}))},newId):opened;
- return {surface,provenance,topologySeams:allowTopologyCuts?topology.seams+completed.seams:0,materialDomains:topology.domains};
+ const completion=allowTopologyCuts?completePlanarSeams(mesh):{surface:mesh,seams:0};
+ let completed={surface:mesh as Surface,seams:0};
+ if(completion.seams){
+  const existing=new Set((mesh.cutConstraints??[]).map(e=>edgeKey(e.a,e.b))),guides=(completion.surface.cutConstraints??[]).filter(e=>!existing.has(edgeKey(e.a,e.b))),paths=geometricOpeningCuts(mesh,guides);
+  if(paths.length)try{const refined=refineSurface(mesh,paths,newId),updated=refineMaterialProvenance(provenance,refined.children);if(updated){completed={surface:{...refined.surface,cutConstraints:[...(refined.surface.cutConstraints??[]),...[...refined.owned.values()].flat().map(e=>({...e,locked:true}))]},seams:completion.seams};provenance=updated;}}catch{/* Preserve original user seams if an extension cannot be refined. */}
+ }
+ const opened=openDesignSeams(completed.surface,newId),topology=necessaryTopologyCuts(opened,undefined,true);
+ let surface=opened,topologySeams=completed.seams;
+ if(allowTopologyCuts&&topology.edges.length){
+  const paths=geometricOpeningCuts(opened,topology.edges);
+  if(paths.length)try{
+   const refined=refineSurface(opened,paths,newId),updated=refineMaterialProvenance(provenance,refined.children),edges=[...refined.owned.values()].flat();
+   if(updated&&edges.length){surface=openDesignSeams({...refined.surface,cutConstraints:[...(refined.surface.cutConstraints??[]),...edges.map(e=>({...e,locked:true}))]},newId);provenance=updated;topologySeams+=topology.seams;}
+  }catch{/* Leave an unsafe proposal unopened for the measured chart solver. */}
+ }
+ return {surface,provenance,topologySeams,materialDomains:topology.domains};
 }
 
 /** Duplicate only the local vertex fans separated by a physical seam. A slit

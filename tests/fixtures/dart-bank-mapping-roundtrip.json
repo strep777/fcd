@@ -1,0 +1,262 @@
+{
+  "provenance": {
+    "inputSha256": "6398bf727604a8586c272a08ff63fd7c67a2e88784e2505e3dfa19a6af4d8a53",
+    "candidateSha256": "c500da32d8d3861e4480ba4249b30bcff27d467d23934587e3d1020033d9b6de",
+    "originalTriangleIndices": [
+      15,
+      17
+    ],
+    "observedUvErrorsMm": [
+      211.56411509801967,
+      214.61675348116233
+    ]
+  },
+  "surface": {
+    "id": "87e38f57-4c9f-4a4d-ad07-fe7b27b865ea",
+    "source": "species-template-1",
+    "topologyVersion": 2,
+    "vertices": [
+      {
+        "id": "bf8ab2af-3a85-45a1-9c5e-f0cdc4905e8c",
+        "xMm": -738.2052001953125,
+        "yMm": 1190.361083984375,
+        "zMm": -35.041290283203125
+      },
+      {
+        "id": "2cddec31-dddb-4a58-9d80-d5351ff23aa8",
+        "xMm": -759.615234375,
+        "yMm": 1178,
+        "zMm": -32.12129592895508
+      },
+      {
+        "id": "eb6f0c74-7fb0-44fd-a8ad-5744f3eba882",
+        "xMm": -756.4819946289062,
+        "yMm": 1172.572998046875,
+        "zMm": -31.504093170166016
+      },
+      {
+        "id": "5264633d-c792-47be-8f0e-ffbe06b54e8b",
+        "xMm": -734.7870483398438,
+        "yMm": 1184.4407958984375,
+        "zMm": -34.36798095703125
+      }
+    ],
+    "faces": [
+      {
+        "id": "b9c3fd8d-2ca5-4952-a8d8-104596956d24",
+        "vertices": [
+          "5264633d-c792-47be-8f0e-ffbe06b54e8b",
+          "eb6f0c74-7fb0-44fd-a8ad-5744f3eba882",
+          "2cddec31-dddb-4a58-9d80-d5351ff23aa8"
+        ],
+        "region": "arm-left"
+      },
+      {
+        "id": "2e91bca5-dbb4-429d-a67f-a83aedfacc24",
+        "vertices": [
+          "5264633d-c792-47be-8f0e-ffbe06b54e8b",
+          "2cddec31-dddb-4a58-9d80-d5351ff23aa8",
+          "bf8ab2af-3a85-45a1-9c5e-f0cdc4905e8c"
+        ],
+        "region": "arm-left"
+      }
+    ]
+  },
+  "pieceId": "13b63a09-ed8c-43c0-9022-01facac87feb",
+  "trim": {
+    "vertices": [
+      {
+        "id": "bf8ab2af-3a85-45a1-9c5e-f0cdc4905e8c",
+        "xMm": 1821.520849582802,
+        "yMm": 2269.817824826656
+      },
+      {
+        "id": "5264633d-c792-47be-8f0e-ffbe06b54e8b",
+        "xMm": 1902.7572851030084,
+        "yMm": 2461.2878121679987
+      },
+      {
+        "id": "eb6f0c74-7fb0-44fd-a8ad-5744f3eba882",
+        "xMm": 1921.7228656620468,
+        "yMm": 2445.1625526827725
+      },
+      {
+        "id": "2cddec31-dddb-4a58-9d80-d5351ff23aa8",
+        "xMm": 1846.2614073321793,
+        "yMm": 2267.2369177739315
+      },
+      {
+        "id": "49ea25ad-e613-4016-9ddd-f240cf47f7ca",
+        "xMm": 1820.5830794653477,
+        "yMm": 2263.02599352394
+      },
+      {
+        "id": "7dc55681-ca6d-42d3-b071-620ca8740e7e",
+        "xMm": 1845.394609309953,
+        "yMm": 2261
+      },
+      {
+        "id": "a0fb3d33-29d3-41f5-a67d-193de041a9b1",
+        "xMm": 1902.7572957921752,
+        "yMm": 2461.287806941209
+      },
+      {
+        "id": "98b86fb4-e7c9-486a-8b03-17fb1073062a",
+        "xMm": 1820.5830678863097,
+        "yMm": 2263.0259946620668
+      },
+      {
+        "id": "357e487d-495e-4e73-ad68-f078d978587f",
+        "xMm": 1902.75728692527,
+        "yMm": 2461.287814474299
+      }
+    ],
+    "triangles": [
+      {
+        "faceId": "b9c3fd8d-2ca5-4952-a8d8-104596956d24",
+        "vertices": [
+          "2cddec31-dddb-4a58-9d80-d5351ff23aa8",
+          "49ea25ad-e613-4016-9ddd-f240cf47f7ca",
+          "7dc55681-ca6d-42d3-b071-620ca8740e7e"
+        ],
+        "barycentric": [
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0.9999995326253711,
+            0,
+            4.673746288874625E-07
+          ],
+          [
+            0,
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "faceId": "b9c3fd8d-2ca5-4952-a8d8-104596956d24",
+        "vertices": [
+          "a0fb3d33-29d3-41f5-a67d-193de041a9b1",
+          "5264633d-c792-47be-8f0e-ffbe06b54e8b",
+          "eb6f0c74-7fb0-44fd-a8ad-5744f3eba882"
+        ],
+        "barycentric": [
+          [
+            0.9999995326253711,
+            0,
+            4.673746288874625E-07
+          ],
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "faceId": "2e91bca5-dbb4-429d-a67f-a83aedfacc24",
+        "vertices": [
+          "bf8ab2af-3a85-45a1-9c5e-f0cdc4905e8c",
+          "98b86fb4-e7c9-486a-8b03-17fb1073062a",
+          "49ea25ad-e613-4016-9ddd-f240cf47f7ca"
+        ],
+        "barycentric": [
+          [
+            0,
+            0,
+            1
+          ],
+          [
+            0.9999995715711045,
+            0,
+            4.2842889547145546E-07
+          ],
+          [
+            0.9999995326253711,
+            4.673746288628032E-07,
+            0
+          ]
+        ]
+      },
+      {
+        "faceId": "2e91bca5-dbb4-429d-a67f-a83aedfacc24",
+        "vertices": [
+          "357e487d-495e-4e73-ad68-f078d978587f",
+          "5264633d-c792-47be-8f0e-ffbe06b54e8b",
+          "a0fb3d33-29d3-41f5-a67d-193de041a9b1"
+        ],
+        "barycentric": [
+          [
+            0.9999995715711045,
+            0,
+            4.2842889547145546E-07
+          ],
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            0.9999995326253711,
+            4.673746288628032E-07,
+            0
+          ]
+        ]
+      },
+      {
+        "faceId": "2e91bca5-dbb4-429d-a67f-a83aedfacc24",
+        "vertices": [
+          "49ea25ad-e613-4016-9ddd-f240cf47f7ca",
+          "2cddec31-dddb-4a58-9d80-d5351ff23aa8",
+          "bf8ab2af-3a85-45a1-9c5e-f0cdc4905e8c"
+        ],
+        "barycentric": [
+          [
+            0.9999995326253711,
+            4.673746288628032E-07,
+            0
+          ],
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            1
+          ]
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "first narrow dart bank",
+      "faceId": "b9c3fd8d-2ca5-4952-a8d8-104596956d24",
+      "triangleVertices": [
+        "a0fb3d33-29d3-41f5-a67d-193de041a9b1",
+        "5264633d-c792-47be-8f0e-ffbe06b54e8b",
+        "eb6f0c74-7fb0-44fd-a8ad-5744f3eba882"
+      ]
+    },
+    {
+      "name": "second narrow dart bank",
+      "faceId": "2e91bca5-dbb4-429d-a67f-a83aedfacc24",
+      "triangleVertices": [
+        "357e487d-495e-4e73-ad68-f078d978587f",
+        "5264633d-c792-47be-8f0e-ffbe06b54e8b",
+        "a0fb3d33-29d3-41f5-a67d-193de041a9b1"
+      ]
+    }
+  ]
+}

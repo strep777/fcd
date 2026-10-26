@@ -32,7 +32,13 @@ export function generateWearer(p:SpeciesParams):Surface{
       // A costume leg is a continuous cloth tube down to its ankle opening.
       // Taper the calf padding into the knee, not into a second ankle waist.
       const t=Math.max(0,Math.min(1,(y-hip*.30)/(hip*.18))),calf=(p.calfPaddingMm??0)*(1-t*t*(3-2*t));
-      x+=calf*a*.55;z+=calf*b;
+      const lateral=calf*a*.55;
+      // The inside of each padded calf must remain on its own side of the
+      // garment. Otherwise large valid padding values union both ankles into
+      // one tube. Keep the outer/depth padding and reserve a 10 mm leg gap.
+      const inwardRoom=Math.max(0,side*(section.center[0]+x)-5);
+      x+=side*lateral<0?-side*Math.min(Math.abs(lateral),inwardRoom):lateral;
+      z+=calf*b;
      }
      if(p.layerMm){x+=p.layerMm*a;z+=p.layerMm*b;}
     }

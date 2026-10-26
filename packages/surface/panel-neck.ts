@@ -11,6 +11,9 @@ export function narrowPanelSplit(mesh:Surface,report:SurfaceReport):Surface['fac
  const edges=new Map<string,{a:string;b:string;owners:number[]}>(),adj=faces.map(()=>[] as {other:number;key:string}[]);
  const areas=faces.map(f=>{const [a,b,c]=f.vertices.map(id=>vertices.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],v=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm];return Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])/2;});
  const total=areas.reduce((a,b)=>a+b,0);
+ // Both resulting lobes must have at least 100 mm² below. This is an exact
+ // impossibility check, before constructing/searching the short-edge graph.
+ if(total<200)return;
  faces.forEach((f,i)=>f.vertices.forEach((a,j)=>{const b=f.vertices[(j+1)%3],key=edgeKey(a,b),row=edges.get(key)??{a,b,owners:[]};row.owners.push(i);edges.set(key,row);}));
  for(const [key,e] of edges)if(e.owners.length===2){const [a,b]=e.owners;adj[a].push({other:b,key});adj[b].push({other:a,key});}
  const boundary=new Set([...edges.values()].filter(e=>e.owners.length===1).flatMap(e=>[e.a,e.b]));

@@ -26,7 +26,7 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
  // disk around the same vertex. Put that vertex on the new boundary.
  const edgeCounts=new Map<string,number>(),angles=new Map<string,number>();
  for(const face of faces){const p=points(face);face.vertices.forEach((id,i)=>{const a=p[i],b=p[(i+1)%3],c=p[(i+2)%3],u=axes.map(k=>b[k]-a[k]),v=axes.map(k=>c[k]-a[k]),cos=u.reduce((sum,n,k)=>sum+n*v[k],0)/(Math.hypot(...u)*Math.hypot(...v));angles.set(id,(angles.get(id)??0)+Math.acos(Math.max(-1,Math.min(1,cos))));const edge=edgeKey(id,face.vertices[(i+1)%3]);edgeCounts.set(edge,(edgeCounts.get(edge)??0)+1);});}
- const boundary=new Set([...edgeCounts].filter(([,count])=>count===1).flatMap(([edge])=>edge.split(':'))),defects=[...angles].filter(([id])=>!boundary.has(id)).map(([id,angle])=>({id,defect:Math.abs(2*Math.PI-angle)})).filter(r=>r.defect>.02).sort((a,b)=>b.defect-a.defect).slice(0,16),totalDefect=defects.reduce((sum,r)=>sum+r.defect,0);
+ const boundary=new Set([...edgeCounts].filter(([,count])=>count===1).flatMap(([edge])=>edge.split(':'))),defects=[...angles].map(([id,angle])=>({id,defect:boundary.has(id)?Math.max(0,angle-Math.PI):Math.abs(2*Math.PI-angle)})).filter(r=>r.defect>.02).sort((a,b)=>b.defect-a.defect).slice(0,16),totalDefect=defects.reduce((sum,r)=>sum+r.defect,0);
  // Candidate locations use physical corners and crease endpoints. Midpoints
  // inserted along the very same planar surface must not move the sewing line.
  const incident=new Map<string,number[]>();
@@ -49,7 +49,12 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
  };
  for(let axis=0;axis<normals.length;axis++){
   const values=[...new Set(samples.map(id=>coordinate(id,axis)))].sort((a,b)=>a-b),extent=values.at(-1)!-values[0];if(extent<1e-6)continue;
-  const gaps=values.slice(1).map((v,i)=>({position:(v+values[i])/2,clearance:v-values[i]})).sort((a,b)=>b.clearance-a.clearance).slice(0,32);gaps.push(...defects.map(d=>({position:coordinate(d.id,axis),clearance:0})));
+  const gaps=values.slice(1).map((v,i)=>({position:(v+values[i])/2,clearance:v-values[i]})).sort((a,b)=>b.clearance-a.clearance).slice(0,32);
+  // Design-space stations remain available when dense material intersections
+  // make every vertex-clearance gap microscopic. They cross triangle interiors
+  // rather than rounding a failed section back onto the tessellation.
+  for(const fraction of [.5,1/3,2/3,.4,.6,.25,.75])gaps.push({position:values[0]+extent*fraction,clearance:0});
+  gaps.push(...defects.map(d=>({position:coordinate(d.id,axis),clearance:0})));
   const coordinates=rows.map(r=>r.face.vertices.map(id=>coordinate(id,axis)));
   for(const gap of gaps){
    const fractions=coordinates.map(p=>fraction(p[0]-gap.position,p[1]-gap.position,p[2]-gap.position)),left=rows.reduce((s,r,i)=>s+r.area*fractions[i],0),areas=[left,total-left];if(Math.min(...areas)<total*.2)continue;
@@ -60,7 +65,24 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
  candidates.sort((a,b)=>Math.abs(a.score-b.score)>1e-10?a.score-b.score:a.axis-b.axis||a.position-b.position);
  const refine=candidates.length?createSurfaceRefiner(mesh):undefined;
  const quality=(record:Child,v:Map<string,Surface['vertices'][number]>)=>{const [a,b,c]=record.face.vertices.map(id=>v.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],w=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm],length=Math.max(Math.hypot(...u),Math.hypot(...w),Math.hypot(c.xMm-b.xMm,c.yMm-b.yMm,c.zMm-b.zMm));return Math.hypot(u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0])/length**2;};
- for(const plane of candidates.slice(0,9))try{
+ // Check clipped polygons before allocating a conforming mesh. Searching only
+ // the first few planes often selects the same sliver-producing orientation;
+ // a later safe station must not force a mesh-edge fallback. This cheap gate
+ // retains the same triangle-quality bound as the final refinement below.
+ const triangleQuality=(p:number[][])=>{const u=p[1].map((n,i)=>n-p[0][i]),w=p[2].map((n,i)=>n-p[0][i]),length=Math.max(Math.hypot(...u),Math.hypot(...w),Math.hypot(...p[2].map((n,i)=>n-p[1][i])));return Math.hypot(u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0])/length**2;};
+ const safePlane=(plane:typeof candidates[number])=>rows.every(row=>{
+  const p=points(row.face).map(v=>axes.map(a=>v[a])),d=p.map(v=>dot(plane.normal,v)-plane.position);
+  if(d.every(n=>n>=1e-7)||d.every(n=>n<=-1e-7)||d.some(n=>Math.abs(n)<1e-7))return true;
+  const threshold=Math.min(.015,triangleQuality(p)*.2);
+  for(const sign of [-1,1]){
+   const polygon:number[][]=[];
+   for(let i=0;i<3;i++){const j=(i+1)%3;if(sign*d[i]>0)polygon.push(p[i]);if(d[i]*d[j]<0){const t=d[i]/(d[i]-d[j]);polygon.push(p[i].map((n,k)=>n+t*(p[j][k]-n)));}}
+   const score=polygon.length===3?triangleQuality(polygon):Math.max(Math.min(triangleQuality([polygon[0],polygon[1],polygon[2]]),triangleQuality([polygon[0],polygon[2],polygon[3]])),Math.min(triangleQuality([polygon[1],polygon[2],polygon[3]]),triangleQuality([polygon[1],polygon[3],polygon[0]])));
+   if(score<threshold)return false;
+  }return true;
+ });
+ for(const plane of candidates)try{
+  if(!safePlane(plane))continue;
   const cuts=orientedPlaneSegments({...mesh,faces},plane.normal,plane.position,'design-section',undefined,vertices),refined=refine!(cuts,newId),v=new Map(refined.surface.vertices.map(p=>[p.id,p])),protectedEdges=new Set([...(refined.owned.get('design-section')??[]),...(refined.surface.cutConstraints??[])].map(e=>edgeKey(e.a,e.b)));
   // The two same-side children form a convex quadrilateral. Select its better
   // diagonal, preserving the section and every parent barycentric station.

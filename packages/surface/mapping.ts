@@ -23,6 +23,23 @@ export function mapToSurface(surface:Surface,binding:Binding,point:{xMm:number;y
 }
 export function mapFromSurface(binding:Binding,faceId:string,weights:[number,number,number],surface:Surface):{xMm:number;yMm:number}|null{
  if(binding.surfaceId!==surface.id||binding.topologyVersion!==surface.topologyVersion||!binding.report.faceIds.includes(faceId)||weights.some(w=>!Number.isFinite(w)||w<0)||Math.abs(weights.reduce((a,b)=>a+b,0)-1)>1e-7)return null;
- if(binding.trim){for(const triangle of bindingTriangles(binding,surface).filter(t=>t.faceId===faceId)){const w=triangleWeights([weights[1],weights[2]],triangle.barycentric.map(b=>[b[1],b[2]]));if(w.some(v=>!Number.isFinite(v))||Math.min(...w)<-1e-7)continue;return {xMm:w.reduce((s,n,i)=>s+n*triangle.uv[i][0],0),yMm:w.reduce((s,n,i)=>s+n*triangle.uv[i][1],0)};}return null;}
+ if(binding.trim){
+  let best:{margin:number;point:{xMm:number;yMm:number}}|undefined;
+  // This direction already identifies the source face. Do not allocate UV
+  // triangles for the rest of a large paper panel on every pointer lookup.
+  const triangles=binding.trim.triangles.filter(t=>t.faceId===faceId),needed=new Set(triangles.flatMap(t=>t.vertices));
+  const points=new Map(binding.trim.vertices.filter(v=>needed.has(v.id)).map(v=>[v.id,[v.xMm,v.yMm] as [number,number]]));
+  for(const record of triangles){
+   const triangle={...record,uv:record.vertices.map(id=>points.get(id)!)};
+   const w=triangleWeights([weights[1],weights[2]],triangle.barycentric.map(b=>[b[1],b[2]])),margin=Math.min(...w);
+   if(w.some(v=>!Number.isFinite(v))||margin<-1e-7||best&&margin<=best.margin)continue;
+   // A narrow trimmed triangle can lie within the membership tolerance of a
+   // different dart bank. Prefer its actual interior, as the inverse map does,
+   // rather than letting serialization order select a distant paper position.
+   const bounded=closedWeights(w);
+   best={margin,point:{xMm:bounded.reduce((s,n,i)=>s+n*triangle.uv[i][0],0),yMm:bounded.reduce((s,n,i)=>s+n*triangle.uv[i][1],0)}};
+  }
+  return best?.point??null;
+ }
  const face=surface.faces.find(f=>f.id===faceId),uv=new Map(binding.report.uv.map(v=>[v.vertexId,v]));if(!face)return null;const vertices=face.vertices.map(id=>uv.get(id));if(vertices.some(v=>!v))return null;return {xMm:vertices.reduce((s,v,i)=>s+v!.xMm*weights[i],0),yMm:vertices.reduce((s,v,i)=>s+v!.yMm*weights[i],0)};
 }

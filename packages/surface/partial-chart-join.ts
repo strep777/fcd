@@ -4,7 +4,9 @@ type Edge={a:string;b:string;left:[string,string];right:[string,string];length:n
 /** Join a connected portion of an existing trial seam. The unjoined portion
  * remains a dart: no face, material, physical station or user seam is removed.
  * These are proposals only; the caller must solve and check the whole union. */
-export function partialChartJoins(mesh:Surface,a:SurfaceReport,b:SurfaceReport,allowed:(a:string,b:string)=>boolean,newId=()=>crypto.randomUUID()){
+export function partialChartJoins(...args:Parameters<typeof iteratePartialChartJoins>){return [...iteratePartialChartJoins(...args)];}
+/** Keep the proposal order, but allocate a candidate only when it is tried. */
+export function* iteratePartialChartJoins(mesh:Surface,a:SurfaceReport,b:SurfaceReport,allowed:(a:string,b:string)=>boolean,newId=()=>crypto.randomUUID()):Generator<{faces:Surface['faces'];vertices:Surface['vertices'];right:SurfaceReport}>{
  const vertices=new Map(mesh.vertices.map(v=>[v.id,v])),leftFaces=new Set(a.faceIds),rightFaces=new Set(b.faceIds),selected=mesh.faces.filter(f=>leftFaces.has(f.id)||rightFaces.has(f.id));
  const position=(id:string)=>{const v=vertices.get(id)!;return[v.xMm,v.yMm,v.zMm].join(',');};
  const compare=(a:string,b:string)=>{const p=a.split(',').map(Number),q=b.split(',').map(Number);return p[0]-q[0]||p[1]-q[1]||p[2]-q[2];};
@@ -21,7 +23,7 @@ export function partialChartJoins(mesh:Surface,a:SurfaceReport,b:SurfaceReport,a
  const incident=new Map<string,Edge[]>();for(const e of shared)for(const p of[e.a,e.b])incident.set(p,[...incident.get(p)??[],e]);
  // Branching seam networks need a separate topology decision. Never infer a
  // partial weld from an arbitrary order through such a junction.
- if(shared.length<2||[...incident.values()].some(rows=>rows.length>2))return [];
+ if(shared.length<2||[...incident.values()].some(rows=>rows.length>2))return;
  const remaining=new Set(shared),paths:Edge[][]=[];
  while(remaining.size){
   const component=[...remaining][0],reachable=new Set<string>(),work=[component.a];while(work.length){const p=work.pop()!;if(reachable.has(p))continue;reachable.add(p);for(const e of incident.get(p)??[])work.push(e.a===p?e.b:e.a);}
@@ -29,7 +31,7 @@ export function partialChartJoins(mesh:Surface,a:SurfaceReport,b:SurfaceReport,a
   while(true){const edge=(incident.get(at)??[]).filter(e=>remaining.has(e)).sort((x,y)=>compare(x.a===at?x.b:x.a,y.a===at?y.b:y.a))[0];if(!edge)break;remaining.delete(edge);path.push(edge);at=edge.a===at?edge.b:edge.a;}
   paths.push(path);
  }
- const results:{faces:Surface['faces'];vertices:Surface['vertices'];right:SurfaceReport}[]=[],signatures=new Set<string>();
+ const signatures=new Set<string>();
  const leftIds=new Set(selected.filter(f=>leftFaces.has(f.id)).flatMap(f=>f.vertices));
  // A midpoint inserted into an unchanged straight seam is not a new dart
  // station. Choose among physical bends, retaining every constituent edge,
@@ -62,8 +64,7 @@ export function partialChartJoins(mesh:Surface,a:SurfaceReport,b:SurfaceReport,a
   for(const id of new Set(selected.filter(f=>rightFaces.has(f.id)).flatMap(f=>f.vertices)))if(leftIds.has(id)&&!replacements.has(id)){const copy={...vertices.get(id)!,id:newId()};added.push(copy);replacements.set(id,copy.id);}
   const faces=selected.map(f=>rightFaces.has(f.id)?{...f,vertices:f.vertices.map(id=>replacements.get(id)??id) as [string,string,string]}:{...f});
   const right={...b,uv:b.uv.map(p=>({...p,vertexId:replacements.get(p.vertexId)??p.vertexId}))};
-  results.push({faces,vertices:[...mesh.vertices,...added],right});
+  yield {faces,vertices:[...mesh.vertices,...added],right};
  }
  }
- return results;
 }

@@ -11,7 +11,8 @@ import {sectionDesignDomain} from '../../../packages/surface/design-section';
 import {manufacturingSection} from '../../../packages/surface/manufacturing-section';
 import {physicalFacets} from '../../../packages/surface/physical-facets';
 import {narrowPanelSplit} from '../../../packages/surface/panel-neck';
-import type {Child} from '../../../packages/surface/refine';
+import {refineSurface,type Child} from '../../../packages/surface/refine';
+import {geometricOpeningCuts} from '../../../packages/surface/geometric-opening';
 import {mergeDesignCharts} from '../../../packages/surface/merge-design-charts';
 import {necessaryTopologyCuts,openDesignSeams} from '../../../packages/surface/design-cuts';
 import {planarReports,simplifyReportBoundary} from '../../../packages/surface/planar';
@@ -128,7 +129,7 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
   const started=performance.now();nativeStats.calls++;
   try{const result=nativeSurfaceResponseSchema.parse(await session.request(input));const size=result.patches.reduce((n,p)=>n+p.uv.length,0);rememberNative(key,{patches:result.patches,vertices:input.mesh.vertices.map(v=>v.id),faces:input.mesh.faces.map(f=>f.id),size});return result;}
   catch(error){if(error instanceof DomainError&&['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(error.code))rememberNative(key,{error,size:0});throw error;}
-  finally{const ms=performance.now()-started;nativeStats.elapsedMs+=ms;if(process.env.FPCAD_PROFILE_UNWRAP==='1'){const key=solvePhase+':'+method,row=nativeStats.groups[key]??={calls:0,ms:0,faces:0};row.calls++;row.ms+=ms;row.faces+=mesh.faces.length;nativeStats.slow.push({phase:solvePhase,method,faces:mesh.faces.length,ms});nativeStats.slow.sort((a,b)=>b.ms-a.ms);nativeStats.slow.length=Math.min(20,nativeStats.slow.length);}}
+  finally{const ms=performance.now()-started;nativeStats.elapsedMs+=ms;if(process.env.FPCAD_PROFILE_UNWRAP==='1'){const key=solvePhase+':'+method,row=nativeStats.groups[key]??={calls:0,ms:0,faces:0};row.calls++;row.ms+=ms;row.faces+=mesh.faces.length;nativeStats.slow.push({phase:solvePhase,method,faces:mesh.faces.length,ms});nativeStats.slow.sort((a,b)=>b.ms-a.ms);nativeStats.slow.length=Math.min(20,nativeStats.slow.length);if(ms>1000||nativeStats.calls%100===0)parentPort?.postMessage({kind:'profile',value:nativeStats});}}
  };
  const planarHoles=new Map<string,string[][]>(),reportHoles=(report:SurfaceRun['bindings'][number]['report'])=>report.holes??planarHoles.get([...report.faceIds].sort().join(':'))??[];
  const manufacturingProbe=(report:SurfaceRun['bindings'][number]['report'],i=0):Piece=>{
@@ -163,13 +164,10 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
  };
  const designCache=new Map<string,SurfaceRun['bindings'][number]['report'][]>(),cacheKey=(faces:Surface['faces'])=>faces.map(f=>f.id+':'+f.vertices.join(',')).sort().join('|');
  let previousCharts:{key:string;report:SurfaceRun['bindings'][number]['report']}[]=[];
- // Reserve section work for the whole input. A fixed global allowance was
- // exhausted by the first head/hand charts, forcing the later legs and tail
- // onto mesh-edge stair steps solely because of traversal order. Keep a
- // bounded budget proportional to the initial material domains, independent
- // of their coplanar tessellation and later refinements.
- const sectionBudget=Math.max(32,Math.min(256,designComponents(cut.mesh.faces).length*12));
- const rejectedUnions=new Set<string>(),rejectedSewnStarts=new Set<string>();let sectionAttempts=0;
+ // Bound each branch by depth and the existing chart/worker limits. A global
+ // colour-count quota must not starve later anatomical regions of geometric
+ // sections and force them back onto the triangle edges.
+ const rejectedUnions=new Set<string>(),rejectedSewnStarts=new Set<string>();
  // A local allowance repair must not repeat an identical failed sewing
  // start on an untouched panel. Retain only a bounded decision fingerprint;
  // changed geometry, topology, seed or solver settings are distinct inputs.
@@ -212,16 +210,17 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
    // pinched boundaries would force repeated subdivision into tiny panels.
    const dartVertices=new Set(part.faces.flatMap(f=>f.vertices)),dartTable=vertexTable(part.vertices);
    let dartPart={...part,vertices:[...dartVertices].sort((a,b)=>dartTable.order.get(a)!-dartTable.order.get(b)!).map(id=>dartTable.points.get(id)!)},dartReports=reports;
-   const areaByFace=new Map(part.faces.map(f=>{const [a,b,c]=f.vertices.map(id=>vertexTable(part.vertices).points.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],v=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm];return[f.id,Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])/2];}));
    const dartQuality=(rows:typeof reports)=>{
+    const vertices=vertexTable(dartPart.vertices).points;
+    const areaByFace=new Map(dartPart.faces.map(f=>{const [a,b,c]=f.vertices.map(id=>vertices.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],v=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm];return[f.id,Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])/2];}));
     const faces=rows.flatMap(r=>r.faceDistortion??[]);
-    if(faces.length!==part.faces.length||new Set(faces.map(f=>f.faceId)).size!==part.faces.length||faces.some(f=>!areaByFace.has(f.faceId)))return;
+    if(faces.length!==dartPart.faces.length||new Set(faces.map(f=>f.faceId)).size!==dartPart.faces.length||faces.some(f=>!areaByFace.has(f.faceId)))return;
     let worst=0,excess=0,badArea=0;
     for(const f of faces){const ratio=Math.max(f.areaError/.15,f.edgeError/.1,f.distortion/.15),area=areaByFace.get(f.faceId)!;worst=Math.max(worst,ratio);excess+=Math.max(0,ratio-1)*area;if(ratio>1)badArea+=area;}
     return[worst,excess,badArea];
    };
    let bestDartQuality=dartQuality(reports),stalledDarts=0;
-   const trialEdges:{mesh:Surface;edges:{a:string;b:string}[]}[]=[];
+   const trialEdges:{mesh:Surface;edges:{a:string;b:string}[]}[]=[],dartRefinements:ReturnType<typeof refineSurface>[]=[];
    let acceptedDart=false;
    // Tessellation density must not decide whether a panel gets a dart.
    // Use a bounded search on the complete chart before introducing a section.
@@ -230,8 +229,13 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
     const failingFaces=dartReports.flatMap(r=>r.faceDistortion??[]).filter(d=>qualityFailure({areaErrorMax:d.areaError,edgeErrorMax:d.edgeError,distortionMax:d.distortion})).map(d=>d.faceId);
     const dart=necessaryTopologyCuts(dartPart,[failingFaces.length?failingFaces:dartPart.faces.map(f=>f.id)]);
     if(!dart.edges.length)break;
-    const opened=openDesignSeams({...dartPart,cutConstraints:dart.edges.map(e=>({...e,locked:true}))},randomUUID);
-    trialEdges.push({mesh:dartPart,edges:dart.edges});dartPart=opened;
+    const paths=geometricOpeningCuts(dartPart,dart.edges);if(!paths.length)break;
+    let refined:ReturnType<typeof refineSurface>;
+    try{refined=refineSurface(dartPart,paths,randomUUID);}catch{break;}
+    if(refined.children.size&&!refinedSurface)break;
+    const physicalEdges=[...refined.owned.values()].flat();if(!physicalEdges.length)break;
+    const opened=openDesignSeams({...refined.surface,cutConstraints:[...(refined.surface.cutConstraints??[]),...physicalEdges.map(e=>({...e,locked:true}))]},randomUUID);
+    dartRefinements.push(refined);trialEdges.push({mesh:refined.surface,edges:physicalEdges});dartPart=opened;
     try{
      dartReports=(await workerSolve(opened)).patches.map(simplifyReportBoundary);
      const ordinaryQuality=dartQuality(dartReports);
@@ -247,18 +251,21 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
       if(stalledDarts>=2)break;
       continue;
      }
-     const replacements=new Map(opened.faces.map(f=>[f.id,f])),existingVertices=vertexTable(mesh.vertices).points;mesh.faces=mesh.faces.map(f=>replacements.get(f.id)??f);mesh.vertices=[...mesh.vertices,...opened.vertices.filter(v=>!existingVertices.has(v.id))];surface.faces=mesh.faces;surface.vertices=mesh.vertices;
+     // Commit provenance only after the complete proposed opening has passed.
+     // Rejected proposals must not change the candidate's mesh or bindings.
+     for(const refined of dartRefinements)if(refinedSurface?.(refined.surface,refined.children)===false)throw new DomainError('INVALID_CUT');
+     const replaced=new Set(task.faces.map(f=>f.id)),existingVertices=vertexTable(mesh.vertices).points;mesh.faces=[...mesh.faces.filter(f=>!replaced.has(f.id)),...opened.faces];mesh.vertices=[...mesh.vertices,...opened.vertices.filter(v=>!existingVertices.has(v.id))];surface.faces=mesh.faces;surface.vertices=mesh.vertices;
      for(const trial of trialEdges)rememberEdges(trial.mesh,trial.edges,failure==='UNWRAP_DISTORTION'?'distortion':'topology');
      designCache.set(cacheKey(opened.faces),dartReports);result.push(...dartReports);acceptedDart=true;break;
     }catch(e){if(!(e instanceof DomainError)||!['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(e.code))throw e;dartReports=[];}
    }
    if(acceptedDart)continue;
-   if(task.depth>=32)throw new DomainError(failure);
+   if(task.depth>=32){throw new DomainError(failure);}
    // Prefer a physical section through triangle interiors. It is a local
    // proposal until its triangulation quality and complete provenance pass.
    // Sewing calibration must use the same interior sections: reverting to
    // mesh-edge partitions here reintroduced stair-step seams after preview.
-   let section=refinedSurface&&task.faces.length>=2&&task.depth<12&&sectionAttempts++<sectionBudget?sectionDesignDomain(mesh,task.faces,randomUUID):undefined;
+   let section=refinedSurface&&task.faces.length>=2?sectionDesignDomain(mesh,task.faces,randomUUID):undefined;
    if(section&&refinedSurface!(section.surface,section.children)===false)section=undefined;
    let children:Surface['faces'][];
    if(section){
@@ -272,7 +279,8 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
     mesh.faces=section.surface.faces;mesh.vertices=section.surface.vertices;mesh.cutConstraints=section.surface.cutConstraints;
     surface.faces=mesh.faces;surface.vertices=mesh.vertices;surface.cutConstraints=mesh.cutConstraints;
     children=section.parts;
-   }else children=splitDesignDomain(mesh,task.faces);
+   }else if(refinedSurface){if(process.env.FPCAD_PROFILE_UNWRAP==='1')console.error('SECTION_REJECTED',JSON.stringify({depth:task.depth,faces:task.faces.length,failure}));throw new DomainError('PATCH_NEEDS_CUTS');}
+   else children=splitDesignDomain(mesh,task.faces);
    rememberPartition(mesh,children,failure==='UNWRAP_DISTORTION'?'distortion':'topology');
    if(children.length<2)throw new DomainError(failure);queue.push(...children.map(faces=>({faces,depth:task.depth+1})));
   }};
@@ -371,13 +379,15 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
  if(options.partitionStrategy==='design'&&refinedSurface)for(let i=0;i<probes.length;i++){
   if(!failed.has(probes[i].id))continue;const report=response.patches[i];let hole:number|undefined;
   if(report.holes?.length){const isolated=report.holes.map((_,j)=>({...probes[i],holes:[probes[i].holes![j]]})),checks=await analyze(worker,{...project,pieces:isolated},signal,session);const index=checks.findIndex(g=>g.issues.some(issue=>issue.severity==='error'));if(index>=0)hole=index;}
-  const section=manufacturingSection(cut.mesh,report,hole,randomUUID);if(!section||refinedSurface(section.surface,section.children)===false)continue;
+  const selected=new Set(report.faceIds);
+  const section=manufacturingSection(cut.mesh,report,hole,randomUUID)??sectionDesignDomain(cut.mesh,cut.mesh.faces.filter(f=>selected.has(f.id)),randomUUID);if(!section||refinedSurface(section.surface,section.children)===false)continue;
   const assigned=new Map(section.parts.flatMap((faces,j)=>repairGroup(faces,'repair-'+pass+'-'+i+'-'+j)));
   section.surface.faces=section.surface.faces.map(f=>({...f,region:assigned.get(f.id)??f.region}));
   rememberPartition(section.surface,section.parts,'manufacturing');cut={mesh:section.surface,cutEdges:cut.cutEdges};surface.faces=cut.mesh.faces;surface.vertices=cut.mesh.vertices;surface.cutConstraints=cut.mesh.cutConstraints;
   response=await solve(cut.mesh);if(response.patches.length>maxPieces)throw new DomainError('PATCH_LIMIT');repairPasses++;manufacturingSeams++;targeted=true;break;
  }
  if(targeted)continue;
+ if(options.partitionStrategy==='design'&&refinedSurface)throw new DomainError('PATCH_NEEDS_CUTS');
  const assigned=new Map<string,string>();for(let i=0;i<probes.length;i++){if(!failed.has(probes[i].id))continue;const report=response.patches[i];if(report.faceIds.length<2)throw new DomainError('INVALID_GEOMETRY');const selected=new Set(report.faceIds),selectedFaces=surface.faces.filter(f=>selected.has(f.id));let children:Surface['faces'][];if(options.partitionStrategy==='design')children=splitDesignDomain(surface,selectedFaces);else{const vertices=new Map(surface.vertices.map(v=>[v.id,v])),centres=selectedFaces.map(face=>({face,p:[0,1,2].map(axis=>face.vertices.reduce((sum,id)=>{const v=vertices.get(id)!;return sum+[v.xMm,v.yMm,v.zMm][axis];},0)/3)})),axis=[0,1,2].sort((a,b)=>(Math.max(...centres.map(c=>c.p[b]))-Math.min(...centres.map(c=>c.p[b])))-(Math.max(...centres.map(c=>c.p[a]))-Math.min(...centres.map(c=>c.p[a]))))[0],sorted=centres.sort((a,b)=>a.p[axis]-b.p[axis]),middle=Math.ceil(sorted.length/2);children=[sorted.slice(0,middle).map(c=>c.face),sorted.slice(middle).map(c=>c.face)];}if(children.length<2)throw new DomainError('INVALID_GEOMETRY');children.forEach((faces,j)=>repairGroup(faces,'repair-'+pass+'-'+i+'-'+j).forEach(([id,region])=>assigned.set(id,region)));}
  rememberPartition(surface,designComponents(surface.faces.map(f=>({...f,region:assigned.get(f.id)??f.region}))), 'manufacturing');manufacturingSeams+=failed.size;cut=automaticCutMesh({...cut.mesh,faces:cut.mesh.faces.map(f=>({...f,region:assigned.get(f.id)??f.region}))},options);response=await solve(cut.mesh);if(response.patches.length>maxPieces)throw new DomainError('PATCH_LIMIT');repairPasses++;
  }

@@ -110,6 +110,7 @@ impl Factor {
         let mut columns: Vec<Vec<(usize, f64)>> = vec![vec![]; n];
         let mut diagonal = vec![0.; n];
         let mut workspace = vec![0.; n];
+
         let mut work = 0usize;
         let mut fill = 0usize;
         for (k, &original) in order.iter().enumerate() {
@@ -139,6 +140,7 @@ impl Factor {
                 }
                 for &(i, l) in &columns[j] {
                     workspace[i] -= value * l;
+
                 }
                 let l = value / diagonal[j];
                 if !l.is_finite() {
@@ -298,6 +300,171 @@ pub(crate) fn nested_order(matrix: &[Vec<(usize, f64)>]) -> Option<Vec<usize>> {
 #[cfg(test)]
 mod tests {
     use super::Factor;
+
+    fn assert_known_solution(matrix: &[Vec<(usize, f64)>], factor: &Factor, expected: &[f64]) {
+        let rhs: Vec<f64> = matrix.iter()
+            .map(|row| row.iter().map(|&(j, a)| a * expected[j]).sum())
+            .collect();
+        let actual = factor.solve(&rhs);
+        let scale = expected.iter().map(|x| x.abs()).fold(1_f64, f64::max);
+        for (i, (&a, &b)) in actual.iter().zip(expected).enumerate() {
+            assert!((a - b).abs() < scale * 1e-10, "unknown {i}: {a} != {b}");
+        }
+        for (i, row) in matrix.iter().enumerate() {
+            let residual = row.iter().map(|&(j, a)| a * actual[j]).sum::<f64>() - rhs[i];
+            let magnitude = row.iter().map(|&(j, a)| (a * expected[j]).abs()).sum::<f64>().max(1.);
+            assert!(residual.abs() < magnitude * 1e-11, "original row {i}: residual {residual}");
+        }
+    }
+
+    fn graph_matrix(n: usize, edges: &[(usize, usize, f64)]) -> Vec<Vec<(usize, f64)>> {
+        // I plus a weighted graph Laplacian is SPD independently of the
+        // factorizer. Long empty stretches and generated fill are intentional.
+        let mut matrix = vec![vec![]; n];
+        let mut diagonal = vec![1.; n];
+        for &(i, j, weight) in edges {
+            matrix[i].push((j, -weight));
+            matrix[j].push((i, -weight));
+            diagonal[i] += weight;
+            diagonal[j] += weight;
+        }
+        for i in 0..n { matrix[i].push((i, diagonal[i])); }
+        matrix
+    }
+
+    #[test]
+    fn sparse_queue_preserves_chain_solutions_and_reuse_under_distinct_orders() {
+        let n = 257;
+        let edges: Vec<_> = (1..n).filter(|i| i % 64 != 0)
+            .map(|i| (i - 1, i, 0.5 + (i % 7) as f64 / 4.))
+            .collect();
+        let matrix = graph_matrix(n, &edges);
+        let before = matrix.clone();
+        let orders = [
+            (0..n).collect::<Vec<_>>(),
+            (0..n).rev().collect(),
+            (0..n).step_by(2).chain((1..n).step_by(2)).collect(),
+            (0..n).map(|i| i * 37 % n).collect(),
+        ];
+        for order in orders {
+            let factor = Factor::ordered(&matrix, &order).expect("anchored sparse chains are SPD");
+            for scale in [1e-6, 1., 1000.] {
+                let expected: Vec<_> = (0..n).map(|i| {
+                    scale * ((i as f64 * 0.17).sin() + (i % 5) as f64 / 8.)
+                }).collect();
+                assert_known_solution(&matrix, &factor, &expected);
+            }
+        }
+        assert_eq!(matrix, before);
+    }
+
+    #[test]
+    fn sparse_queue_reaches_fill_absent_from_the_original_row() {
+        let n = 41;
+        let edges: Vec<_> = (1..n).map(|i| (0, i, 1. + (i % 3) as f64 / 2.)).collect();
+        let matrix = graph_matrix(n, &edges);
+        let before = matrix.clone();
+        // Eliminating the centre first connects all previously independent
+        // leaves. Those queue entries must be discovered by elimination,
+        // rather than only by reading the original sparse row.
+        for order in [
+            (0..n).collect::<Vec<_>>(),
+            (0..n).rev().collect(),
+            (0..n).map(|i| i * 13 % n).collect(),
+        ] {
+            let factor = Factor::ordered(&matrix, &order).expect("anchored star is SPD");
+            for offset in [-7.25, 3.5] {
+                let expected: Vec<_> = (0..n)
+                    .map(|i| offset + (i % 4) as f64 * 0.125 - i as f64 / 32.)
+                    .collect();
+                assert_known_solution(&matrix, &factor, &expected);
+            }
+        }
+        assert_eq!(matrix, before);
+    }
+
+    #[test]
+    fn sparse_queue_keeps_a_cancelled_station_until_an_earlier_pivot_restores_it() {
+        // A = L L^T with unit diagonal and rows of L:
+        // (1), (1,1), (1,1,1), (1,1,-1,1). Thus A is SPD.
+        // In original order, row 3's entry 2 starts at 1, becomes exactly 0
+        // after pivot 0, then becomes -1 after pivot 1. A scheduled zero must
+        // neither disappear permanently nor be processed twice on restoration.
+        let matrix = vec![
+            vec![(0, 1.), (1, 1.), (2, 1.), (3, 1.)],
+            vec![(0, 1.), (1, 2.), (2, 2.), (3, 2.)],
+            vec![(0, 1.), (1, 2.), (2, 3.), (3, 1.)],
+            vec![(0, 1.), (1, 2.), (2, 1.), (3, 4.)],
+        ];
+        let expected = [0.125, -3.5, 2.25, 7.75];
+        let rhs = [6.625, 13.125, 7.625, 26.375];
+        let factor = Factor::ordered(&matrix, &[0, 1, 2, 3]).unwrap();
+        for (actual, expected) in factor.solve(&rhs).iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-12);
+        }
+        for a in 0..4 { for b in 0..4 { for c in 0..4 { for d in 0..4 {
+            if a == b || a == c || a == d || b == c || b == d || c == d { continue; }
+            let factor = Factor::ordered(&matrix, &[a, b, c, d]).unwrap();
+            assert_known_solution(&matrix, &factor, &expected);
+        } } } }
+    }
+
+    #[test]
+    fn sparse_queue_propagates_dynamic_fill_across_multiple_sixty_four_bit_blocks() {
+        let n = 137;
+        let edges: Vec<_> = (1..n).map(|i| (0, i, 0.5 + (i % 5) as f64 / 8.)).collect();
+        let matrix = graph_matrix(n, &edges);
+        for order in [
+            (0..n).collect::<Vec<_>>(),
+            (0..n).map(|i| i * 37 % n).collect(),
+            (0..n).rev().collect(),
+        ] {
+            let factor = Factor::ordered(&matrix, &order).unwrap();
+            let expected: Vec<_> = (0..n).map(|i| (i as f64 * 0.31).cos() - i as f64 / 128.).collect();
+            assert_known_solution(&matrix, &factor, &expected);
+        }
+    }
+
+    #[test]
+    fn sparse_queue_restores_cancelled_fill_at_a_sixty_four_bit_block_boundary() {
+        let n = 130;
+        let indices = [0, 63, 64, 128];
+        let block = [[1., 1., 1., 1.], [1., 2., 2., 2.], [1., 2., 3., 1.], [1., 2., 1., 4.]];
+        let mut matrix: Vec<_> = (0..n).map(|i| vec![(i, 1.)]).collect();
+        for (row, &i) in indices.iter().enumerate() {
+            matrix[i] = indices.iter().enumerate().map(|(column, &j)| (j, block[row][column])).collect();
+        }
+        let mut expected: Vec<_> = (0..n).map(|i| i as f64 / 16. - 0.5).collect();
+        for (&i, value) in indices.iter().zip([0.125, -3.5, 2.25, 7.75]) { expected[i] = value; }
+        // In row 128, pivot 0 cancels position 64; pivot 63 restores it
+        // before the scan advances into the next word. Empty intervening
+        // identity rows must not leave stale bits or workspace values behind.
+        for order in [
+            (0..n).collect::<Vec<_>>(),
+            (0..n).map(|i| i * 37 % n).collect(),
+            (0..n).map(|i| (i + 65) % n).collect(),
+        ] {
+            let factor = Factor::ordered(&matrix, &order).unwrap();
+            assert_known_solution(&matrix, &factor, &expected);
+        }
+    }
+
+    #[test]
+    fn sparse_queue_preserves_rejection_of_singular_and_indefinite_equations() {
+        for matrix in [
+            vec![vec![(0, 1.), (1, -1.)], vec![(0, -1.), (1, 1.)]],
+            vec![vec![(0, 1.), (1, 2.)], vec![(0, 2.), (1, 1.)]],
+            vec![vec![(0, 1.)], vec![]],
+        ] {
+            let before = matrix.clone();
+            for order in [[0, 1], [1, 0]] {
+                assert!(Factor::ordered(&matrix, &order).is_none());
+            }
+            assert!(Factor::new(&matrix).is_none());
+            assert_eq!(matrix, before);
+        }
+    }
+
     #[test]
     fn reusable_factor_preserves_the_original_equations() {
         let rows = vec![
