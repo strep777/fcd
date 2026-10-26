@@ -9,7 +9,7 @@ import type {Material} from '../../../packages/schema/index';
 import {materialInUse} from '../../../packages/manufacturing/dependencies';
 const advanced=inject('advancedMode',ref(false));
 const props=defineProps<{language:'zh'|'en';selectedId:string;targetId?:string}>(),store=useSession(),zh=computed(()=>props.language==='zh'),id=ref(''),rotations=ref('0'),defaultWidth=ref(10);
-const fresh=():Material=>({id:crypto.randomUUID(),version:1,name:zh.value?'新材料':localize('New material'),category:'fur',thicknessMm:2,furLengthMm:20,compensationMm:0,defaultAllowanceMm:10,furRequired:true,grainRequired:false,rotationsRad:[0],seamToleranceMm:2,stretchWarpRatio:0,stretchWeftRatio:0,measurementSource:'estimated',sourceNote:''}),form=ref<Material>(fresh());
+const fresh=():Material=>({id:crypto.randomUUID(),version:1,name:zh.value?'新材料':localize('New material'),category:'fur',thicknessMm:2,furLengthMm:20,compensationMm:0,defaultAllowanceMm:2,furRequired:true,grainRequired:false,rotationsRad:[0],seamToleranceMm:2,stretchWarpRatio:0,stretchWeftRatio:0,measurementSource:'estimated',sourceNote:''}),form=ref<Material>(fresh());
 const selected=computed(()=>store.data.project?.pieces.find(p=>p.id===props.selectedId)),existing=computed(()=>store.data.project?.materials?.find(m=>m.id===id.value));
 watch(()=>existing.value?existing.value.id+':'+existing.value.version:'',()=>{const m=existing.value;form.value=m?JSON.parse(JSON.stringify(m)):fresh();rotations.value=form.value.rotationsRad.map(v=>v*180/Math.PI).join(',');},{immediate:true});watch(()=>store.data.project?.defaultAllowanceMm,v=>defaultWidth.value=v??10,{immediate:true});
 watch(()=>props.targetId,target=>{if(target&&store.data.project?.materials?.some(m=>m.id===target))id.value=target;});

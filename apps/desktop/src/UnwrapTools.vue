@@ -17,12 +17,12 @@ import type {UnwrapOptions,SurfaceProgress} from '../../../packages/schema/index
 const advanced=inject('advancedMode',ref(false));
 const props=defineProps<{language:'zh'|'en';actionTarget?:string;cutDraftActive?:boolean}>(),emit=defineEmits<{accepted:[id:string];previewReady:[];mapping:[]}>(),store=useSession(),zh=computed(()=>props.language==='zh'),surface=computed(()=>store.data.project?.surface),run=computed(()=>store.data.project?.surfaceRun),ack=ref(false),unwrapping=ref(false);
 watch(()=>[store.data.project?.id,store.data.project?.revision],()=>{ack.value=false;});
-const allowanceCm=ref(1),allowanceValid=computed(()=>Number.isFinite(allowanceCm.value)&&allowanceCm.value>=0&&allowanceCm.value<=10),allowanceChanged=computed(()=>Number((allowanceCm.value*10).toFixed(6))!==(store.data.project?.defaultAllowanceMm??10));
+const allowanceCm=ref(.2),allowanceValid=computed(()=>Number.isFinite(allowanceCm.value)&&allowanceCm.value>=0&&allowanceCm.value<=10),allowanceChanged=computed(()=>Number((allowanceCm.value*10).toFixed(6))!==(store.data.project?.defaultAllowanceMm??10));
 const allowanceRecomputeRequired=ref(false);
 const assemblyOpen=ref(false),assemblySelection=shallowRef<{pieceIds:string[];chosen:string[]}>({pieceIds:[],chosen:[]});
 watch(()=>store.data.project?.id,()=>{allowanceRecomputeRequired.value=false;});
 watch(()=>store.data.project?.defaultAllowanceMm,(next,previous)=>{if(next!==previous&&run.value&&!run.value.accepted)allowanceRecomputeRequired.value=true;});
-watch(()=>[store.data.project?.id,store.data.project?.defaultAllowanceMm],()=>{allowanceCm.value=(store.data.project?.defaultAllowanceMm??10)/10;},{immediate:true});
+watch(()=>[store.data.project?.id,store.data.project?.defaultAllowanceMm],()=>{allowanceCm.value=(store.data.project?.defaultAllowanceMm??2)/10;},{immediate:true});
 async function applyAllowance(){const p=store.data.project;if(!p||store.busy||!allowanceValid.value)return false;const widthMm=Number((allowanceCm.value*10).toFixed(6));if(patternSpacingMatches(p,widthMm))return true;return store.run(()=>window.fpcad.apply(p.id,p.revision,{type:'patterns.allowance',widthMm}),{label:zh.value?'正在应用所有裁片的拼接间距':localize('Applying joining spacing to all patterns'),cancel:()=>window.fpcad.cancelSurface(p.id,p.revision)});}
 const progress=shallowRef<SurfaceProgress>(),activeCut=shallowRef<{projectId:string;revision:number}>(),elapsedSeconds=ref(0);
 const stageLabel=computed(()=>{const stage=progress.value?.stage;return localize(stage?({prepare:zh.value?'准备裁切':'Preparing cuts',partition:zh.value?'划分材料与裁线':'Partitioning materials and cuts',unwrap:zh.value?'展开版型':'Unwrapping patterns',remap:zh.value?'映射花纹':'Remapping markings',validate:zh.value?'校验版型':'Validating patterns'}[stage]):(zh.value?'等待裁切任务':'Waiting for the cut task'));});

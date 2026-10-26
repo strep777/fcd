@@ -27,7 +27,7 @@ try{
  await apply({type:'surface.set',surface});assert((await invoke('surface.unwrap',unwrapOptions)).ok);assert((await invoke('surface.accept',{acknowledgeReview:true})).ok);
  let current=(await read()).project;assert.equal(current.pieces.length,2);
  const [a,b]=current.pieces,side=p=>({pieceId:p.id,nodeId:p.nodes[0].id,endNodeId:p.nodes[1].id,start:0,end:1,reverse:false}),seam={id:randomUUID(),name:'左右接缝',a:side(a),b:side(b),expectedEaseMm:0,toleranceMm:1,locked:false};
- await apply({type:'seam.put',seam});assert((await invoke('seam.notches',{seamId:seam.id,count:3,depthMm:3})).ok);
+ await apply({type:'seam.put',seam});await reject('notch depth exceeding the 2 mm allowance is rejected atomically','seam.notches',{seamId:seam.id,count:3,depthMm:3},'INVALID_GEOMETRY');assert((await invoke('seam.notches',{seamId:seam.id,count:3,depthMm:1})).ok);
  const pieces=(await read()).project.pieces;
  const other=structuredClone(surface);other.id=randomUUID();await apply({type:'surface.set',surface:other});assert.equal((await read()).project.pieces.length,0);
  await apply({type:'model.activate',modelId:surface.id});current=(await read()).project;assert.deepEqual(current.seams,[seam]);assert.deepEqual(current.pieces,pieces);checks.push('model switches restore seams and paired notches');

@@ -2,6 +2,7 @@ import type {Surface} from '../schema/index';
 import {createSurfaceRefiner,edgeKey,type Child} from './refine';
 import {orientedPlaneSegments} from './cut-geometry';
 import {designComponents} from './design-partition';
+import {continuousSection} from './section-continuity';
 
 /** A trial sewing section crosses triangle interiors. Choose a plane with
  * vertex clearance, then reject poor subdivisions instead of manufacturing
@@ -83,7 +84,8 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
  });
  for(const plane of candidates)try{
   if(!safePlane(plane))continue;
-  const cuts=orientedPlaneSegments({...mesh,faces},plane.normal,plane.position,'design-section',undefined,vertices),refined=refine!(cuts,newId),v=new Map(refined.surface.vertices.map(p=>[p.id,p])),protectedEdges=new Set([...(refined.owned.get('design-section')??[]),...(refined.surface.cutConstraints??[])].map(e=>edgeKey(e.a,e.b)));
+  const cuts=orientedPlaneSegments({...mesh,faces},plane.normal,plane.position,'design-section',undefined,vertices);if(!continuousSection({...mesh,faces},cuts,vertices))continue;
+  const refined=refine!(cuts,newId),v=new Map(refined.surface.vertices.map(p=>[p.id,p])),protectedEdges=new Set([...(refined.owned.get('design-section')??[]),...(refined.surface.cutConstraints??[])].map(e=>edgeKey(e.a,e.b)));
   // The two same-side children form a convex quadrilateral. Select its better
   // diagonal, preserving the section and every parent barycentric station.
   for(const children of refined.children.values())if(children.length===3)for(let i=0;i<children.length;i++)for(let j=i+1;j<children.length;j++){

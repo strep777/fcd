@@ -16,9 +16,12 @@ function fixture(x=108,width=6){
   p.references=[{id:referenceId,name:'Independent full 100 mm body frame',view:'front',width:100,height:100,png:'data:image/png;base64,AA==',calibration:{a:{x:0,y:100},b:{x:0,y:0},distanceMm:100},illustration:{algorithm:'illustration-2',subject:'character',bounds:{minX:0,minY:0,maxX:100,maxY:100},partBounds:[{part:'body',bounds:{minX:0,minY:0,maxX:100,maxY:100}}],foregroundPixels:10000,discardedPixels:0,palette:[piece.color],smoothingPx:0}}];return p;
 }
 const auto=(p:Project)=>projectMarking(worker,p,p.patternLibrary![0].piece.id,'front',0,0,false,true);
-it('only translates a new small automatic accent to the nearby visible part and retains source curves, holes, scale and review',async()=>{
-  const p=fixture(),before=structuredClone(p),placement=anatomicalPlacement(p,p.patternLibrary![0]);
-  const m=await auto(p);expect(m.fragments.length).toBeGreaterThan(0);expect(Math.hypot(m.offsetXmm,m.offsetYmm)).toBeGreaterThan(0);expect(Math.hypot(m.offsetXmm,m.offsetYmm)).toBeLessThanOrEqual(25);
+it('refuses a nearby out-of-frame automatic accent without moving its pigment or changing its source',async()=>{
+  const p=fixture(),before=structuredClone(p);await expect(auto(p)).rejects.toThrow('NO_VISIBLE_PROJECTION');expect(p).toEqual(before);
+});
+it('retains the original position, source curves, holes, uniform scale and pending review of a visible automatic accent',async()=>{
+  const p=fixture(45),before=structuredClone(p),placement=anatomicalPlacement(p,p.patternLibrary![0]);
+  const m=await auto(p);expect(m.fragments.length).toBeGreaterThan(0);expect(m.offsetXmm).toBe(0);expect(m.offsetYmm).toBe(0);
   expect(m.placement).toEqual(placement);expect(m.placement!.reviewed).toBe(false);expect(m.placement!.scaleX).toBe(1);expect(m.placement!.scaleY).toBe(1);
   expect(markingSchema.parse(JSON.parse(JSON.stringify(m)))).toEqual(m);expect(p).toEqual(before);
   const faces=new Map(p.surface!.faces.map(f=>[f.id,f]));for(const f of m.fragments){expect(faces.get(f.faceId)!.region).toBe('torso');for(const ring of f.rings)for(const w of ring){expect(w.every(n=>n>=0&&n<=1)).toBe(true);expect(w.reduce((s,n)=>s+n,0)).toBeCloseTo(1,10);}}
@@ -27,8 +30,8 @@ it.each([['too-large',108,36],['too-far',140,6]] as const)('refuses %s automatic
   const p=fixture(x,width),before=structuredClone(p);await expect(auto(p)).rejects.toThrow('NO_VISIBLE_PROJECTION');expect(p).toEqual(before);
 });
 it.each(['occluded','coincident'] as const)('does not recover onto a %s target sheet',async kind=>{
-  const p=fixture(),other=structuredClone(p.surface!),ids=new Map(other.vertices.map(v=>[v.id,randomUUID()]));other.vertices.forEach(v=>{v.id=ids.get(v.id)!;v.zMm=kind==='occluded'?10:0;});other.faces.forEach(f=>{f.id=randomUUID();f.vertices=f.vertices.map(id=>ids.get(id)!) as [string,string,string];f.region='arm-left';});p.surface!.vertices.push(...other.vertices);p.surface!.faces.push(...other.faces);
-  const before=structuredClone(p);await expect(auto(p)).rejects.toThrow('NO_VISIBLE_PROJECTION');expect(p).toEqual(before);
+  const p=fixture(45),other=structuredClone(p.surface!),ids=new Map(other.vertices.map(v=>[v.id,randomUUID()]));other.vertices.forEach(v=>{v.id=ids.get(v.id)!;v.zMm=kind==='occluded'?10:0;});other.faces.forEach(f=>{f.id=randomUUID();f.vertices=f.vertices.map(id=>ids.get(id)!) as [string,string,string];f.region='arm-left';});p.surface!.vertices.push(...other.vertices);p.surface!.faces.push(...other.faces);
+  const before=structuredClone(p);await expect(auto(p)).rejects.toThrow(kind==='coincident'?'AMBIGUOUS_PROJECTION':'NO_VISIBLE_PROJECTION');expect(p).toEqual(before);
 });
 it('does not convert a genuine overlapping-sheet projection error into local movement',async()=>{
   const p=fixture(45),other=structuredClone(p.surface!),ids=new Map(other.vertices.map(v=>[v.id,randomUUID()]));other.vertices.forEach(v=>v.id=ids.get(v.id)!);other.faces.forEach(f=>{f.id=randomUUID();f.vertices=f.vertices.map(id=>ids.get(id)!) as [string,string,string];});p.surface!.vertices.push(...other.vertices);p.surface!.faces.push(...other.faces);
@@ -38,9 +41,9 @@ it('leaves the explicit manual projection at its exact requested position',async
   const p=fixture(),before=structuredClone(p);await expect(projectMarking(worker,p,p.patternLibrary![0].piece.id,'front',0,0)).rejects.toThrow('NO_VISIBLE_PROJECTION');expect(p).toEqual(before);
 });
 it.each(['existing','manual-existing','locked'] as const)('never changes a %s marking to rescue a new no-visible request',async kind=>{
-  const p=fixture(),m=await auto(p);m.placement!.reviewed=true;if(kind==='manual-existing'){m.source='manual';m.editMode='uv-manual';}if(kind==='locked')m.locked=true;p.markings=[m];const before=structuredClone(p);
+  const p=fixture(45),m=await auto(p);m.placement!.reviewed=true;if(kind==='manual-existing'){m.source='manual';m.editMode='uv-manual';}if(kind==='locked')m.locked=true;p.markings=[m];const piece=p.patternLibrary![0].piece;for(const point of [...piece.nodes,...piece.holes!.flat(),...piece.curves!.flatMap(c=>[c.c1,c.c2])])point.xMm+=63;const before=structuredClone(p);
   await expect(auto(p)).rejects.toThrow(kind==='locked'?'MARKING_LOCKED':kind==='manual-existing'?'MANUAL_MARKING_REVIEW':'NO_VISIBLE_PROJECTION');expect(p).toEqual(before);
 });
 it('an explicit face scope cannot be replaced by a nearby different part',async()=>{
-  const p=fixture(),before=structuredClone(p);await expect(projectMarking(worker,p,p.patternLibrary![0].piece.id,'front',0,0,false,true,undefined,new Set())).rejects.toThrow('NO_VISIBLE_PROJECTION');expect(p).toEqual(before);
+  const p=fixture(45),before=structuredClone(p);await expect(projectMarking(worker,p,p.patternLibrary![0].piece.id,'front',0,0,false,true,undefined,new Set())).rejects.toThrow('NO_VISIBLE_PROJECTION');expect(p).toEqual(before);
 });

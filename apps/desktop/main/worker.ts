@@ -1,4 +1,5 @@
 import {parentPort} from 'node:worker_threads';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import {resolvePiece,materialIssues} from '../../../packages/manufacturing/material';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -7,6 +8,14 @@ import { pointSchema,pieceSchema,type Project,type Geometry,type Piece } from '.
 import { DomainError } from './repository';
 import {terminateNativeProcess} from './native-process';
 import {derivedName} from '../../../packages/schema/names';
+const batchSession=new AsyncLocalStorage<{path:string;signal?:AbortSignal;session:ReturnType<typeof createWorkerSession>}>();
+/** Sequential operations in one batch share a native process. The scope ends
+ * before the caller can commit, and never crosses projects or worker jobs. */
+export async function withWorkerSession<T>(path:string,run:()=>Promise<T>,signal?:AbortSignal):Promise<T>{
+ const existing=batchSession.getStore();if(existing?.path===path&&existing.signal===signal)return run();
+ const session=createWorkerSession(path,signal);
+ try{return await batchSession.run({path,signal,session},run);}finally{await session.dispose();}
+}
 /** Reuse one native process for the sequential solves in a single cut job.
  * Disposal/abort always kills it; it is never shared across projects or jobs. */
 export function createWorkerSession(workerPath:string,signal?:AbortSignal){
@@ -50,7 +59,9 @@ export function createWorkerSession(workerPath:string,signal?:AbortSignal){
  }};
 }
 const geometrySchema=z.object({notchSegments:z.array(z.object({id:z.uuid(),start:pointSchema,end:pointSchema,label:z.string()})).optional(),id:z.uuid(),cut:z.array(pointSchema),seam:z.array(pointSchema).optional(),seamHoles:z.array(z.array(pointSchema)).optional(),cutHoles:z.array(z.array(pointSchema)).optional(),edgeLengths:z.array(z.object({nodeId:z.uuid(),endNodeId:z.uuid(),lengthMm:z.number().nonnegative().finite()})).optional(),areaMm2:z.number().finite(),perimeterMm:z.number().finite(),issues:z.array(z.object({ruleId:z.string(),severity:z.enum(['error','warning']),entityId:z.uuid(),messageKey:z.string()}))});
-export function request(workerPath:string,input:unknown,signal?:AbortSignal,limits={timeoutMs:10000,bytes:8*1024*1024}):Promise<unknown>{return new Promise((resolve,reject)=>{
+export function request(workerPath:string,input:unknown,signal?:AbortSignal,limits={timeoutMs:10000,bytes:8*1024*1024}):Promise<unknown>{
+ const shared=batchSession.getStore();if(shared?.path===workerPath&&shared.signal===signal)return shared.session.request(input,limits);
+ return new Promise((resolve,reject)=>{
  if(signal?.aborted){reject(new DomainError('CANCELLED'));return;}
  const encoded=JSON.stringify(input);if(Buffer.byteLength(encoded)>limits.bytes){reject(new DomainError('RESOURCE_LIMIT'));return;}
  const proc=spawn(workerPath,[],{windowsHide:true,stdio:['pipe','pipe','pipe']});const chunks:Buffer[]=[];let bytes=0,done=false;parentPort?.postMessage({kind:'child',pid:proc.pid});proc.on('exit',()=>parentPort?.postMessage({kind:'childExit',pid:proc.pid}));
@@ -67,6 +78,7 @@ export async function analyze(workerPath:string,project:Project,signal?:AbortSig
  // Each analysis may contain many bounded batches. Keep one real worker for
  // this analysis and wait for its exit before returning. Caller-owned sessions
  // remain available to the enclosing cut job.
+ const shared=batchSession.getStore();session??=shared?.path===workerPath&&shared.signal===signal?shared.session:undefined;
  const owned=session?undefined:createWorkerSession(workerPath,signal),active=session??owned!;
  try{
  const geometry:Geometry[]=[];let batch:Piece[]=[],budget=0;const flush=async()=>{if(!batch.length)return;const input={protocolVersion:1,pieces:batch.map(p=>resolvePiece(project,p))},raw=await active.request(input,{timeoutMs:10000,bytes:8*1024*1024});const result=z.object({ok:z.literal(true),protocolVersion:z.literal(1),geometry:z.array(geometrySchema)}).parse(raw);if(result.geometry.length!==batch.length||result.geometry.some((g,i)=>g.id!==batch[i].id))throw new DomainError('WORKER_PROTOCOL');geometry.push(...result.geometry);batch=[];budget=0;};for(const piece of project.pieces){const size=piece.nodes.length+(piece.holes??[]).reduce((s,h)=>s+h.length,0)+(piece.curves?.length??0)*20;if(batch.length>=50||budget+size>8000)await flush();batch.push(piece);budget+=size;}await flush();const result={geometry};

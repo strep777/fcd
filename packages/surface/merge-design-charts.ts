@@ -4,6 +4,7 @@ import {designQualityFailure} from './design-partition';
 import {narrowPanelSplit} from './panel-neck';
 import {joinedChartSeed} from './joined-chart-seed';
 import {iteratePartialChartJoins} from './partial-chart-join';
+import {seamContinuityGuard} from './seam-continuity';
 
 export type ManufacturingMerge = {
  materialRegion:(region:string)=>string;
@@ -30,6 +31,7 @@ export async function mergeDesignCharts(mesh:Surface,input:SurfaceReport[],solve
  const areaCache=new Map<number,number>(),boundsCache=new Map<number,number[]>();
  while(charts.size>1&&attempts<maxAttempts&&continueMerging()){
   const owners=new Map([...charts].flatMap(([i,r])=>r.faceIds.map(id=>[id,i] as const))),links=new Map<string,{a:number;b:number;length:number}>();
+  const continuous=seamContinuityGuard(mesh,owners,material,canRejoinSourceFaces);
   for(const e of edges.values()){
    if(e.faces.length!==2)continue;
    const a=owners.get(e.faces[0]),b=owners.get(e.faces[1]);if(a===undefined||b===undefined||a===b)continue;
@@ -54,6 +56,7 @@ export async function mergeDesignCharts(mesh:Surface,input:SurfaceReport[],solve
   const compare=(a:number,b:number)=>Math.abs(a-b)>1e-9*Math.max(1,Math.abs(a),Math.abs(b))?a-b:0;
   const candidates=[...links].sort((a,b)=>smallLocal(b[1])-smallLocal(a[1])||compare(score(b[1]),score(a[1]))||compare(b[1].length,a[1].length)||geometricTie(a[1],b[1]));let merged=false;
   for(const [key,link]of candidates){
+   if(!continuous(link.a,link.b))continue;
    if(++attempts>maxAttempts||!continueMerging())break;
    const a=charts.get(link.a)!,b=charts.get(link.b)!,ids=new Set([...a.faceIds,...b.faceIds]);
    const region=faces.get(a.faceIds[0])!.region;

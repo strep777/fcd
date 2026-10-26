@@ -45,11 +45,11 @@ globalThis.window={addEventListener:windowEvents.addEventListener.bind(windowEve
 const {createRenderer,h,nextTick}=await import('vue');
 await mkdir('.local/tests',{recursive:true});await mkdir('test-results',{recursive:true});
 const directory=resolve(await mkdtemp('.local/tests/model-controls-')),file=resolve(directory,'fixture.mjs');
-await build({stdin:{contents:"export {default as UnwrapTools} from './apps/desktop/src/UnwrapTools.vue';export {default as ModelEditControls} from './apps/desktop/src/ModelEditControls.vue';export {default as PatternDirection} from './apps/desktop/src/PatternDirection.vue';export {useSession} from './apps/desktop/src/store';export {useModelEdit} from './apps/desktop/src/modules/modelEditContext';export {createPinia} from 'pinia';",sourcefile:'controls-component.ts',resolveDir:resolve('.'),loader:'ts'},outfile:file,bundle:true,format:'esm',platform:'node',packages:'external',plugins:[{name:'component-vue',setup(builder){builder.onLoad({filter:/\.vue$/},async({path})=>{
+await build({stdin:{contents:"export {default as UnwrapTools} from './apps/desktop/src/UnwrapTools.vue';export {default as ModelEditControls} from './apps/desktop/src/ModelEditControls.vue';export {default as PatternDirection} from './apps/desktop/src/PatternDirection.vue';export {patternAnnotationLayout} from './packages/pattern/annotation-layout';export {useSession} from './apps/desktop/src/store';export {useModelEdit} from './apps/desktop/src/modules/modelEditContext';export {createPinia} from 'pinia';",sourcefile:'controls-component.ts',resolveDir:resolve('.'),loader:'ts'},outfile:file,bundle:true,format:'esm',platform:'node',packages:'external',plugins:[{name:'component-vue',setup(builder){builder.onLoad({filter:/\.vue$/},async({path})=>{
  if(basename(path)==='CutAssemblyPreview.vue')return {contents:"import {h} from 'vue';export default {render(){return h('div');}};",loader:'js'};
  const {descriptor}=parse(await readFile(path,'utf8'));return {contents:compileScript(descriptor,{id:'component',inlineTemplate:true,templateOptions:{compilerOptions:{hoistStatic:false}}}).content,loader:'ts',resolveDir:dirname(path)};
 });}}]});
-const {UnwrapTools,ModelEditControls,PatternDirection,useSession,useModelEdit,createPinia}=await import(pathToFileURL(file).href);
+const {UnwrapTools,ModelEditControls,PatternDirection,patternAnnotationLayout,useSession,useModelEdit,createPinia}=await import(pathToFileURL(file).href);
 const renderer=createRenderer({
  createElement:tag=>new HostNode(tag),createText:text=>{const n=new HostNode('#text');n.textContent=text;return n;},createComment:text=>{const n=new HostNode('#comment');n.textContent=text;return n;},
  setText:(n,text)=>{n.textContent=text;},setElementText:(n,text)=>{n.textContent=text;},parentNode:n=>n.parentNode,nextSibling:n=>n.parentNode?.children[n.parentNode.children.indexOf(n)+1]??null,
@@ -117,9 +117,12 @@ for(const cm of [0,10,2.5]){
  }finally{f.app.unmount();}
 }
 for(const grainRad of [undefined,Math.PI/2,0]){
- const f=await mount(PatternDirection,{furRad:0,grainRad,anchor:{xMm:40,yMm:50,clearanceMm:30}});try{
+ const piece={id:'direction-piece',name:'Front paw',closed:true,furRad:0,grainRad,nodes:[[0,0],[80,0],[80,100],[0,100]].map(([xMm,yMm],i)=>({id:'p'+i,xMm,yMm}))},layout=patternAnnotationLayout(piece);
+ const f=await mount(PatternDirection,{layout});try{
   const directions=walk(f.root).filter(n=>n.attrs['data-angle-rad']!==undefined),fur=directions.find(n=>n.attrs.class==='piece-direction-fur');assert.equal(fur.attrs['data-angle-rad'],0);assert.equal(directions.length,grainRad===Math.PI/2?2:1);
-  assert.equal(f.byLabel('Piece fur and fabric direction').attrs.transform,'translate(40,-50)');if(grainRad===Math.PI/2)assert(walk(f.root).some(n=>n.attrs.transform==='rotate(-90)'));
+  f.byLabel('Piece fur and fabric direction');
+  for(const arrow of layout.arrows){const group=directions.find(n=>n.attrs.class==='piece-direction-'+arrow.kind),polyline=walk(group).find(n=>n.tag==='polyline'),points=polyline.attrs.points.split(' ').map(pair=>pair.split(',').map(Number));assert.deepEqual(points,arrow.points.map(p=>[p.xMm,-p.yMm]));const [start,end]=arrow.points;assert(Math.abs(Math.atan2(end.yMm-start.yMm,end.xMm-start.xMm)-arrow.angle)<1e-10);assert(points.every(([x,y])=>x>0&&x<80&&y<0&&y>-100));}
+  const captions=walk(f.root).filter(n=>n.attrs.class==='piece-caption');assert.equal(captions.map(n=>n.textContent).join(''),'Front paw');captions.forEach((caption,i)=>{assert.equal(caption.attrs['font-size'],layout.fontSizeMm);assert.equal(caption.attrs.textLength,layout.caption[i].widthMm);});
   assert(grainRad===0?f.root.textContent.includes('Fur / grain'):f.root.textContent.includes('Fur'));
   checks.push({case:`direction arrows preserve fur and ${grainRad===undefined?'unknown':grainRad===0?'matching':'separate'} fabric direction`,passed:true});
  }finally{f.app.unmount();}

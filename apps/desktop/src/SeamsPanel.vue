@@ -13,7 +13,7 @@ import type {Seam} from '../../../packages/schema/index';
 const advanced=inject('advancedMode',ref(false));
 const props=defineProps<{language:'zh'|'en';targetId?:string}>();const store=useSession(),zh=computed(()=>props.language==='zh'),name=ref('Seam'),a=ref(''),b=ref(''),ease=ref(0),tolerance=ref(1),reverse=ref(true),locked=ref(false),startA=ref(0),endA=ref(1),startB=ref(0),endB=ref(1);
 watch(()=>props.targetId,()=>void nextTick(()=>document.querySelector('.seam-row.active')?.scrollIntoView({block:'nearest'})));
-const notchCount=ref(3),notchDepth=ref(3);
+const notchCount=ref(3),notchDepth=ref(1);
 async function notches(seamId:string){const p=store.data.project;if(p)await store.run(()=>window.fpcad.pairNotches(p.id,p.revision,seamId,notchCount.value,notchDepth.value));}
 const edges=computed(()=>store.data.project?.pieces.flatMap(p=>p.nodes.slice(0,p.closed?undefined:-1).map((n,i)=>({key:`${p.id}:${n.id}`,pieceId:p.id,nodeId:n.id,endNodeId:p.nodes[(i+1)%p.nodes.length].id,label:`${p.name} / ${i+1} → ${(i+1)%p.nodes.length+1}`})))??[]);
 const reports=computed(()=>new Map(store.data.project?seamReports(store.data.project,store.data.geometry).map(r=>[r.id,r]):[]));

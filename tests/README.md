@@ -226,9 +226,9 @@ node tests/workflow-editing-component.mjs
 - `integration/wearer-cross-section-independent.test.ts`：从实际三角面独立求固定高度截面，测量 DTD／填充模型周长、对称性与填充变化；测试索引不代表外形已通过视觉验收。
 - `integration/allowance-bay-output-independent.test.ts`：缝份新孔与真实源孔分别进入排版、SVG、DXF、HTML 和实际 PDF 刀线；真实源孔消失时拒绝出图。
 - `integration/scoped-recovery-visibility-independent.test.ts`：目标面范围只限制花纹落在哪些面上，范围外的近表面仍参与遮挡，共面重叠仍拒绝；实时预览和真实原生保存都不能显示被挡住的材料。
-- `integration/automatic-local-placement-independent.test.ts`：新建自动小色块可在同一目标部位内提出有限平移，保留源轮廓、曲线、孔、缩放与未审阅状态；手工位置、已有花纹、锁定、远距、大块、隐藏面及真实歧义均不自动恢复。
+- `integration/automatic-local-placement-independent.test.ts`：超出对应部位的小色块直接跳过；有效贴附保留源轮廓、曲线、孔、等比缩放与未审阅状态。已有花纹、锁定、手工位置和指定面范围均不能触发自动移位，遮挡与重合面仍须拒绝。
 - `integration/terminal-paw-adjacency-independent.test.ts`、`integration/terminal-paw-contact-independent.test.ts`：两枚独立爪尖已支持手掌后，额外外端贴掌黑块才可归爪；保留紧邻头部、近手腕暗块、亮色、大块、仅包围盒相邻和重复像素记录的反例。
-- `integration/fresh-jpeg-placement-independent.test.ts`：重新解码原 JPEG，以原像素足迹及颜色找到四个历史问题源，检查内腿小块侧别、背身小块有限平移和真实第三爪归属。复用已记录的填充模型；缺少爪部的模型仍须报告 `MODEL_PART_MISSING`，不能改归腿部。
+- `integration/fresh-jpeg-placement-independent.test.ts`：重新解码原 JPEG，以原像素足迹及颜色找到四个历史问题源，检查内腿小块贴在正确侧、背身小块无对应可见位置时跳过，以及真实第三爪归属。复用已记录的填充模型；缺少爪部须报告 `MODEL_PART_MISSING`，不能改归腿部，跳过后的来源仍可归档恢复。
 - `integration/project-locked-trial-rejoin-independent.test.ts`：走实际准备、展开和恢复绑定流程，保留原模型锁缝及细分子边，让无关临时缝重连；工作模型只要有锁边仍禁止重连。检查间接端点焊接、全部来源覆盖、实际制造和逆映射。
 - `integration/repair-material-merge-independent.test.ts`：修补分组可跨不同临时标签合并，但必须保留原材料身份、导入缝和锁边；真实缝份孔失败时拒绝合并，网格和输入报告保持原样。
 - `integration/partial-chart-dart-independent.test.ts`：真实曲面完整合缝不满足应变要求时，检验局部合缝保留省道、来源和物理站点；通过实际工作进程、制造和独立严格审计，同时覆盖材料、锁边和失败状态。
@@ -255,9 +255,16 @@ node tests/workflow-editing-component.mjs
 - `integration/reference-sheet-blue-white-figures-independent.test.ts`：第二张蓝白原图的完整人物识别、交换位置后的逐像素归属、独立眼部窗口和深浅蓝色区域；检查白色毛料断开时仍能识别完整人物。
 - `integration/large-geometry-storage-independent.test.ts`：大几何字段与旧内联格式的读取、归档、撤销重做、恢复、请求重放、共享资源回收及失败回滚；失效依赖和未审阅状态必须保持。
 - `integration/arm-small-union-numerical-independent.test.ts`：用实际 139 面袖部输入复现旧求解失败，检查新结果的完整材料、边界、原生制造和接缝精度。
-- `integration/automatic-placement-batch-independent.test.ts`、`integration/automatic-placement-transaction-independent.test.ts`：整批工作线程、取消、失败无半写入、一次撤销及待审阅状态。
+- `integration/automatic-placement-batch-independent.test.ts`、`integration/automatic-placement-transaction-independent.test.ts`：整批共享真实原生进程，按部位等比缩放、隔离多角色来源，缺少部位或侧别时跳过；取消和失败不留下半次修改，成功只占一次撤销并保持待审阅。
 - `reference-sheet-desktop-e2e.mjs`：真实隐藏桌面中的原图导入、选区编辑、保存重开、衣身生成、细节拖放变换、自动贴附与审阅。
 - `reference-sheet-cut-e2e.mjs`：使用前一流程留下的原隔离库计算真实裁片，保持生产时限，不导入或复用候选。
 - `reference-sheet-manufacturing-e2e.mjs`：延续同一真实候选，检查接受、纸样预览、实际尺寸导出、撤销重做及进程重启。
 
 当前通过范围与未完成验收见 [功能验收记录](reported-functional-acceptance-contract.md)。2026-10-26 的完整功能运行覆盖 366 个文件、2814 项检查，全部通过且没有跳过，结果见本地 `test-results/2026-10-26-reference-sheet/full-functional/final-compatible-all.json`。随后发现的腿侧识别问题另有原图、人物交换位置及受影响文件的完整复测。历史中断、失败与对应复测记录均保留；桌面整链结果单独记录，不计入上述数量。
+
+裁线、速度与纸样标注回归：
+
+- `integration/seam-continuity-independent.test.ts`、`integration/section-continuity-independent.test.ts`：检查平滑面同色结构线的无意义折角，保留材料边界、真实折面、交汇点及人工锁定裁线；翻转对角线与改变网格排列后核对物理结果。
+- `integration/cut-preview-session-independent.test.ts`：真实裁切任务共享原生进程，成功、失败与重试后均正确释放。
+- `integration/annotation-layout-independent.test.ts`：标注占内部可容纳矩形的 80%，避开孔洞和凹口，核对 2 mm 默认值、历史值及实际 SVG、DXF、PDF 毫米输出。
+- `integration/pdf-embedded-glyphs-independent.test.ts`：解码 PDF 实际绘制的字符，逐一检查 Unicode 映射及嵌入字体轮廓，防止可抽取文字但打印缺字。

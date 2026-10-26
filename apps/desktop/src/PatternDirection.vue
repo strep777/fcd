@@ -1,8 +1,18 @@
+<template>
+ <g v-if="layout.fontSizeMm>0" class="piece-annotations" pointer-events="none">
+  <text v-for="(line,index) in layout.caption" :key="index" class="piece-caption" :x="line.xMm" :y="-line.yMm" text-anchor="middle" :font-size="line.fontSizeMm" :textLength="line.widthMm" lengthAdjust="spacingAndGlyphs" fill="var(--ink)" paint-order="stroke" stroke="var(--studio-white)" :stroke-width="line.fontSizeMm*.15" stroke-linejoin="round">{{line.text}}</text>
+  <g class="piece-direction" aria-label="Piece fur and fabric direction">
+  <g v-for="arrow in layout.arrows" :key="arrow.kind" :class="'piece-direction-'+arrow.kind" :data-angle-rad="arrow.angle">
+   <title>{{directionLabel(arrow.text)}} {{Number((arrow.angle*180/Math.PI).toFixed(1))}}°</title>
+   <polyline :points="arrow.points.map(point=>`${point.xMm},${-point.yMm}`).join(' ')" fill="none" :stroke="arrow.kind==='grain'?'var(--studio-orange)':'var(--ink)'" :stroke-width="layout.fontSizeMm*.1" :stroke-dasharray="arrow.kind==='grain'?`${layout.fontSizeMm*.3} ${layout.fontSizeMm*.2}`:undefined" stroke-linecap="round" stroke-linejoin="round"/>
+   <text :x="arrow.label.xMm" :y="-arrow.label.yMm" text-anchor="middle" :font-size="arrow.label.fontSizeMm" :textLength="arrow.label.widthMm" lengthAdjust="spacingAndGlyphs" :fill="arrow.kind==='grain'?'var(--studio-orange)':'var(--ink)'" paint-order="stroke" stroke="var(--studio-white)" :stroke-width="arrow.label.fontSizeMm*.15" stroke-linejoin="round">{{directionLabel(arrow.label.text)}}</text>
+  </g>
+  </g>
+ </g>
+</template>
 <script setup lang="ts">
-import {computed} from 'vue';
-const props=defineProps<{furRad:number;grainRad?:number;anchor:{xMm:number;yMm:number;clearanceMm:number};language:'zh'|'en'}>();
-const size=computed(()=>Math.max(0,Math.min(15,props.anchor.clearanceMm*.75)));
-const sameDirection=computed(()=>props.grainRad!==undefined&&Math.abs(Math.atan2(Math.sin(props.grainRad-props.furRad),Math.cos(props.grainRad-props.furRad)))<1e-6);
-const arrows=computed(()=>[{kind:'fur',angle:props.furRad,label:props.language==='zh'?(sameDirection.value?'毛 / 布向':'毛向'):(sameDirection.value?'Fur / grain':'Fur')},...(props.grainRad!==undefined&&!sameDirection.value?[{kind:'grain',angle:props.grainRad,label:props.language==='zh'?'布向':'Grain'}]:[])]);
+import type {patternAnnotationLayout} from '../../../packages/pattern/annotation-layout';
+const props=defineProps<{layout:ReturnType<typeof patternAnnotationLayout>;language:'zh'|'en'}>();
+const englishLabels:Record<string,string>={'毛向':'Fur','布向':'Grain','毛向 / 布向':'Fur / grain'};
+function directionLabel(text:string){return props.language==='zh'?text:englishLabels[text]??text;}
 </script>
-<template><g class="piece-direction" :transform="`translate(${anchor.xMm},${-anchor.yMm})`" pointer-events="none" aria-label="Piece fur and fabric direction"><g v-for="arrow in arrows" :key="arrow.kind" :class="'piece-direction-'+arrow.kind" :data-angle-rad="arrow.angle"><title>{{arrow.label}} {{Number((arrow.angle*180/Math.PI).toFixed(1))}}°</title><g :transform="`rotate(${-arrow.angle*180/Math.PI})`"><path :d="`M ${-size*.6} 0 L ${size*.6} 0 M ${size*.3} ${-size*.2} L ${size*.6} 0 L ${size*.3} ${size*.2}`" fill="none" :stroke="arrow.kind==='grain'?'var(--studio-orange)':'var(--ink)'" :stroke-width="Math.max(.35,size/14)" :stroke-dasharray="arrow.kind==='grain'?'1 .7':undefined" stroke-linecap="round" stroke-linejoin="round"/></g><text v-if="size>=5" x="0" :y="arrow.kind==='grain'?size*.65:-size*.65" text-anchor="middle" :font-size="Math.min(3.5,size/3)" :fill="arrow.kind==='grain'?'var(--studio-orange)':'var(--ink)'" paint-order="stroke" stroke="var(--studio-white)" stroke-width=".7">{{arrow.label}}</text></g></g></template>

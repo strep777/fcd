@@ -114,6 +114,7 @@ fn refine_seamed(
     let mut iterations = 0;
     let mut converged = false;
     let symbolic_order = crate::sparse::nested_order(&base);
+    let mut reusable = symbolic_order.as_ref().and_then(|order| crate::sparse::ReusableFactor::new(&base, order));
     for iteration in 0..limit {
         let mut matrix = base.clone();
         let mut rhs = vec![0.; n];
@@ -149,11 +150,15 @@ fn refine_seamed(
                 matrix[i][entry].1 += s.weight * derivatives[a] * derivatives[b];
             }
         }
-        let factorize = |matrix: &[Vec<(usize, f64)>]| {
+        let mut solve = |matrix: &[Vec<(usize, f64)>], rhs: &[f64]| {
+            if let Some(factor) = reusable.as_mut() {
+                if factor.factor(matrix) { return Some(factor.solve(rhs)); }
+            }
             symbolic_order
                 .as_ref()
                 .and_then(|order| crate::sparse::Factor::ordered(matrix, order))
                 .or_else(|| crate::sparse::Factor::reverse_breadth_first(matrix))
+                .map(|factor| factor.solve(rhs))
         };
         // Short intersection edges and long cloth spans can differ greatly
         // in stiffness. Solve D^-1 A D^-1 y = D^-1 b, then delta = D^-1 y.
@@ -172,10 +177,10 @@ fn refine_seamed(
                 .map(|(i, row)| row.iter().map(|&(j, a)| (j, a / scale[i] / scale[j])).collect())
                 .collect();
             let b: Vec<_> = rhs.iter().zip(&scale).map(|(a, d)| a / d).collect();
-            factorize(&normalized).map(|factor| factor.solve(&b).iter().zip(&scale).map(|(y, d)| y / d).collect::<Vec<_>>())
+            solve(&normalized, &b).map(|answer| answer.iter().zip(&scale).map(|(y, d)| y / d).collect::<Vec<_>>())
                 .filter(|delta| delta.iter().all(|a| a.is_finite()))
         });
-        let delta = scaled.or_else(|| factorize(&matrix).map(|factor| factor.solve(&rhs)))
+        let delta = scaled.or_else(|| solve(&matrix, &rhs))
             .ok_or("ARAP_NOT_CONVERGED")?;
         if delta.iter().any(|v| !v.is_finite()) {
             return Err("NUMERICAL_FAILURE");

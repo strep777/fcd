@@ -3,7 +3,7 @@ import {localizeRecord} from '../localization';
 import {computed,nextTick,onBeforeUnmount,ref,toRaw,watch,type Ref} from 'vue';
 import {useSession} from '../store';
 import {useDraftHistory} from './useDraftHistory';
-import {interiorAnchor} from '../../../../packages/pattern/interior';
+import {patternAnnotationLayout} from '../../../../packages/pattern/annotation-layout';
 import {circlePiece} from '../../../../packages/pattern/shapes';
 import {mapPiece,moveNode,duplicatePiece,piecePath,pointBounds} from '../../../../packages/pattern/edit';
 import {messages,issueMessages} from '../i18n';
@@ -24,7 +24,7 @@ const draftClosed=ref(true);
 const tool=ref<'pan'|'select'|'node'|'polygon'|'measure'>('select'),draft=ref<Point[]>([]),preview=ref<Piece|null>(null),svg=ref<SVGSVGElement>();
 const fitWidth=ref(650),viewportSize=ref({width:800,height:600});
 const view=ref({x:-60,y:-330,w:650,h:480}),snap=ref(true),selectedNode=ref('');
-const nodeX=ref(0),nodeY=ref(0),spacingMm=ref(10),spacingJoin=ref<Join>('miter'),holeTarget=ref(''),measurement=ref<Point[]>([]),mappedPoint=ref<{pieceId:string;xMm:number;yMm:number}|null>(null),paperPreset=ref('A4'),paper=ref<Paper>({widthMm:210,heightMm:297,marginMm:10,overlapMm:10});
+const nodeX=ref(0),nodeY=ref(0),spacingMm=ref(2),spacingJoin=ref<Join>('miter'),holeTarget=ref(''),measurement=ref<Point[]>([]),mappedPoint=ref<{pieceId:string;xMm:number;yMm:number}|null>(null),paperPreset=ref('A4'),paper=ref<Paper>({widthMm:210,heightMm:297,marginMm:10,overlapMm:10});
 const spacingValid=computed(()=>Number.isFinite(spacingMm.value)&&spacingMm.value>=0&&spacingMm.value<=1000);
 const draftHistory=useDraftHistory(()=>({nodes:draft.value,closed:draftClosed.value,hole:holeTarget.value}),value=>{draft.value=value.nodes;draftClosed.value=value.closed;holeTarget.value=value.hole;},()=>stage.value==='pattern'&&tool.value==='polygon',()=>store.busy);
 
@@ -36,8 +36,8 @@ async function applyPatternSpacing(){const p=project.value;if(!p||store.busy||!p
 const measureMm=computed(()=>measurement.value.length===2?Math.hypot(measurement.value[1].xMm-measurement.value[0].xMm,measurement.value[1].yMm-measurement.value[0].yMm):0);
 let drag:{start:Point;piece:Piece;nodeId?:string;pointerId:number;projectId:string;revision:number}|null=null;
 let pan:{start:DOMPoint;matrix:DOMMatrix;view:typeof view.value;pointerId:number}|null=null;
-let anchorCache=new WeakMap<Piece,ReturnType<typeof interiorAnchor>>();
-function cachedAnchor(p:Piece){const key=toRaw(p);let anchor=anchorCache.get(key);if(!anchor){anchor=interiorAnchor(p.nodes,p.holes);anchorCache.set(key,anchor);}return anchor;}
+const annotationCache=new WeakMap<Piece,ReturnType<typeof patternAnnotationLayout>>();
+function cachedAnnotationLayout(p:Piece){const key=toRaw(p);let layout=annotationCache.get(key);if(!layout){layout=patternAnnotationLayout(p);annotationCache.set(key,layout);}return layout;}
 let gestureFrame=0,pendingMove:PointerEvent|undefined;
 function flushMove(){if(gestureFrame)cancelAnimationFrame(gestureFrame);gestureFrame=0;const event=pendingMove;pendingMove=undefined;if(event)applyMove(event);}
 function clearMove(){if(gestureFrame)cancelAnimationFrame(gestureFrame);gestureFrame=0;pendingMove=undefined;}
@@ -70,7 +70,7 @@ function cancel(){clearMove();draftHistory.reset(()=>{draftClosed.value=true;hol
 function changePreviewTool(value:'pan'|'select'){cancel();tool.value=value;measurement.value=[];}
 function changeTool(value:typeof tool.value){stage.value='pattern';cancel();tool.value=value;measurement.value=[];}
 async function put(piece:Piece){const p=project.value;if(!p)return false;const ok=await store.run(()=>window.fpcad.apply(p.id,p.revision,{type:'piece.put',piece:JSON.parse(JSON.stringify(piece))}));if(ok)selectedId.value=piece.id;return ok;}
-function createPiece(nodes:Point[],closed=true):Piece{return {id:crypto.randomUUID(),name:`Pattern ${(project.value?.pieces.length??0)+1}`,nodes,closed,allowanceMm:10,cutQty:1,mirror:false,material:language.value==='zh'?'毛皮':localize('Fur'),furRad:Math.PI/2,color:'#73c9b6'};}
+function createPiece(nodes:Point[],closed=true):Piece{return {id:crypto.randomUUID(),name:`Pattern ${(project.value?.pieces.length??0)+1}`,nodes,closed,allowanceMm:project.value?.defaultAllowanceMm??2,cutQty:1,mirror:false,material:language.value==='zh'?'毛皮':localize('Fur'),furRad:Math.PI/2,color:'#73c9b6'};}
 async function rectangle(){stage.value='pattern';const offset=(project.value?.pieces.length??0)*30;await put(createPiece([[offset,0],[offset+100,0],[offset+100,200],[offset,200]].map(([xMm,yMm])=>({id:crypto.randomUUID(),xMm,yMm}))));}
 async function circle(){stage.value='pattern';await put(circlePiece(createPiece([]),50,()=>crypto.randomUUID()));}
 function startOpenPath(){changeTool('polygon');draftClosed.value=false;draftHistory.reset();}
@@ -89,10 +89,16 @@ function down(event:PointerEvent,piece?:Piece,node?:Point){
  if(tool.value==='measure'){measurement.value=measurement.value.length===1?[measurement.value[0],point]:[point];return;}
  if(!piece){selectedId.value='';selectedNode.value='';return;}selectPiece(piece.id,false);
  if(node){selectedNode.value=node.id;nodeX.value=node.xMm;nodeY.value=node.yMm;}
- drag={start:point,piece:JSON.parse(JSON.stringify(piece)),nodeId:node?.id,pointerId:event.pointerId,projectId:project.value.id,revision:project.value.revision};anchorCache.set(drag.piece,cachedAnchor(piece));svg.value!.setPointerCapture(event.pointerId);
+ drag={start:point,piece:JSON.parse(JSON.stringify(piece)),nodeId:node?.id,pointerId:event.pointerId,projectId:project.value.id,revision:project.value.revision};annotationCache.set(drag.piece,cachedAnnotationLayout(piece));svg.value!.setPointerCapture(event.pointerId);
 }
 function move(event:PointerEvent){if(!pan&&!drag)return;pendingMove=event;if(!gestureFrame)gestureFrame=requestAnimationFrame(flushMove);}
-function applyMove(event:PointerEvent){if(pan){if(pan.pointerId!==event.pointerId)return;const point=new DOMPoint(event.clientX,event.clientY).matrixTransform(pan.matrix);view.value={...pan.view,x:pan.view.x-(point.x-pan.start.x),y:pan.view.y-(point.y-pan.start.y)};return;}if(!drag)return;const point=world(event);if(!point)return;const dx=point.xMm-drag.start.xMm,dy=point.yMm-drag.start.yMm;const n=[...drag.piece.nodes,...(drag.piece.holes??[]).flat()].find(n=>n.id===drag!.nodeId);const candidate=n?moveNode(drag.piece,n.id,n.xMm+dx,n.yMm+dy):mapPiece(drag.piece,n=>({xMm:n.xMm+dx,yMm:n.yMm+dy}));const anchor=cachedAnchor(drag.piece);anchorCache.set(candidate,n?anchor:{...anchor,xMm:anchor.xMm+dx,yMm:anchor.yMm+dy});preview.value=candidate;}
+function applyMove(event:PointerEvent){
+ if(pan){if(pan.pointerId!==event.pointerId)return;const point=new DOMPoint(event.clientX,event.clientY).matrixTransform(pan.matrix);view.value={...pan.view,x:pan.view.x-(point.x-pan.start.x),y:pan.view.y-(point.y-pan.start.y)};return;}
+ if(!drag)return;const point=world(event);if(!point)return;const dx=point.xMm-drag.start.xMm,dy=point.yMm-drag.start.yMm;
+ const n=[...drag.piece.nodes,...(drag.piece.holes??[]).flat()].find(n=>n.id===drag!.nodeId),candidate=n?moveNode(drag.piece,n.id,n.xMm+dx,n.yMm+dy):mapPiece(drag.piece,n=>({xMm:n.xMm+dx,yMm:n.yMm+dy}));
+ if(!n){const layout=cachedAnnotationLayout(drag.piece),translate=<T extends {xMm:number;yMm:number}>(point:T)=>({...point,xMm:point.xMm+dx,yMm:point.yMm+dy});annotationCache.set(candidate,{...layout,caption:layout.caption.map(translate),arrows:layout.arrows.map(arrow=>({...arrow,points:arrow.points.map(translate),label:translate(arrow.label)})),box:translate(layout.box)});}
+ preview.value=candidate;
+}
 async function up(){flushMove();if(pan){pan=null;return;}if(!drag)return;const candidate=preview.value;const original=drag.piece,origin={projectId:drag.projectId,revision:drag.revision};preview.value=null;drag=null;if(stage.value!=='pattern')return;if(project.value?.id!==origin.projectId||project.value.revision!==origin.revision){store.error='STALE_EDIT';return;}if(candidate&&JSON.stringify(candidate)!==JSON.stringify(original))await put(candidate);}
 function zoomBy(factor:number,anchor?:{x:number;y:number}){if(drag||pan||!Number.isFinite(factor)||factor<=0)return;const fitHeight=fitWidth.value*view.value.h/view.value.w,base={x:view.value.x+view.value.w/2-fitWidth.value/2,y:view.value.y+view.value.h/2-fitHeight/2,width:fitWidth.value,height:fitHeight},box=cameraBox(base,zoomCamera(base,{zoom:zoomPercent.value/100,panX:0,panY:0},factor,anchor));view.value={x:box.x,y:box.y,w:box.width,h:box.height};}
 function setZoomPercent(value:number){if(Number.isFinite(value)&&value>0)zoomBy(value/zoomPercent.value);}
@@ -117,5 +123,5 @@ watch(()=>[project.value?.id,project.value?.pieces.length] as const,([id,count],
 watch(previewPieces,pieces=>{const ids=new Set(pieces.map(p=>p.id));if(selectedId.value&&!ids.has(selectedId.value)){selectedId.value=stage.value==='pattern'?pieces[0]?.id??'':'';mappedPoint.value=null;void nextTick(()=>fit());}choiceIds.value=choiceIds.value.filter(id=>ids.has(id));});
 watch(()=>project.value?.surfaceRun,async()=>{await nextTick();if(candidateMode.value)fit();});
 
-return {openJobs,measureMm,store,language,t,stage,project,selectedId,choiceIds,selected,filteredPieces,geometry,issues,draftClosed,tool,draft,preview,svg,view,viewportSize,resizeViewport,zoomPercent,scaleRuler,previewBounds,snap,selectedNode,nodeX,nodeY,spacingMm,spacingJoin,spacingValid,holeTarget,paperPreset,paper,measurement,mappedPoint,candidateMode,shownMarkings,previewPieces,shownPieces,previewPaper,paperSize,bounds,fmt,label,cutPath,cachedPiecePath,cachedAnchor,poly,allNodes,selectPiece,importSvg,applyPatternSpacing,showChoices,startHole,cancel,stopGesture,changeTool,changePreviewTool,put,rectangle,circle,startOpenPath,finish,down,move,up,zoom,zoomBy,setZoomPercent,fit,focusSelection,update,resize,transform,duplicate,remove,applyNode};
+return {openJobs,measureMm,store,language,t,stage,project,selectedId,choiceIds,selected,filteredPieces,geometry,issues,draftClosed,tool,draft,preview,svg,view,viewportSize,resizeViewport,zoomPercent,scaleRuler,previewBounds,snap,selectedNode,nodeX,nodeY,spacingMm,spacingJoin,spacingValid,holeTarget,paperPreset,paper,measurement,mappedPoint,candidateMode,shownMarkings,previewPieces,shownPieces,previewPaper,paperSize,bounds,fmt,label,cutPath,cachedPiecePath,cachedAnnotationLayout,poly,allNodes,selectPiece,importSvg,applyPatternSpacing,showChoices,startHole,cancel,stopGesture,changeTool,changePreviewTool,put,rectangle,circle,startOpenPath,finish,down,move,up,zoom,zoomBy,setZoomPercent,fit,focusSelection,update,resize,transform,duplicate,remove,applyNode};
 }

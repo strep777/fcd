@@ -4,9 +4,13 @@ import {placementAnatomies} from '../../../packages/reference/placement-registra
 import {partName,sideName,type BodyPart} from '../../../packages/reference/body-parts';
 import {projectMarking} from './markings';
 import {DomainError} from './repository';
+import {withWorkerSession} from './worker';
 
 /** One worker owns the complete batch; the caller commits it atomically. */
 export async function automaticPlacement(worker:string,project:Project,pieceIds:string[],parts?:BodyPart[]){
+ return withWorkerSession(worker,()=>placeBatch(worker,project,pieceIds,parts));
+}
+async function placeBatch(worker:string,project:Project,pieceIds:string[],parts?:BodyPart[]){
  const sources=new Map(project.patternLibrary?.map(r=>[r.piece.id,r]));
  if(new Set(pieceIds).size!==pieceIds.length||pieceIds.some(id=>!sources.has(id)))throw new DomainError('INVALID_SELECTION');
  if(!project.surface)throw new DomainError('SURFACE_MISSING');

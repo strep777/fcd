@@ -43,7 +43,7 @@ flowchart TD
 
 模型路线包括外部网格、程序躯干、物种模板、自定义模板、量体拟合和局部编辑。DTD 表达身体，一体填充模式表达衣身，costume 模式表达角色。`assembleSpecies` 使用 Manifold 组合部件并保留区域。这些实现不包含物理填充压缩，也不能由一张设定图唯一恢复三维。
 
-自动贴附使用人物上下文、部位与角色自身左右侧，再生成位置和表面片段。局部贴附涉及 [local-placement.ts](../../packages/surface/local-placement.ts) 和 [decal-chart.ts](../../packages/surface/decal-chart.ts)。手绘、纹理提取以及对称／延伸推断有各自入口，但并非每个接口都在当前页面可达，详见[功能目录](../guides/feature-catalog.md)。确定性几何补全不能称为已部署的生成式 AI。
+自动贴附使用人物上下文、部位与角色自身左右侧，在同一部位内统一缩放色块；找不到对应位置时跳过，保留原图色块之间的相对位置。实现见 [anatomical-placement.ts](../../apps/desktop/main/anatomical-placement.ts) 和 [automatic-placement.ts](../../apps/desktop/main/automatic-placement.ts)。曲面贴花使用 [decal-chart.ts](../../packages/surface/decal-chart.ts)。手绘、纹理提取以及对称／延伸推断有各自入口，但并非每个接口都在当前页面可达，详见[功能目录](../guides/feature-catalog.md)。确定性几何补全不能称为已部署的生成式 AI。
 
 整体变换与局部改顶点有不同依赖后果：能够精确携带的几何可同步更新，失效绑定必须继续失效。检查入口见 [marking-fingerprint.ts](../../apps/desktop/main/marking-fingerprint.ts)、[surface.ts](../../apps/desktop/main/surface.ts) 的 `bindingIssues`。
 

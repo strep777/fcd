@@ -12,6 +12,7 @@ import * as history from '../../apps/desktop/src/modules/useDraftHistory';
 import * as decimal from '../../apps/desktop/src/modules/decimal-input';
 import * as spacing from '../../packages/manufacturing/pattern-spacing';
 import {project,rectangle} from '../fixtures';
+import {acceptedCutProject} from '../fixtures/accepted-cut';
 import type {PatternTab} from '../../apps/desktop/src/modules/workflow-tabs';
 import type {Piece,Response,SurfaceProgress} from '../../packages/schema/index';
 
@@ -79,15 +80,25 @@ it('translates the simple preview label and advanced tools after locale changes'
  ui.advanced.value=true;await flush();expect(ui.tabs().map(tab=>tab.textContent)).toEqual(['型紙','素材','接ぎ目','配置','製作フロー']);
  ui.advanced.value=false;localization.setLocale('en');await flush();expect(ui.tabs().map(tab=>tab.textContent)).toEqual(['Pattern preview']);
 });
-async function mountProgress(enabled:boolean,language:'zh'|'en'='zh'){
+async function mountProgress(enabled:boolean,language:'zh'|'en'='zh',settings:{defaultAllowanceMm?:number|null;applyResult?:'success'|'failure'|'cancel'}={}){
  vi.useFakeTimers();const {pinia,store,p}=state(),advanced=Vue.ref(enabled),root=new HostNode('root');p.surface={id:crypto.randomUUID(),topologyVersion:1,source:'obj',vertices:[],faces:[]};
- let listener!:(value:SurfaceProgress)=>void,resolve!:(value:Response)=>void;const pending=new Promise<Response>(done=>{resolve=done;}),unwrap=vi.fn(()=>pending),cancel=vi.fn(async()=>({ok:true,cancelled:true,data:store.data}));
- vi.stubGlobal('window',{fpcad:{onSurfaceProgress:(callback:(value:SurfaceProgress)=>void)=>{listener=callback;return ()=>{};},unwrapSurface:unwrap,cancelSurface:cancel}});
+ // Progress tests use an explicit existing preference. The separate missing
+ // default cases below verify the intentional next-generation 2 mm change.
+ if(settings.defaultAllowanceMm===null){delete p.defaultAllowanceMm;p.cuttingLibrary=acceptedCutProject().cuttingLibrary;}else{p.defaultAllowanceMm=settings.defaultAllowanceMm??10;p.pieces=p.pieces.map(piece=>({...piece,allowanceMm:p.defaultAllowanceMm!}));}
+ const initial=JSON.stringify(store.data.project),calls:string[]=[];
+ let listener!:(value:SurfaceProgress)=>void,resolve!:(value:Response)=>void;const pending=new Promise<Response>(done=>{resolve=done;}),unwrap=vi.fn(()=>{calls.push('unwrap');return pending;}),cancel=vi.fn(async()=>({ok:true,cancelled:true,data:store.data}));
+ const apply=vi.fn(async(projectId:string,revision:number,command:{type:string;widthMm:number}):Promise<Response>=>{
+  calls.push('apply');expect(projectId).toBe(p.id);expect(revision).toBe(store.data.project!.revision);expect(command.type).toBe('patterns.allowance');
+  if(settings.applyResult==='failure')return{ok:false,error:{code:'TEST_REJECTED',messageKey:'TEST_REJECTED'}};
+  if(settings.applyResult==='cancel')return{ok:true,cancelled:true,data:store.data};
+  const current=JSON.parse(JSON.stringify(store.data));return{ok:true,data:{...current,project:{...spacing.withPatternSpacing(current.project,command.widthMm),revision:revision+1}}};
+ });
+ vi.stubGlobal('window',{fpcad:{onSurfaceProgress:(callback:(value:SurfaceProgress)=>void)=>{listener=callback;return ()=>{};},apply,unwrapSurface:unwrap,cancelSurface:cancel}});
  const app=renderer.createApp(Vue.defineComponent({setup(){Vue.provide('advancedMode',advanced);return ()=>Vue.h(UnwrapTools,{language});}}));app.use(pinia);app.mount(root);apps.push(app);await flush();
  const button=walk(root).find(node=>node.tag==='button'&&node.attrs.title===(language==='zh'?'裁切并计算版型预览':'Cut and compute pattern preview'))!;
  const action=button.attrs.onClick();await flush();await vi.advanceTimersByTimeAsync(200);await flush();
- const progress=(stage:SurfaceProgress['stage']='unwrap')=>{listener({projectId:p.id,revision:p.revision,stage,completed:7500,total:10000});};
- return {root,store,p,advanced,progress,unwrap,cancel,finish:async(pieces?:Piece[])=>{resolve(pieces?{ok:true,data:{...JSON.parse(JSON.stringify(store.data)),project:{...JSON.parse(JSON.stringify(store.data.project)),surfaceRun:{sourceHash:'a'.repeat(64),algorithm:'lscm-arap-1',accepted:false,pieces,bindings:[]}}}}:{ok:false,error:{code:'CANCELLED',messageKey:'CANCELLED'}});await action;await flush();}};
+ const progress=(stage:SurfaceProgress['stage']='unwrap')=>{listener({projectId:p.id,revision:store.data.project!.revision,stage,completed:7500,total:10000});};
+ return {root,store,p,initial,calls,apply,advanced,progress,unwrap,cancel,finish:async(pieces?:Piece[])=>{resolve(pieces?{ok:true,data:{...JSON.parse(JSON.stringify(store.data)),project:{...JSON.parse(JSON.stringify(store.data.project)),surfaceRun:{sourceHash:'a'.repeat(64),algorithm:'lscm-arap-1',accepted:false,pieces,bindings:[]}}}}:{ok:false,error:{code:'CANCELLED',messageKey:'CANCELLED'}});await action;await flush();}};
 }
 it('keeps mesh counts out of simple progress and shows only the real candidate piece count after completion',async()=>{
  const ui=await mountProgress(false);try{
@@ -105,4 +116,17 @@ it('labels advanced counts as mesh triangle workload and removes them when switc
   ui.progress();ui.advanced.value=false;await flush();status=walk(ui.root).find(node=>node.attrs.class==='surface-progress')!;expect(status.textContent).not.toContain('10000');bar=walk(status).find(node=>node.tag==='progress')!;expect(bar.attrs.value).toBeUndefined();
   const cancel=walk(status).find(node=>node.tag==='button')!;await cancel.attrs.onClick();expect(ui.cancel).toHaveBeenCalledWith(ui.p.id,ui.p.revision);
  }finally{await ui.finish();}
+});
+it('a missing generation preference applies 2 mm before computing at the new revision and retains saved cut snapshots',async()=>{
+ const ui=await mountProgress(false,'zh',{defaultAllowanceMm:null});try{
+  expect(ui.calls).toEqual(['apply','unwrap']);expect(ui.apply).toHaveBeenCalledExactlyOnceWith(ui.p.id,0,{type:'patterns.allowance',widthMm:2});expect(ui.unwrap).toHaveBeenCalledWith(ui.p.id,1,expect.any(Object));
+  expect(ui.store.data.project!.defaultAllowanceMm).toBe(2);expect(ui.store.data.project!.pieces.every(piece=>piece.allowanceMm===2)).toBe(true);expect(ui.store.data.project!.cuttingLibrary).toEqual(JSON.parse(ui.initial).cuttingLibrary);
+  ui.progress();await flush();expect(walk(ui.root).find(node=>node.attrs.class==='surface-progress')!.textContent).toContain('展开版型');
+ }finally{await ui.finish();}
+});
+it.each(['failure','cancel'] as const)('a %s while applying the new default leaves all project state intact and never starts computation',async applyResult=>{
+ const ui=await mountProgress(false,'zh',{defaultAllowanceMm:null,applyResult});try{expect(ui.apply).toHaveBeenCalledTimes(1);expect(ui.unwrap).not.toHaveBeenCalled();expect(ui.calls).toEqual(['apply']);expect(JSON.stringify(ui.store.data.project)).toBe(ui.initial);expect(walk(ui.root).some(node=>node.attrs.class==='surface-progress')).toBe(false);expect(ui.store.busy).toBe(false);}finally{await ui.finish();}
+});
+it('an explicit custom generation preference is retained without an extra write',async()=>{
+ const ui=await mountProgress(false,'zh',{defaultAllowanceMm:7});try{expect(ui.apply).not.toHaveBeenCalled();expect(ui.unwrap).toHaveBeenCalledWith(ui.p.id,0,expect.any(Object));expect(ui.store.data.project!.defaultAllowanceMm).toBe(7);expect(ui.store.data.project!.pieces[0].allowanceMm).toBe(7);}finally{await ui.finish();}
 });

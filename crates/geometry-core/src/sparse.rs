@@ -9,6 +9,101 @@ pub(crate) struct Factor {
     columns: Vec<FactorColumn>,
     scale: Option<Vec<f64>>,
 }
+/// Fixed symbolic fill for a sequence of matrices whose coefficients change,
+/// but whose structural entries do not. Numeric LDL factors and the original
+/// equations are recomputed each time; only allocation and reach analysis are
+/// reused. Structural zeros are included because later iterations can fill them.
+pub(crate) struct ReusableFactor {
+    order: Vec<usize>,
+    position: Vec<usize>,
+    rows: Vec<Vec<(usize, usize)>>,
+    columns: Vec<Vec<(usize, f64)>>,
+    diagonal: Vec<f64>,
+    workspace: Vec<f64>,
+}
+impl ReusableFactor {
+    pub(crate) fn new(matrix: &[Vec<(usize, f64)>], order: &[usize]) -> Option<Self> {
+        let n = matrix.len();
+        if n > 20_000 || order.len() != n { return None; }
+        let mut position = vec![usize::MAX; n];
+        for (k, &i) in order.iter().enumerate() {
+            if i >= n || position[i] != usize::MAX { return None; }
+            position[i] = k;
+        }
+        let mut parent = vec![usize::MAX; n];
+        let mut mark = vec![usize::MAX; n];
+        let mut columns = vec![Vec::new(); n];
+        let mut rows = vec![Vec::new(); n];
+        let mut work = 0usize;
+        let mut fill = 0usize;
+        for (k, &original) in order.iter().enumerate() {
+            mark[k] = k;
+            let mut reach = Vec::new();
+            for &(j, a) in &matrix[original] {
+                if j >= n || !a.is_finite() { return None; }
+                let mut j = position[j];
+                if j >= k { continue; }
+                while mark[j] != k {
+                    reach.push(j);
+                    mark[j] = k;
+                    if parent[j] == usize::MAX { parent[j] = k; }
+                    j = parent[j];
+                }
+            }
+            reach.sort_unstable();
+            for j in reach {
+                let slot = columns[j].len();
+                work = work.checked_add(slot)?;
+                fill += 1;
+                if work > 40_000_000 || fill > 1_000_000 { return None; }
+                rows[k].push((j, slot));
+                columns[j].push((k, 0.));
+            }
+        }
+        Some(Self { order: order.to_vec(), position, rows, columns,
+            diagonal: vec![0.; n], workspace: vec![0.; n] })
+    }
+    pub(crate) fn factor(&mut self, matrix: &[Vec<(usize, f64)>]) -> bool {
+        if matrix.len() != self.order.len() { return false; }
+        self.workspace.fill(0.);
+        for (k, &original) in self.order.iter().enumerate() {
+            for &(j, a) in &matrix[original] {
+                if j >= self.position.len() || !a.is_finite() { return false; }
+                let j = self.position[j];
+                if j < k && self.rows[k].binary_search_by_key(&j, |&(i, _)| i).is_err() { return false; }
+                if j <= k { self.workspace[j] += a; }
+            }
+            let mut d = self.workspace[k];
+            self.workspace[k] = 0.;
+            for &(j, slot) in &self.rows[k] {
+                let value = self.workspace[j];
+                self.workspace[j] = 0.;
+                for &(i, l) in &self.columns[j][..slot] { self.workspace[i] -= value * l; }
+                let l = value / self.diagonal[j];
+                if !l.is_finite() { return false; }
+                d -= value * l;
+                self.columns[j][slot].1 = l;
+            }
+            if !d.is_finite() || d <= 0. { return false; }
+            self.diagonal[k] = d;
+        }
+        true
+    }
+    pub(crate) fn solve(&self, rhs: &[f64]) -> Vec<f64> {
+        let mut x: Vec<_> = self.order.iter().map(|&i| rhs[i]).collect();
+        for (k, column) in self.columns.iter().enumerate() {
+            let y = x[k];
+            for &(i, l) in column { x[i] -= l * y; }
+        }
+        for (x, d) in x.iter_mut().zip(&self.diagonal) { *x /= d; }
+        for (k, column) in self.columns.iter().enumerate().rev() {
+            x[k] -= column.iter().map(|&(i, l)| l * x[i]).sum::<f64>();
+        }
+        let mut result = vec![0.; x.len()];
+        for (k, &i) in self.order.iter().enumerate() { result[i] = x[k]; }
+        result
+    }
+}
 impl Factor {
     pub(crate) fn new(matrix: &[Vec<(usize, f64)>]) -> Option<Self> {
         // Symmetric equilibration keeps the physical equations unchanged while
@@ -481,6 +576,43 @@ mod tests {
             }
         }
         assert!(Factor::new(&[vec![(0, -1.)]]).is_none());
+    }
+
+    #[test]
+    fn fixed_symbolic_fill_preserves_changing_coefficients_and_recovers_after_failure() {
+        let n = 63;
+        let matrix = |phase: usize| {
+            let mut rows = vec![vec![]; n];
+            let mut diagonal = vec![1.; n];
+            for i in 0..n {
+                for j in [i + 1, i + 7].into_iter().filter(|&j| j < n) {
+                    let weight = if (i + j + phase) % 3 == 0 { 0. } else { 1. + ((i * 7 + j * 13 + phase) % 19) as f64 };
+                    rows[i].push((j, -weight)); rows[j].push((i, -weight));
+                    diagonal[i] += weight; diagonal[j] += weight;
+                }
+            }
+            for i in 0..n { rows[i].push((i, diagonal[i])); }
+            rows
+        };
+        let initial = matrix(0);
+        let order = super::nested_order(&initial).unwrap();
+        let mut reusable = super::ReusableFactor::new(&initial, &order).unwrap();
+        for phase in 0..9 {
+            let rows = matrix(phase);
+            assert!(reusable.factor(&rows));
+            for scale in [1e-6, 1., 1000.] {
+                let expected: Vec<_> = (0..n).map(|i| (i as f64 * 0.31).sin() * scale).collect();
+                let rhs: Vec<_> = rows.iter().map(|r| r.iter().map(|&(j, a)| a * expected[j]).sum()).collect();
+                let actual = reusable.solve(&rhs);
+                let reference = Factor::ordered(&rows, &order).unwrap().solve(&rhs);
+                for ((a, b), c) in actual.iter().zip(&expected).zip(&reference) {
+                    assert!((a - b).abs() < scale * 1e-10);
+                    assert!((a - c).abs() < scale * 1e-10);
+                }
+            }
+            let invalid: Vec<_> = rows.iter().enumerate().map(|(i, row)| row.iter().map(|&(j, a)| (j, if i == j { -1. } else { a })).collect()).collect();
+            assert!(!reusable.factor(&invalid));
+        }
     }
 
     #[test]

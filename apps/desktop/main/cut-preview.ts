@@ -5,13 +5,16 @@ import {unwrapSurface} from './surface';
 import {unwrapMarkings} from './unwrap-markings';
 import {colorCuts} from './color-cuts';
 import {applyHalfCutScope} from './cut-tools';
-import {analyze} from './worker';
+import {analyze,withWorkerSession} from './worker';
 import {prepareCutMarkings} from './cut-markings';
 import {prepareDesignSurface,restoreDesignBindings,unwrapDesignSurface} from './design-cuts';
 import {parentPort} from 'node:worker_threads';
 
 /** One worker owns the entire candidate calculation, including colored cuts and preview geometry. */
 export async function cutPreview(worker:string,surface:Surface,project:Project,options:UnwrapOptions,directory:string){
+ return withWorkerSession(worker,()=>computeCutPreview(worker,surface,project,options,directory));
+}
+async function computeCutPreview(worker:string,surface:Surface,project:Project,options:UnwrapOptions,directory:string){
  try{assertUserCutsValid(surface);}catch(error){throw new DomainError((error as Error).message);}
  options={...options,partitionStrategy:options.partitionStrategy??'design'};
  parentPort?.postMessage({kind:'progress',value:{stage:'prepare'}});

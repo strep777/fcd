@@ -20,7 +20,6 @@ import {analyze,request} from './worker';
 import {mappedMarking} from './fragment-mapping';
 import {editTrimmedMarking} from './trim-marking';
 import {anatomicalPlacement} from './anatomical-placement';
-import {localPlacementOffset} from '../../../packages/surface/local-placement';
 import {placedPoint} from '../../../packages/reference/placement-transform';
 import {boundedMarkingRings,distinctMarkingStations} from './marking-path-budget';
 export const markingSource=(project:Project,id?:string)=>project.pieces.find(p=>p.id===id)??project.patternLibrary?.find(r=>r.piece.id===id)?.piece;
@@ -65,13 +64,9 @@ export async function projectMarking(worker:string,project:Project,sourceId:stri
  if(signal?.aborted)throw new DomainError('CANCELLED');
  const candidate=project.patternLibrary?.find(r=>r.piece.id===sourceId);if(context&&(!candidate||!placementAnatomies(candidate).some(a=>a.part===context.part&&a.side===context.side)))throw new DomainError('ANATOMY_REQUIRED');const selected=candidate?contextRegion(candidate,context):undefined;const related=project.markings?.filter(m=>m.sourcePieceId===sourceId&&m.view===view)??[],unregistered=related.filter(m=>!m.placement);if((automatic||context)&&unregistered.some(m=>m.locked))throw new DomainError('MARKING_LOCKED');if((automatic||context)&&!replaceManual&&unregistered.some(m=>m.editMode==='uv-manual'||m.source==='manual'&&!m.editMode))throw new DomainError('MANUAL_MARKING_REVIEW');const old=related.find(m=>(!automatic&&!context&&!m.placement)||m.placement?.part===selected?.anatomy?.part&&m.placement?.side===selected?.anatomy?.side);if(old?.locked)throw new DomainError('MARKING_LOCKED');if(old&&(old.editMode==='uv-manual'||old.source==='manual'&&!old.editMode)&&!replaceManual)throw new DomainError('MANUAL_MARKING_REVIEW');
  const region=project.patternLibrary?.find(r=>r.piece.id===sourceId),placement=automatic||old?.placement?anatomicalPlacement(project,selected??region??(()=>{throw new DomainError('ANATOMY_REQUIRED');})()):undefined;
- let projected:Awaited<ReturnType<typeof projectReferenceGeometry>>;
- try{projected=await projectReferenceGeometry(worker,project,sourceId,view,offsetXmm,offsetYmm,placement,faceScope,signal,chartFaces);}
- catch(error){
-  if(!automatic||!placement||old||!(error instanceof DomainError)||error.code!=='NO_VISIBLE_PROJECTION'||!project.surface||!region)throw error;
-  const correction=localPlacementOffset(project.surface,region.piece,placement,view,offsetXmm,offsetYmm,faceScope);if(!correction)throw error;
-  ({offsetXmm,offsetYmm}=correction);projected=await projectReferenceGeometry(worker,project,sourceId,view,offsetXmm,offsetYmm,placement,faceScope,signal,chartFaces);
- }
+ // A missing location is a skipped source. Moving each pigment independently
+ // to the nearest triangle would break the registered colour-group layout.
+ const projected=await projectReferenceGeometry(worker,project,sourceId,view,offsetXmm,offsetYmm,placement,faceScope,signal,chartFaces);
  const {mesh,source,bindings,fragments,paths}=projected;if(signal?.aborted)throw new DomainError('CANCELLED');
  const marking=markingSchema.parse({id:old?.id??randomUUID(),name:candidate?.anatomy?.contexts&&placement?derivedName(source.name,' / '+partName(placement.part)+' '+sideName(placement.side)):source.name,color:source.color,...(placement?{placement}:{}),source:'reference',...(candidate?.fabrication?{fabrication:candidate.fabrication}:{}),editMode:'projected',sourcePieceId:source.id,sourceHash:pieceGeometryHash(source),surfaceId:mesh.id,topologyVersion:mesh.topologyVersion,surfaceHash:hash(JSON.stringify(mesh)),view,offsetXmm,offsetYmm,fragments,paths});return bindings.some(b=>b.trim)?mappedMarking(worker,{...project,bindings},marking,signal):marking;
 }

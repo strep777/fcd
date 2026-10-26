@@ -1,6 +1,7 @@
 import type {Surface} from '../schema/index';
 import {orientedPlaneSegments} from './cut-geometry';
 import type {FaceCut} from './refine';
+import {continuousSection} from './section-continuity';
 
 type Vec=[number,number,number];
 const sub=(a:Vec,b:Vec)=>a.map((n,i)=>n-b[i]) as Vec;
@@ -53,7 +54,7 @@ export function geometricOpeningCuts(surface:Surface,guideEdges:{a:string;b:stri
    }
    const distance=distances.get(to);if(distance===undefined||distance>=bestLength)continue;
    const route:FaceCut[]=[];for(let id=to;id!==from;){const p=predecessors.get(id);if(!p){route.length=0;break;}route.push(p.cut);id=p.key;}
-   if(route.length){selected=[...new Set(route)];bestLength=distance;}
+   if(route.length&&continuousSection(surface,route)){selected=[...new Set(route)];bestLength=distance;}
   }
   if(!selected)return [];result.push(...selected);
  }

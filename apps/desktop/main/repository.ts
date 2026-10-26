@@ -125,7 +125,7 @@ export class Repository {
     }catch{this.maintenanceWarning='STORAGE_RECLAIM_FAILED';}
     return deleted;
   }
-  create(name:string){const now=new Date().toISOString();return this.open({schemaVersion:2,id:randomUUID(),name,unit:'mm',revision:0,createdAt:now,updatedAt:now,pieces:[]},null);}
+  create(name:string){const now=new Date().toISOString();return this.open({schemaVersion:2,id:randomUUID(),name,unit:'mm',revision:0,createdAt:now,updatedAt:now,defaultAllowanceMm:2,pieces:[]},null);}
   open(project:Project,destination:string|null){
     const parsed=projectSchema.parse(project),sid=randomUUID();
     this.transaction(()=>{const state=this.storeState(parsed);this.db.prepare('INSERT INTO sessions(id,state,saved_revision,destination) VALUES(?,?,?,?)').run(sid,state,destination?parsed.revision:null,destination);this.db.prepare("INSERT OR REPLACE INTO settings VALUES('active',?)").run(sid);this.checkpointStateWithinTransaction(sid,parsed.revision,state);});
