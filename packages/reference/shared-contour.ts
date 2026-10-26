@@ -316,5 +316,52 @@ function recoverNetwork(originals:Piece[],pixelMm:number,createId:()=>string,ima
   else Object.assign(c,before);
  }
 
+ // A contact repair may retain an entire raster chain. Remove only pixel
+ // stairs that fit inside the same certified corridor, jointly for both
+ // owners. The area, holes, junctions and intersection checks still apply.
+ const simplify=(points:Point[],tolerance:number):Point[]=>{
+  if(points.length<3)return points;
+  const a=points[0],b=points.at(-1)!,dx=b.xMm-a.xMm,dy=b.yMm-a.yMm,l=dx*dx+dy*dy;let far=0,index=0;
+  for(let i=1;i+1<points.length;i++){const p=points[i],t=l?Math.max(0,Math.min(1,((p.xMm-a.xMm)*dx+(p.yMm-a.yMm)*dy)/l)):0,d=Math.hypot(p.xMm-a.xMm-t*dx,p.yMm-a.yMm-t*dy);if(d>far){far=d;index=i;}}
+  return far<=tolerance?[a,b]:[...simplify(points.slice(0,index+1),tolerance).slice(0,-1),...simplify(points.slice(index),tolerance)];
+ };
+ const chainArea=(points:Point[])=>{const o=points[0];return points.reduce((sum,p,i)=>{const q=points[(i+1)%points.length];return sum+(p.xMm-o.xMm)*(q.yMm-o.yMm)-(q.xMm-o.xMm)*(p.yMm-o.yMm);},0)/2;};
+ // Removing a stair can shift a small region's area enough to reject an
+ // otherwise faithful boundary. Redistribute that area along this same
+ // shared chain, keeping junctions fixed, rather than reverting every stair.
+ // The full source-distance and topology certification below still decides.
+ const balanced=(nodes:Point[],before:Point[],c:Chain)=>{
+  const output=nodes.map(p=>({...p})),target=chainArea(before),curveEnds=new Set(c.curves.flatMap(curve=>[curve.startNodeId,curve.endNodeId])),anchors=new Set([...c.anchors,...before.filter(p=>curveEnds.has(p.id)).map(key)]);
+  for(let pass=0;pass<8;pass++){
+   const error=target-chainArea(output);if(Math.abs(error)<g*g*1e-8)return output;
+   const gradients=output.map((p,i)=>{if(anchors.has(key(nodes[i]))||!c.closed&&(i===0||i===output.length-1))return [0,0];const a=output[(i+output.length-1)%output.length],b=output[(i+1)%output.length];return [(b.yMm-a.yMm)/2,(a.xMm-b.xMm)/2];});
+   const norm=gradients.reduce((sum,v)=>sum+v[0]*v[0]+v[1]*v[1],0);if(norm<1e-20)return;
+   output.forEach((p,i)=>{p.xMm+=error*gradients[i][0]/norm;p.yMm+=error*gradients[i][1]/norm;});
+   if(output.some((p,i)=>Math.hypot(p.xMm-nodes[i].xMm,p.yMm-nodes[i].yMm)>g*.5))return;
+  }
+ };
+ // A polygon can also be a finely sampled, image-supported circular arc.
+ // Its samples are not pixel stairs. Preserve such arcs, but a measured
+ // polygon can still contain actual short orthogonal pixel steps.
+ const hasPixelStairs=(c:Chain)=>c.nodes.some((p,i)=>{
+  if(!c.closed&&(i===0||i===c.nodes.length-1))return false;
+  const a=c.nodes[(i+c.nodes.length-1)%c.nodes.length],b=c.nodes[(i+1)%c.nodes.length],u=[p.xMm-a.xMm,p.yMm-a.yMm],v=[b.xMm-p.xMm,b.yMm-p.yMm],x=Math.hypot(...u),y=Math.hypot(...v),epsilon=g*1e-6;
+  return Math.min(x,y)>epsilon&&Math.min(x,y)<=g*2.01&&Math.max(x,y)<=g*8.01&&Math.min(...u.map(Math.abs))<epsilon&&Math.min(...v.map(Math.abs))<epsilon&&Math.abs(u[0]*v[0]+u[1]*v[1])<epsilon*epsilon;
+ });
+ for(const c of chains)if((!c.curves.length&&(c.restored||!c.holeFit&&!c.raster)||hasPixelStairs(c))&&c.nodes.length>6){
+  const before=c.nodes;
+  for(const tolerance of [.65,.45,.25]){
+   const protectedIds=new Set(c.curves.flatMap(curve=>[curve.startNodeId,curve.endNodeId])),stops=before.flatMap((p,i)=>protectedIds.has(p.id)||c.anchors.includes(key(p))?[i]:[]);
+   stops.push(0);if(!c.closed)stops.push(before.length-1);else if(stops.length<2)stops.push(Math.floor(before.length/2));
+   const indices=[...new Set(stops)].sort((a,b)=>a-b),proposal:Point[]=[];
+   for(let i=0;i<indices.length-(c.closed?0:1);i++){const start=indices[i],end=indices[(i+1)%indices.length],points=end>start?before.slice(start,end+1):[...before.slice(start),...before.slice(0,end+1)],nodes=simplify(points,g*tolerance);proposal.push(...nodes.slice(0,-1));}
+   if(!c.closed)proposal.push(before.at(-1)!);
+   const nodes=balanced(proposal,before,c);if(!nodes)continue;
+   if(nodes.length<(c.closed?3:2)||nodes.length>=before.length||c.anchors.some(anchor=>!nodes.some(p=>key(p)===anchor)))continue;
+   c.nodes=nodes;const candidate=assemble();
+   if([...c.owners].every(owner=>valid(candidate[owner],owner))&&!crossingChains().size){pieces=candidate;break;}
+   c.nodes=before;
+  }
+ }
  return {pieces,report:{imageSupportedChains:chains.filter(c=>!!c.raster).length,chains:chains.length,sharedChains:chains.filter(c=>c.owners.size>1).length,closedSharedChains:chains.filter(c=>c.closed&&c.owners.size>1).length,restoredChains:chains.filter(c=>c.restored).length}};
 }

@@ -64,12 +64,55 @@ fn refine_seamed(
             }
         }
     }
+    // Every boundary linearization has the same structural entries. Allocate
+    // and index those entries once; iterations only update their numeric
+    // values, avoiding thousands of small tree allocations per iteration.
+    let rows: Vec<Vec<(usize, usize, f64)>> = springs
+        .iter()
+        .map(|s| {
+            let mut row = Vec::with_capacity(4);
+            for (v, sign) in [(s.a, -1.), (s.b, 1.)] {
+                if let Some(i) = index[v] {
+                    for axis in 0..2 {
+                        row.push((i + axis, axis, sign));
+                    }
+                }
+            }
+            for &(i, _, _) in &row {
+                for &(j, _, _) in &row {
+                    base[i].entry(j).or_default();
+                }
+            }
+            row
+        })
+        .collect();
+    let base: Vec<Vec<(usize, f64)>> = base.into_iter().map(|r| r.into_iter().collect()).collect();
+    let entries: Vec<Vec<(usize, usize, usize, usize)>> = rows
+        .iter()
+        .map(|row| {
+            let mut entries = Vec::with_capacity(row.len() * row.len());
+            for (a, &(i, _, _)) in row.iter().enumerate() {
+                for (b, &(j, _, _)) in row.iter().enumerate() {
+                    entries.push((
+                        i,
+                        base[i]
+                            .binary_search_by_key(&j, |&(column, _)| column)
+                            .unwrap(),
+                        a,
+                        b,
+                    ));
+                }
+            }
+            entries
+        })
+        .collect();
     let area: f64 = elements.iter().map(|e| e.area).sum();
     let objective = |p: &[[f64; 2]]| energy(elements, p) + spring_energy(springs, p) / area;
     let before = objective(uv);
     let mut after = before;
     let mut iterations = 0;
     let mut converged = false;
+    let symbolic_order = crate::sparse::nested_order(&base);
     for iteration in 0..limit {
         let mut matrix = base.clone();
         let mut rhs = vec![0.; n];
@@ -89,35 +132,50 @@ fn refine_seamed(
                 }
             }
         }
-        for s in springs {
+        for ((s, row), entries) in springs.iter().zip(&rows).zip(&entries) {
             let delta = [uv[s.b][0] - uv[s.a][0], uv[s.b][1] - uv[s.a][1]];
             let length = delta[0].hypot(delta[1]);
             if length <= 0. {
                 return Err("NUMERICAL_FAILURE");
             }
-            let mut row = Vec::with_capacity(4);
-            for (v, sign) in [(s.a, -1.), (s.b, 1.)] {
-                if let Some(i) = index[v] {
-                    for (axis, value) in delta.iter().enumerate() {
-                        row.push((i + axis, sign * value / length));
-                    }
-                }
-            }
-            for &(i, a) in &row {
+            let mut derivatives = [0.; 4];
+            for (k, &(i, axis, sign)) in row.iter().enumerate() {
+                let a = sign * delta[axis] / length;
+                derivatives[k] = a;
                 rhs[i] += s.weight * a * (s.length - length);
-                for &(j, b) in &row {
-                    *matrix[i].entry(j).or_default() += s.weight * a * b;
-                }
+            }
+            for &(i, entry, a, b) in entries {
+                matrix[i][entry].1 += s.weight * derivatives[a] * derivatives[b];
             }
         }
-        let matrix: Vec<Vec<_>> = matrix
-            .into_iter()
-            .map(|r| r.into_iter().collect())
-            .collect();
-        let Some(factor) = crate::sparse::Factor::new(&matrix) else {
-            return Err("ARAP_NOT_CONVERGED");
+        let factorize = |matrix: &[Vec<(usize, f64)>]| {
+            symbolic_order
+                .as_ref()
+                .and_then(|order| crate::sparse::Factor::ordered(matrix, order))
+                .or_else(|| crate::sparse::Factor::reverse_breadth_first(matrix))
         };
-        let delta = factor.solve(&rhs);
+        // Short intersection edges and long cloth spans can differ greatly
+        // in stiffness. Solve D^-1 A D^-1 y = D^-1 b, then delta = D^-1 y.
+        // This changes neither the original equations nor their constraints.
+        let scale: Option<Vec<f64>> = matrix
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                row.iter().find(|&&(j, _)| j == i).and_then(|&(_, a)| {
+                    if a > 0. && a.is_finite() { Some(a.sqrt()) } else { None }
+                })
+            })
+            .collect();
+        let scaled = scale.and_then(|scale| {
+            let normalized: Vec<Vec<(usize, f64)>> = matrix.iter().enumerate()
+                .map(|(i, row)| row.iter().map(|&(j, a)| (j, a / scale[i] / scale[j])).collect())
+                .collect();
+            let b: Vec<_> = rhs.iter().zip(&scale).map(|(a, d)| a / d).collect();
+            factorize(&normalized).map(|factor| factor.solve(&b).iter().zip(&scale).map(|(y, d)| y / d).collect::<Vec<_>>())
+                .filter(|delta| delta.iter().all(|a| a.is_finite()))
+        });
+        let delta = scaled.or_else(|| factorize(&matrix).map(|factor| factor.solve(&rhs)))
+            .ok_or("ARAP_NOT_CONVERGED")?;
         if delta.iter().any(|v| !v.is_finite()) {
             return Err("NUMERICAL_FAILURE");
         }
@@ -489,7 +547,11 @@ fn refine_conditioned(
             .enumerate()
             .map(|(i, e)| e.area / weights.map_or(1., |w| w[i]))
             .sum();
-        let count = edges.values().filter(|&&count| count == 1).count().max(1);
+        let perimeter: f64 = edges.iter().filter(|(_, count)| **count == 1)
+            .map(|(&(a,b),_)| {
+                let p=&mesh.vertices[globals[a]];let q=&mesh.vertices[globals[b]];
+                (p.x_mm-q.x_mm).hypot(p.y_mm-q.y_mm).hypot(p.z_mm-q.z_mm)
+            }).sum();
         for ((a, b), count_edge) in edges {
             if count_edge != 1 {
                 continue;
@@ -506,7 +568,7 @@ fn refine_conditioned(
                 a,
                 b,
                 length,
-                weight: 100_000. * total_area / count as f64 / length.powi(2),
+                weight: 100_000. * total_area / (perimeter * length),
             });
         }
     }
@@ -567,6 +629,16 @@ fn refine_conditioned(
         .into_iter()
         .map(|row| row.into_iter().collect())
         .collect();
+    // Keep residual correction in the same equilibrated equations as the
+    // direct solve. Returning to the unscaled system made tiny intersection
+    // triangles dominate CG roundoff, rejecting otherwise valid cloth unions.
+    // A' = D^-1 A D^-1, b' = D^-1 b, x = D^-1 y: no physical constraint,
+    // iteration budget or relative convergence coefficient changes.
+    let solve_scale: Vec<f64> = diagonal.iter().map(|d| d.sqrt()).collect();
+    let stiffness: Vec<Vec<(usize, f64)>> = stiffness.iter().enumerate()
+        .map(|(i, row)| row.iter().map(|&(j, a)| (j, a / solve_scale[i] / solve_scale[j])).collect())
+        .collect();
+    let diagonal = vec![1.; n];
     let multiply = |x: &[f64]| {
         stiffness
             .iter()
@@ -596,11 +668,14 @@ fn refine_conditioned(
                     }
                 }
             }
+            for (b, scale) in rhs.iter_mut().zip(&solve_scale) {
+                *b /= scale;
+            }
             let mut x: Vec<_> = factor
                 .as_ref()
                 .map(|f| f.solve(&rhs))
                 .filter(|x| x.iter().all(|v| v.is_finite()))
-                .unwrap_or_else(|| free.iter().map(|&v| uv[v][axis]).collect());
+                .unwrap_or_else(|| free.iter().enumerate().map(|(i, &v)| uv[v][axis] * solve_scale[i]).collect());
             let product = multiply(&x);
             let mut residual: Vec<_> = rhs.iter().zip(product).map(|(a, b)| a - b).collect();
             let mut z: Vec<_> = residual.iter().zip(&diagonal).map(|(r, d)| r / d).collect();
@@ -638,7 +713,7 @@ fn refine_conditioned(
                 return Err("ARAP_NOT_CONVERGED");
             }
             for (i, &v) in free.iter().enumerate() {
-                candidate[v][axis] = x[i];
+                candidate[v][axis] = x[i] / solve_scale[i];
             }
         }
         let mut accepted = None;

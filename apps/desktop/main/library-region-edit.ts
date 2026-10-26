@@ -24,8 +24,17 @@ function affectedSources(project:Project,pieceId:string){
 /** Metadata can move a pigment between groups; both old and new frames change. */
 export async function refreshLibraryRegionMetadata(worker:string,project:Project,region:NonNullable<Project['patternLibrary']>[number]){
  const id=region.piece.id,existing=project.patternLibrary?.some(r=>r.piece.id===id),proposed={...project,patternLibrary:[...(project.patternLibrary??[]).filter(r=>r.piece.id!==id),region]};
- if(existing)editableLibraryRegion(project,id);
- editableLibraryRegion(proposed,id);
+ const previous=project.patternLibrary?.find(r=>r.piece.id===id);
+ const roleOnly=!!previous&&JSON.stringify({...previous,fabrication:undefined})===JSON.stringify({...region,fabrication:undefined});
+ if(existing)editableLibraryRegion(project,id,false,roleOnly);
+ editableLibraryRegion(proposed,id,false,roleOnly);
+ // Changing the fabrication role does not change a source contour or its
+ // placement frame. Preserve geometry/review/stale state, and update both
+ // active and saved-model attachments in the same repository transaction.
+ if(roleOnly){
+  const update=(m:NonNullable<Project['markings']>[number])=>m.sourcePieceId===id?{...m,fabrication:region.fabrication}:m;
+  return {region,markings:(project.markings??[]).filter(m=>m.sourcePieceId===id).map(update),models:(project.modelLibrary??[]).map(model=>({...model,markings:model.markings?.map(update)}))};
+ }
  const sources=new Set([...affectedSources(project,id),...affectedSources(proposed,id)]),markings:NonNullable<Project['markings']>=[];
  for(const sourceId of sources)markings.push(...await refreshMetadataSourceMarkings(worker,proposed,project,sourceId));
  let models=project.modelLibrary??[];
@@ -35,7 +44,7 @@ export async function refreshLibraryRegionMetadata(worker:string,project:Project
  return {region,markings,models};
 }
 
-export function editableLibraryRegion(project:Project,pieceId:string,replaceManual=false){
+export function editableLibraryRegion(project:Project,pieceId:string,replaceManual=false,roleOnly=false){
  const region=project.patternLibrary?.find(r=>r.piece.id===pieceId);if(!region)throw new DomainError('ENTITY_MISSING');
  if(project.bindings?.some(b=>b.pieceId===pieceId)||project.modelLibrary?.some(m=>m.bindings?.some(b=>b.pieceId===pieceId)))throw new DomainError('MARKING_SOURCE_BOUND');
  const sources=affectedSources(project,pieceId);
@@ -43,7 +52,9 @@ export function editableLibraryRegion(project:Project,pieceId:string,replaceManu
   const affected=new Set(markings.filter(m=>m.sourcePieceId&&sources.has(m.sourcePieceId)).map(m=>m.id));let count=-1;
   while(count!==affected.size){count=affected.size;for(const m of markings)if(m.inference&&affected.has(m.inference.sourceMarkingId))affected.add(m.id);}
   if(markings.some(m=>affected.has(m.id)&&m.locked))throw new DomainError('MARKING_LOCKED');
-  if(markings.some(m=>m.sourcePieceId&&sources.has(m.sourcePieceId)&&!(replaceManual&&m.sourcePieceId===pieceId)&&(m.editMode==='uv-manual'||m.source==='manual'&&!m.editMode)))throw new DomainError('MANUAL_MARKING_REVIEW');
+  // A role-only change retains every saved UV/manual coordinate. Reprojection
+  // still requires the original explicit replacement path and lock checks.
+  if(!roleOnly&&markings.some(m=>m.sourcePieceId&&sources.has(m.sourcePieceId)&&!(replaceManual&&m.sourcePieceId===pieceId)&&(m.editMode==='uv-manual'||m.source==='manual'&&!m.editMode)))throw new DomainError('MANUAL_MARKING_REVIEW');
  }
  return region;
 }

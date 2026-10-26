@@ -125,6 +125,7 @@ export function triangulatedColorBoundary(rings:XY[][],triangulate:(rings:XY[][]
 
 /** Disjoint sewing pieces follow visible color boundaries; background excludes colored inserts. */
 export async function colorCuts(worker:string,project:Project,run:SurfaceRun,markings:Marking[],directory=resolve('dist/assets')){
+ markings=markings.filter(m=>m.fabrication!=='detail');
  if(!markings.some(m=>m.paths.length))return run;
  const cutClip=(jobs:Parameters<typeof clip>[1])=>clip(worker,jobs,9);
  const colorCutReport:ColorCutReport={budgetSplits:0,allowanceSplits:0,topologySplits:0},colorHash=cutColorHash(project),wasm=await triangulator(directory),pieces:Piece[]=[],bindings:Binding[]=[],faces=new Map(project.surface!.faces.map(f=>[f.id,f]));
@@ -183,7 +184,7 @@ export async function colorCuts(worker:string,project:Project,run:SurfaceRun,mar
    // A color insert only needs UVs for its mapped faces. Keep the original
    // parent-boundary stations as well for seam-edit compatibility, without
    // duplicating every interior UV of a wide parent patch into each insert.
-   const reportVertices=new Set([...binding.report.boundary,...faceIds.flatMap(id=>faces.get(id)!.vertices)]);
+   const reportVertices=new Set([...binding.report.boundary,...(binding.report.holes??[]).flat(),...faceIds.flatMap(id=>faces.get(id)!.vertices)]);
    pieces.push(piece);bindings.push({...binding,colorHash,pieceId:piece.id,geometryHash:pieceGeometryHash(piece),trim,report:{...binding.report,uv:binding.report.uv.filter(v=>reportVertices.has(v.vertexId)),boundaryToleranceMm:Math.max(.001,binding.report.boundaryToleranceMm??0),faceIds,faceDistortion:binding.report.faceDistortion?.filter(f=>faceIds.includes(f.faceId))}});
   }}
  }

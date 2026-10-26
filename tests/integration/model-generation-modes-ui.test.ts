@@ -50,6 +50,25 @@ it('repairs invalid hidden appearance fields on entering a wearer mode without c
   expect(ui.state.speciesValid).toBe(true);expect(ui.state.speciesParams.earHeightMm).toBe(speciesDefaults('canine','padded').earHeightMm);expect(ui.state.speciesParams.snoutLengthMm).toBe(speciesDefaults('canine','padded').snoutLengthMm);expect(ui.state.speciesParams.tailTipGirthMm).toBeLessThanOrEqual(ui.state.speciesParams.tailBaseGirthMm);expect(ui.state.speciesParams.chestGirthMm).toBe(1125);expect(ui.state.speciesParams.thighPaddingMm).toBe(37);
  }finally{ui.app.unmount();}
 });
+it.each((['dtd','costume'] as const).flatMap(mode=>[0,79,501,NaN,Infinity,''].map(footLengthMm=>({mode,footLengthMm}))))('repairs the newly hidden invalid foot draft $footLengthMm when $mode switches to padded and allows generation',async({mode,footLengthMm})=>{
+ const ui=mounted();try{
+  ui.state.setBodyMode(mode);Object.assign(ui.state.speciesParams,{footLengthMm,chestGirthMm:1125,thighPaddingMm:37});expect(ui.state.speciesValid).toBe(false);
+  const otherBefore=Object.fromEntries(wearerKeys.filter(key=>key!=='footLengthMm').map(key=>[key,ui.state.speciesParams[key]]));
+  expect(ui.state.speciesGroups.flatMap((g:any)=>g.keys)).toContain('footLengthMm');ui.state.setBodyMode('padded');
+  expect(ui.state.speciesGroups.flatMap((g:any)=>g.keys)).not.toContain('footLengthMm');expect(ui.state.speciesParams.footLengthMm).toBe(speciesDefaults('canine','padded').footLengthMm);expect(ui.state.speciesValid).toBe(true);
+  expect(Object.fromEntries(wearerKeys.filter(key=>key!=='footLengthMm').map(key=>[key,ui.state.speciesParams[key]]))).toEqual(otherBefore);
+  const generateSpecies=vi.fn(async()=>({ok:true,data:JSON.parse(JSON.stringify(ui.store.data))}));window.fpcad={generateSpecies} as unknown as typeof window.fpcad;await ui.state.generateTemplate();expect(generateSpecies).toHaveBeenCalledOnce();expect(generateSpecies.mock.calls[0]).toEqual([ui.store.data.project!.id,ui.store.data.project!.revision,expect.objectContaining({bodyMode:'padded',footLengthMm:280,chestGirthMm:1125,thighPaddingMm:37})]);
+ }finally{ui.app.unmount();}
+});
+it.each([80,285,500])('keeps a valid hidden %s mm foot draft through padded, DTD and costume mode changes',footLengthMm=>{
+ const ui=mounted();try{
+  ui.state.setBodyMode('dtd');Object.assign(ui.state.speciesParams,{footLengthMm,chestGirthMm:1125,calfPaddingMm:23});
+  for(const mode of ['padded','dtd','costume','padded']){
+   ui.state.setBodyMode(mode);expect(ui.state.speciesParams.footLengthMm).toBe(footLengthMm);expect(ui.state.speciesParams.chestGirthMm).toBe(1125);expect(ui.state.speciesParams.calfPaddingMm).toBe(23);expect(ui.state.speciesValid).toBe(true);
+   expect(ui.state.speciesGroups.flatMap((g:any)=>g.keys).includes('footLengthMm')).toBe(mode!=='padded');
+  }
+ }finally{ui.app.unmount();}
+});
 it('loads an old recipe without bodyMode as costume without converting its dimensions',async()=>{
  const ui=mounted();try{
   const parameters=speciesDefaults('bear');delete parameters.bodyMode;parameters.chestGirthMm=1425;const surface=acceptedCutProject().surface!;surface.template={id:'original-bear-plantigrade',version:'1.1.0',license:'original-project-source',parameters,parts:[],measurements:[],warnings:[]};ui.store.data.project!.surface=surface;await nextTick();

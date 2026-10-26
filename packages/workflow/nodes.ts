@@ -7,7 +7,7 @@ export function workflowNodes(p:Project,zh=true){
  {key:'mapping',title:zh?'花纹映射':'Pattern mapping',stage:'mapping' as const,summary:`${p.markings?.length??0} ${zh?'处贴附':'markings'}`},
  {key:'unwrap',title:zh?'开裁':'Cutting',stage:'cutting' as const,summary:`${p.surface?.cutConstraints?.length??0} ${zh?'条切分线':'cuts'} · ${p.surfaceRun?.accepted?(zh?'已采用':'accepted'):p.surfaceRun?(zh?'预览中':'preview'):(zh?'待计算':'pending')}`},
  {key:'pattern',title:zh?'制版与打印':'Pattern making & printing',stage:'pattern' as const,summary:`${p.pieces.length} ${zh?'个裁片':'pieces'}`}];
- const entities=[...(p.references??[]).map(r=>({key:'reference:'+r.id,title:r.name,stage:'references' as const,id:r.id,summary:zh?(r.view==='front'?'正面参考图':'背面参考图'):r.view})),
+ const entities=[...(p.references??[]).map(r=>({key:'reference:'+r.id,title:r.name,stage:'references' as const,id:r.id,summary:zh?'整张设定图':'Reference sheet'})),
  ...(p.patternLibrary??[]).map(r=>({key:'region:'+r.piece.id,title:r.piece.name,stage:'references' as const,id:r.piece.id,summary:r.category})),
  ...(p.modelLibrary??[]).map(m=>({key:'model:'+m.id,title:m.name,stage:'model' as const,id:m.id,summary:m.surface.source})),
  ...(p.surface?.cutLines??[]).map(line=>({key:'cutLine:'+line.id,id:'cutLine:'+line.id,title:line.name,stage:'cutting' as const,summary:`${line.kind} · ${line.edges.length} ${zh?'段':'edges'} · ${line.enabled?(zh?'已启用':'enabled'):(zh?'已停用':'disabled')}`})),

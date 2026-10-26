@@ -7,6 +7,7 @@ import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import upng from '@pdf-lib/upng';
+import {crc32} from 'node:zlib';
 import {desktopArgs,executablePath} from './desktop-launch.mjs';
 const directory=await mkdtemp(resolve('.local/tests/extraction-safety-')),env={...process.env,FPCAD_DATA_DIR:directory};
 const app=await desktop.launch({args:desktopArgs,executablePath,env}),page=await app.firstWindow(),checks=[],errors=[];
@@ -14,7 +15,8 @@ page.on('pageerror',error=>errors.push(error.message));
 async function verifySourceGeometry(project,label){
  const root=await app.evaluate(({host})=>host.getAppPath()),worker=resolve(root,'dist/bin',process.platform==='win32'?'fpcad-worker.exe':'fpcad-worker'),regions=project.patternLibrary,geometry=[];
  assert(regions.length>0&&regions.every(r=>r.piece.closed&&r.piece.nodes.length>=3),label+': every source must be a closed editable contour');
- assert.deepEqual(new Set(regions.map(r=>r.view)),new Set(['front','back']),label+': both original views must retain their sources');
+ assert.equal(project.references.length,1);assert.equal(project.references[0].view,'sheet');assert.deepEqual(new Set(regions.map(r=>r.view)),new Set(['sheet']),label+': all original subjects retain their full-sheet sources');
+ const figures=project.references[0].illustration.figures;assert.equal(figures.length,2);assert.deepEqual(new Set(figures.map(f=>f.normalZ)),new Set([-1,1]));assert.deepEqual(new Set(regions.map(r=>r.sourceGroup)),new Set(figures.map(f=>f.sourceGroup)));
  for(let start=0;start<regions.length;start+=20){const pieces=regions.slice(start,start+20).map(r=>r.piece),result=spawnSync(worker,[],{windowsHide:true,input:JSON.stringify({protocolVersion:1,pieces}),encoding:'utf8',timeout:10000,maxBuffer:8*1024*1024});assert.equal(result.status,0,label+': native worker '+(result.error?.message??result.stderr));const parsed=JSON.parse(result.stdout);assert(parsed.ok,label+': '+JSON.stringify(parsed));assert.deepEqual(parsed.geometry.map(g=>g.id),pieces.map(p=>p.id));geometry.push(...parsed.geometry);}
  assert.deepEqual(geometry.flatMap(g=>g.issues.filter(i=>i.severity==='error')),[],label+': extracted sources must remain valid for actual manufacturing');
  const pixelAreas=new Map();for(const [i,g] of geometry.entries()){
@@ -34,22 +36,22 @@ try{
  await app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});},resolve('tests/fixtures/character-front-back.jpg'));
  r=await page.evaluate(async()=>{const s=await window.fpcad.read();return window.fpcad.autoReference(s.data.project.id,s.data.project.revision,'front-right',1800,6,true,'precise');});assert(r.ok,JSON.stringify(r));
  const advanced=r.data.project,regions=advanced.patternLibrary;
- assert.equal(advanced.references.find(r=>r.view==='front').width,666,'both modes must respect the off-center gutter');
+ assert.equal(advanced.references[0].width,1275,'both modes retain the entire original sheet');assert.equal(advanced.references[0].height,750);
  const advancedMetrics=await verifySourceGeometry(advanced,'advanced');
  checks.push({name:'advanced real-image sources have native-valid geometry, calibrated image coordinates and independent cropped views',...advancedMetrics});
  await page.reload();await chooseProject(page);await page.locator('.region-card').first().waitFor();assert.equal(await page.locator('.mode-switch').count(),0);
  assert.equal(await page.locator('.region-card path').first().getAttribute('vector-effect'),'non-scaling-stroke');
- assert.equal(await page.getByLabel('双视图布局',{exact:true}).inputValue(),'front-left');
+ assert.equal(await page.getByLabel('双视图布局',{exact:true}).count(),0);assert.equal(await page.getByLabel('单张原图朝向',{exact:true}).count(),0);
  for(const label of ['参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0);
- // A valid 2 px wide image cannot contain two accepted view crops. Exercise
- // rejection through the real picker/button, instead of a removed parameter.
- const codec=upng.default??upng,narrowImage=resolve(directory,'too-narrow-dual.png');await writeFile(narrowImage,Buffer.from(codec.encode([new Uint8Array(2*2*4).fill(255).buffer],2,2,0)));
- await app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});},narrowImage);
- await page.getByRole('button',{name:'上传双视图并自动拆分',exact:true}).click();
+ // A valid narrow sheet is allowed. Reject an actual over-limit declared image
+ // before decoding instead, and retain the same atomic failure/retry checks.
+ const codec=upng.default??upng,oversizedImage=resolve(directory,'over-limit-sheet.png'),limitedPng=Buffer.from(codec.encode([new Uint8Array(2*2*4).fill(255).buffer],2,2,0));limitedPng.writeUInt32BE(16385,16);limitedPng.writeUInt32BE(crc32(limitedPng.subarray(12,29)),29);await writeFile(oversizedImage,limitedPng);
+ await app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});},oversizedImage);
+ await page.getByRole('button',{name:'上传设定图并提取花纹',exact:true}).click();
  const inputFailure=page.locator('.error-banner');await inputFailure.waitFor();assert.match(await inputFailure.innerText(),/参考图限|IMAGE_LIMIT/);
  await page.waitForFunction(()=>!document.querySelector('.auto-reference button.primary')?.disabled);
- for(const name of ['上传双视图并自动拆分','按当前标定重新拆分'])assert(await page.getByRole('button',{name,exact:true}).isEnabled());
- assert.equal(await page.getByRole('button',{name:'交换正背并重新拆分',exact:true}).count(),1);
+ for(const name of ['上传设定图并提取花纹','按当前标定重新提取'])assert(await page.getByRole('button',{name,exact:true}).isEnabled());
+ assert.equal(await page.getByRole('button',{name:'交换正背并重新拆分',exact:true}).count(),0);
  assert(await page.getByRole('alert').isVisible());
  assert.deepEqual((await page.evaluate(()=>window.fpcad.read())).data.project,advanced);
  await inputFailure.getByRole('button',{name:'×',exact:true}).click();await page.locator('[aria-label="搜索花纹"]').fill('不存在的花纹');assert(await page.locator('.library-groups [role=status]').isVisible());await page.locator('[aria-label="搜索花纹"]').fill('');
@@ -59,14 +61,14 @@ try{
  assert(r.data.project.patternLibrary.length<=120);const simpleMetrics=await verifySourceGeometry(r.data.project,'simple');
  checks.push({name:'simple extraction preserves native-valid original contours and mm calibration without requiring arbitrary curve counts',...simpleMetrics});
  await page.reload();await chooseProject(page);await page.locator('.region-card').first().waitFor();await page.locator('.mask-view').scrollIntoViewIfNeeded();await desktopScreenshot(app,page,{path:'test-results/flat-reference.png'});
- const witnesses=await page.evaluate(async()=>{const p=(await window.fpcad.read()).data.project,at=(x,y)=>{const owners=p.patternLibrary.filter(r=>r.view==='front'&&document.querySelector(`.mask-view [data-source-region-id="${r.piece.id}"]`).isPointInFill(new DOMPoint(x+.5,y+.5)));if(owners.length!==1)throw Error('Expected one actual source at '+x+','+y+', got '+owners.length);return {id:owners[0].piece.id,color:owners[0].piece.color};};return {structures:[[178,55],[188,80],[218,140],[249,90],[265,125]].map(([x,y])=>at(x,y)),tail:[[541,440],[500,473],[530,415]].map(([x,y])=>at(x,y)),thigh:[[348,547],[350,556],[352,566],[331,573],[356,575]].map(([x,y])=>at(x,y)),pads:[[155,72],[45,243],[70,244],[28,264]].map(([x,y])=>at(x,y))};});
+ const witnesses=await page.evaluate(async()=>{const p=(await window.fpcad.read()).data.project,frontGroups=new Set(p.references[0].illustration.figures.filter(f=>f.normalZ===1).map(f=>f.sourceGroup)),at=(x,y)=>{const owners=p.patternLibrary.filter(r=>r.view==='sheet'&&frontGroups.has(r.sourceGroup)&&document.querySelector(`.mask-view [data-source-region-id="${r.piece.id}"]`).isPointInFill(new DOMPoint(609+x+.5,y+.5)));if(owners.length!==1)throw Error('Expected one actual source at '+x+','+y+', got '+owners.length);return {id:owners[0].piece.id,color:owners[0].piece.color};};return {structures:[[178,55],[188,80],[218,140],[249,90],[265,125]].map(([x,y])=>at(x,y)),tail:[[541,440],[500,473],[530,415]].map(([x,y])=>at(x,y)),thigh:[[348,547],[350,556],[352,566],[331,573],[356,575]].map(([x,y])=>at(x,y)),pads:[[155,72],[45,243],[70,244],[28,264]].map(([x,y])=>at(x,y))};});
  const rgb=color=>[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)),yellow=source=>{const [r,g,b]=rgb(source.color);return r>b*2&&g>b*2;},pink=source=>{const [r,g,b]=rgb(source.color);return r>g*1.15&&r>b*1.15;};
  assert.equal(new Set(witnesses.structures.map(p=>p.id)).size,5,'real horn, forehead and outer-ear pigment must remain distinct');assert(witnesses.structures.every(yellow));for(const group of [witnesses.tail,witnesses.thigh]){assert.equal(new Set(group.map(p=>p.id)).size,1,'a genuine connected pigment must remain one contour through its cast shadow');assert(group.every(yellow));}assert(witnesses.pads.every(pink),'real inner ear and pads must retain their original pink pigment');checks.push({name:'independent real-image witnesses retain distinct horns, forehead and ear patches, genuine pink pads, and connected yellow thigh/tail shadow boundaries',witnesses});
  // A delayed native picker previously allowed an edit to be interleaved with watcher
  // replacement ("100" became "1800100"). Controls must remain frozen until import settles.
  await referenceTools(page).getByRole('button',{name:'两点标定',exact:true}).click();
  await app.evaluate(({dialog},path)=>{dialog.showOpenDialog=()=>new Promise(resolve=>{globalThis.finishReferencePicker=()=>resolve({canceled:false,filePaths:[path]});});},resolve('tests/fixtures/character-front-back.jpg'));
- await page.getByRole('button',{name:'导入单张原图',exact:true}).click();
+ await page.getByRole('button',{name:'仅导入设定图',exact:true}).click();
  const distance=page.getByLabel('标定真实距离',{exact:true});
  await page.waitForFunction(()=>document.querySelector('.references-panel fieldset')?.disabled);
  assert(await distance.isDisabled());assert(await referenceTools(page).getByRole('button',{name:'按颜色选取',exact:true}).isDisabled());

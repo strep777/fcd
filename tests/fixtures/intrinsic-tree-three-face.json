@@ -1,0 +1,154 @@
+{
+  "id": "ba9dffd2-accf-4f32-a814-3038d4f9c3c0",
+  "topologyVersion": 3,
+  "source": "species-template-1",
+  "vertices": [
+    {
+      "id": "c885ff29-0e66-4041-8588-cedb1b8db126",
+      "xMm": -190.2195281982422,
+      "yMm": 1426.912109375,
+      "zMm": -22.727224349975586
+    },
+    {
+      "id": "7b8079ac-93b5-46ea-b2bf-56b1bcd445f6",
+      "xMm": -187.09091241631938,
+      "yMm": 1425.8237306604606,
+      "zMm": -28.598545947616998
+    },
+    {
+      "id": "d421b227-57d0-4cda-93f0-07f14f22770b",
+      "xMm": -207.7732377556184,
+      "yMm": 1427.1820068141594,
+      "zMm": -24.050374474404432
+    },
+    {
+      "id": "c920e563-cd97-495a-a227-26914a6fbfe9",
+      "xMm": -207.7732391357422,
+      "yMm": 1427.1820068359375,
+      "zMm": -24.05037498474121
+    },
+    {
+      "id": "fe510538-be7c-4703-a71e-3d448a91b062",
+      "xMm": -187.09091186523438,
+      "yMm": 1425.82373046875,
+      "zMm": -28.598546981811523
+    }
+  ],
+  "faces": [
+    {
+      "id": "99d7d745-5ec3-4a91-871c-abb70e097761",
+      "vertices": [
+        "c920e563-cd97-495a-a227-26914a6fbfe9",
+        "fe510538-be7c-4703-a71e-3d448a91b062",
+        "7b8079ac-93b5-46ea-b2bf-56b1bcd445f6"
+      ],
+      "region": "design:#eceae5"
+    },
+    {
+      "id": "40a2c422-3902-4e4b-b8a9-c04359af576c",
+      "vertices": [
+        "7b8079ac-93b5-46ea-b2bf-56b1bcd445f6",
+        "c885ff29-0e66-4041-8588-cedb1b8db126",
+        "c920e563-cd97-495a-a227-26914a6fbfe9"
+      ],
+      "region": "design:#eceae5"
+    },
+    {
+      "id": "551de4bc-ce2b-44b4-b52e-b31eba641b31",
+      "vertices": [
+        "d421b227-57d0-4cda-93f0-07f14f22770b",
+        "c920e563-cd97-495a-a227-26914a6fbfe9",
+        "c885ff29-0e66-4041-8588-cedb1b8db126"
+      ],
+      "region": "design:#eceae5"
+    }
+  ],
+  "template": {
+    "id": "wearer-padded",
+    "version": "1.1.0",
+    "license": "original-project-source",
+    "parameters": {
+      "bodyMode": "padded",
+      "hipPaddingMm": 55,
+      "thighPaddingMm": 115,
+      "calfPaddingMm": 30,
+      "species": "canine",
+      "legType": "digitigrade",
+      "heightMm": 1800,
+      "neckGirthMm": 380,
+      "chestGirthMm": 1000,
+      "waistGirthMm": 850,
+      "hipGirthMm": 1000,
+      "shoulderWidthMm": 480,
+      "armLengthMm": 600,
+      "legLengthMm": 900,
+      "headWidthMm": 260,
+      "headLengthMm": 280,
+      "snoutLengthMm": 130,
+      "snoutWidthMm": 150,
+      "earHeightMm": 160,
+      "earWidthMm": 100,
+      "earAngleRad": 0,
+      "tailLengthMm": 900,
+      "tailBaseGirthMm": 200,
+      "tailTipGirthMm": 40,
+      "tailCurvature": 0.15,
+      "upperArmGirthMm": 400,
+      "forearmGirthMm": 310,
+      "thighGirthMm": 580,
+      "shinGirthMm": 380,
+      "pawLengthMm": 180,
+      "pawWidthMm": 170,
+      "footLengthMm": 280,
+      "clawLengthMm": 25,
+      "paddingMm": 0,
+      "layerMm": 0
+    },
+    "parts": [
+      "torso",
+      "leg-left",
+      "foot-left",
+      "arm-left",
+      "leg-right",
+      "foot-right",
+      "arm-right"
+    ],
+    "measurements": [
+      {
+        "name": "hipGirth",
+        "targetMm": 1000,
+        "actualMm": 1258.6946596623932,
+        "residualMm": 258.6946596623932
+      },
+      {
+        "name": "waistGirth",
+        "targetMm": 850,
+        "actualMm": 864.0393032773596,
+        "residualMm": 14.039303277359636
+      },
+      {
+        "name": "chestGirth",
+        "targetMm": 1000,
+        "actualMm": 999.9999999999999,
+        "residualMm": -1.1368683772161603e-13
+      },
+      {
+        "name": "neckGirth",
+        "targetMm": 380,
+        "actualMm": 379.9999999999999,
+        "residualMm": -1.1368683772161603e-13
+      },
+      {
+        "name": "height",
+        "targetMm": 1573,
+        "actualMm": 1573,
+        "residualMm": 0
+      }
+    ],
+    "warnings": [
+      "ASSEMBLED_DIMENSIONS_REQUIRE_REVIEW",
+      "MANUFACTURING_TRIAL_REQUIRED"
+    ]
+  },
+  "cutConstraints": []
+}

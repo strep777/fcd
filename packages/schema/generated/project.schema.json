@@ -1575,6 +1575,18 @@
                     "type": "string",
                     "const": "manifold-union-3.5.4"
                   },
+                  "garmentOpenings": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 3
+                      },
+                      {
+                        "type": "number",
+                        "const": 5
+                      }
+                    ]
+                  },
                   "sourceHash": {
                     "type": "string"
                   },
@@ -1644,7 +1656,8 @@
                     "type": "string",
                     "enum": [
                       "1.0.0",
-                      "1.1.0"
+                      "1.1.0",
+                      "1.2.0"
                     ]
                   },
                   "license": {
@@ -1970,6 +1983,48 @@
           "run": {
             "type": "object",
             "properties": {
+              "materialPalette": {
+                "type": "object",
+                "properties": {
+                  "algorithm": {
+                    "type": "string",
+                    "const": "reference-fabric-1"
+                  },
+                  "baseColor": {
+                    "type": "string",
+                    "pattern": "^#[0-9a-fA-F]{6}$"
+                  },
+                  "markings": {
+                    "maxItems": 500,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "markingId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "color": {
+                          "type": "string",
+                          "pattern": "^#[0-9a-fA-F]{6}$"
+                        }
+                      },
+                      "required": [
+                        "markingId",
+                        "color"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "algorithm",
+                  "baseColor",
+                  "markings"
+                ],
+                "additionalProperties": false
+              },
               "inputHash": {
                 "type": "string",
                 "pattern": "^[a-f0-9]{64}$"
@@ -2239,7 +2294,7 @@
                   "repairPasses": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 6
+                    "maximum": 12
                   },
                   "optimizedCost": {
                     "type": "number"
@@ -2955,6 +3010,20 @@
                             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                           }
                         },
+                        "holes": {
+                          "maxItems": 32,
+                          "type": "array",
+                          "items": {
+                            "minItems": 3,
+                            "maxItems": 2000,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          }
+                        },
                         "areaErrorMax": {
                           "type": "number",
                           "minimum": 0
@@ -3095,6 +3164,13 @@
             "items": {
               "type": "object",
               "properties": {
+                "fabrication": {
+                  "type": "string",
+                  "enum": [
+                    "sewn",
+                    "detail"
+                  ]
+                },
                 "placement": {
                   "type": "object",
                   "properties": {
@@ -3915,6 +3991,18 @@
       "items": {
         "type": "object",
         "properties": {
+          "sourceGroup": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7
+          },
+          "fabrication": {
+            "type": "string",
+            "enum": [
+              "sewn",
+              "detail"
+            ]
+          },
           "anatomy": {
             "type": "object",
             "properties": {
@@ -4388,6 +4476,7 @@
           "view": {
             "type": "string",
             "enum": [
+              "sheet",
               "front",
               "back"
             ]
@@ -5561,6 +5650,18 @@
                     "type": "string",
                     "const": "manifold-union-3.5.4"
                   },
+                  "garmentOpenings": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 3
+                      },
+                      {
+                        "type": "number",
+                        "const": 5
+                      }
+                    ]
+                  },
                   "sourceHash": {
                     "type": "string"
                   },
@@ -5630,7 +5731,8 @@
                     "type": "string",
                     "enum": [
                       "1.0.0",
-                      "1.1.0"
+                      "1.1.0",
+                      "1.2.0"
                     ]
                   },
                   "license": {
@@ -6623,6 +6725,20 @@
                         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                       }
                     },
+                    "holes": {
+                      "maxItems": 32,
+                      "type": "array",
+                      "items": {
+                        "minItems": 3,
+                        "maxItems": 2000,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      }
+                    },
                     "areaErrorMax": {
                       "type": "number",
                       "minimum": 0
@@ -6750,6 +6866,13 @@
             "items": {
               "type": "object",
               "properties": {
+                "fabrication": {
+                  "type": "string",
+                  "enum": [
+                    "sewn",
+                    "detail"
+                  ]
+                },
                 "placement": {
                   "type": "object",
                   "properties": {
@@ -7593,6 +7716,13 @@
       "items": {
         "type": "object",
         "properties": {
+          "fabrication": {
+            "type": "string",
+            "enum": [
+              "sewn",
+              "detail"
+            ]
+          },
           "placement": {
             "type": "object",
             "properties": {
@@ -9839,6 +9969,18 @@
               "type": "string",
               "const": "manifold-union-3.5.4"
             },
+            "garmentOpenings": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 3
+                },
+                {
+                  "type": "number",
+                  "const": 5
+                }
+              ]
+            },
             "sourceHash": {
               "type": "string"
             },
@@ -9908,7 +10050,8 @@
               "type": "string",
               "enum": [
                 "1.0.0",
-                "1.1.0"
+                "1.1.0",
+                "1.2.0"
               ]
             },
             "license": {
@@ -10234,6 +10377,48 @@
     "surfaceRun": {
       "type": "object",
       "properties": {
+        "materialPalette": {
+          "type": "object",
+          "properties": {
+            "algorithm": {
+              "type": "string",
+              "const": "reference-fabric-1"
+            },
+            "baseColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "markings": {
+              "maxItems": 500,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "markingId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "color": {
+                    "type": "string",
+                    "pattern": "^#[0-9a-fA-F]{6}$"
+                  }
+                },
+                "required": [
+                  "markingId",
+                  "color"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "algorithm",
+            "baseColor",
+            "markings"
+          ],
+          "additionalProperties": false
+        },
         "inputHash": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
@@ -10503,7 +10688,7 @@
             "repairPasses": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 6
+              "maximum": 12
             },
             "optimizedCost": {
               "type": "number"
@@ -11219,6 +11404,20 @@
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     }
                   },
+                  "holes": {
+                    "maxItems": 32,
+                    "type": "array",
+                    "items": {
+                      "minItems": 3,
+                      "maxItems": 2000,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    }
+                  },
                   "areaErrorMax": {
                     "type": "number",
                     "minimum": 0
@@ -11645,6 +11844,20 @@
                   "type": "string",
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "holes": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "minItems": 3,
+                  "maxItems": 2000,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
                 }
               },
               "areaErrorMax": {
@@ -12104,6 +12317,7 @@
           "view": {
             "type": "string",
             "enum": [
+              "sheet",
               "front",
               "back"
             ]
@@ -12318,6 +12532,69 @@
           "illustration": {
             "type": "object",
             "properties": {
+              "figures": {
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sourceGroup": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 7
+                    },
+                    "bounds": {
+                      "type": "object",
+                      "properties": {
+                        "minX": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 100000
+                        },
+                        "minY": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 100000
+                        },
+                        "maxX": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 100000
+                        },
+                        "maxY": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 100000
+                        }
+                      },
+                      "required": [
+                        "minX",
+                        "minY",
+                        "maxX",
+                        "maxY"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "normalZ": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "const": 1
+                        },
+                        {
+                          "type": "number",
+                          "const": -1
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "sourceGroup",
+                    "bounds"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "algorithm": {
                 "type": "string",
                 "enum": [
@@ -12370,11 +12647,16 @@
                 "additionalProperties": false
               },
               "partBounds": {
-                "maxItems": 30,
+                "maxItems": 240,
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
+                    "sourceGroup": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 7
+                    },
                     "part": {
                       "type": "string",
                       "enum": [
@@ -12480,7 +12762,7 @@
                 "maximum": 16777216
               },
               "palette": {
-                "maxItems": 16,
+                "maxItems": 128,
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -13543,6 +13825,13 @@
       "items": {
         "type": "object",
         "properties": {
+          "fabrication": {
+            "type": "string",
+            "enum": [
+              "sewn",
+              "detail"
+            ]
+          },
           "placement": {
             "type": "object",
             "properties": {

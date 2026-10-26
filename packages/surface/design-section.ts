@@ -7,11 +7,14 @@ import {designComponents} from './design-partition';
  * vertex clearance, then reject poor subdivisions instead of manufacturing
  * microscopic panels or moving the original surface to hide them. */
 export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()=>string){
- if(faces.length<8)return;
+ if(faces.length<2)return;
  const vertices=new Map(mesh.vertices.map(v=>[v.id,v])),sourceFaces=new Map(mesh.faces.map(f=>[f.id,f])),points=(f:Surface['faces'][number])=>f.vertices.map(id=>vertices.get(id)!),axes=['xMm','yMm','zMm'] as const;
  const rows=faces.map(face=>{const p=points(face),u=axes.map(a=>p[1][a]-p[0][a]),v=axes.map(a=>p[2][a]-p[0][a]),normal=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]].map(v=>v/2);return{face,p:axes.map(a=>p.reduce((s,v)=>s+v[a],0)/3),normal,area:Math.hypot(...normal)};}),total=rows.reduce((s,r)=>s+r.area,0),candidates:{axis:number;normal:[number,number,number];position:number;score:number}[]=[];
  const normals:[number,number,number][]=[[1,0,0],[0,1,0],[0,0,1]];
- const dot=(a:number[],b:number[])=>a.reduce((sum,n,i)=>sum+n*b[i],0),center=[0,1,2].map(i=>rows.reduce((sum,r)=>sum+r.area*r.p[i],0)/total),cov=[0,1,2].map(i=>[0,1,2].map(j=>rows.reduce((sum,r)=>sum+r.area*(r.p[i]-center[i])*(r.p[j]-center[j]),0)/total));
+ const dot=(a:number[],b:number[])=>a.reduce((sum,n,i)=>sum+n*b[i],0),center=[0,1,2].map(i=>rows.reduce((sum,r)=>sum+r.area*r.p[i],0)/total);
+ // Integrate each triangle's second moment. A centroid-only covariance changes
+ // under coplanar subdivision even though the cloth surface has not changed.
+ const cov=[0,1,2].map(i=>[0,1,2].map(j=>rows.reduce((sum,r)=>{const p=points(r.face),a=p.map(v=>v[axes[i]]-center[i]),b=p.map(v=>v[axes[j]]-center[j]);return sum+r.area*(a.reduce((s,n)=>s+n,0)*b.reduce((s,n)=>s+n,0)+dot(a,b))/12;},0)/total));
  // Area-weighted principal directions follow a posed sleeve or leg rather
  // than the world axes. A longitudinal section avoids transverse strip cuts.
  let long:number[]=[0,1,2].map(i=>i===cov.map((r,k)=>r[k]).indexOf(Math.max(...cov.map((r,k)=>r[k])))?1:0);
@@ -24,24 +27,37 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
  const edgeCounts=new Map<string,number>(),angles=new Map<string,number>();
  for(const face of faces){const p=points(face);face.vertices.forEach((id,i)=>{const a=p[i],b=p[(i+1)%3],c=p[(i+2)%3],u=axes.map(k=>b[k]-a[k]),v=axes.map(k=>c[k]-a[k]),cos=u.reduce((sum,n,k)=>sum+n*v[k],0)/(Math.hypot(...u)*Math.hypot(...v));angles.set(id,(angles.get(id)??0)+Math.acos(Math.max(-1,Math.min(1,cos))));const edge=edgeKey(id,face.vertices[(i+1)%3]);edgeCounts.set(edge,(edgeCounts.get(edge)??0)+1);});}
  const boundary=new Set([...edgeCounts].filter(([,count])=>count===1).flatMap(([edge])=>edge.split(':'))),defects=[...angles].filter(([id])=>!boundary.has(id)).map(([id,angle])=>({id,defect:Math.abs(2*Math.PI-angle)})).filter(r=>r.defect>.02).sort((a,b)=>b.defect-a.defect).slice(0,16),totalDefect=defects.reduce((sum,r)=>sum+r.defect,0);
- // All plane candidates use the same face graph. Rebuilding string-keyed
- // edge maps for both halves of every candidate dominated section planning.
- const incident=new Map<string,number[]>(),adjacent=faces.map(()=>[] as number[]);
+ // Candidate locations use physical corners and crease endpoints. Midpoints
+ // inserted along the very same planar surface must not move the sewing line.
+ const incident=new Map<string,number[]>();
  faces.forEach((f,i)=>f.vertices.forEach((a,j)=>{const key=edgeKey(a,f.vertices[(j+1)%3]),list=incident.get(key)??[];list.push(i);incident.set(key,list);}));
- for(const list of incident.values())if(list.length===2&&faces[list[0]].region===faces[list[1]].region){adjacent[list[0]].push(list[1]);adjacent[list[1]].push(list[0]);}
- const visited=new Uint32Array(faces.length);let generation=0;
- const componentCount=(axis:number,position:number)=>{generation++;let count=0;for(let i=0;i<faces.length;i++){if(visited[i]===generation)continue;if(++count>4)return count;const side=dot(rows[i].p,normals[axis])>=position,queue=[i];visited[i]=generation;while(queue.length){for(const next of adjacent[queue.pop()!])if(visited[next]!==generation&&(dot(rows[next].p,normals[axis])>=position)===side){visited[next]=generation;queue.push(next);}}}return count;};
+ const featureLinks=new Map<string,string[]>();
+ for(const [edge,list]of incident){const a=rows[list[0]],b=list.length===2?rows[list[1]]:undefined;if(b&&dot(a.normal,b.normal)/(a.area*b.area)>1-1e-10)continue;const [x,y]=edge.split(':');featureLinks.set(x,[...featureLinks.get(x)??[],y]);featureLinks.set(y,[...featureLinks.get(y)??[],x]);}
+ const features=[...featureLinks].filter(([id,links])=>{if(links.length!==2)return true;const p=vertices.get(id)!,a=vertices.get(links[0])!,b=vertices.get(links[1])!,u=axes.map(k=>a[k]-p[k]),v=axes.map(k=>b[k]-p[k]);return dot(u,v)/(Math.hypot(...u)*Math.hypot(...v))> -1+1e-10;}).map(([id])=>id);
+ const samples=features.length>=2?features:[...new Set(faces.flatMap(f=>f.vertices))];
+ // A plane clips a triangle into a triangle or its complement. The product
+ // of the two edge fractions is its exact area ratio; no polygon allocation
+ // is needed for each candidate plane. Vertices on the plane have zero area.
+ const fraction=(a:number,b:number,c:number)=>{
+  if(a<=0&&b<=0&&c<=0)return 1;if(a>=0&&b>=0&&c>=0)return 0;
+  if(a<=0&&b>0&&c>0)return a/(a-b)*(a/(a-c));
+  if(b<=0&&a>0&&c>0)return b/(b-a)*(b/(b-c));
+  if(c<=0&&a>0&&b>0)return c/(c-a)*(c/(c-b));
+  if(a>0)return 1-a/(a-b)*(a/(a-c));
+  if(b>0)return 1-b/(b-a)*(b/(b-c));
+  return 1-c/(c-a)*(c/(c-b));
+ };
  for(let axis=0;axis<normals.length;axis++){
-  const values=[...new Set(faces.flatMap(f=>f.vertices.map(id=>coordinate(id,axis))))].sort((a,b)=>a-b),extent=values.at(-1)!-values[0];if(extent<1e-6)continue;
+  const values=[...new Set(samples.map(id=>coordinate(id,axis)))].sort((a,b)=>a-b),extent=values.at(-1)!-values[0];if(extent<1e-6)continue;
   const gaps=values.slice(1).map((v,i)=>({position:(v+values[i])/2,clearance:v-values[i]})).sort((a,b)=>b.clearance-a.clearance).slice(0,32);gaps.push(...defects.map(d=>({position:coordinate(d.id,axis),clearance:0})));
+  const coordinates=rows.map(r=>r.face.vertices.map(id=>coordinate(id,axis)));
   for(const gap of gaps){
-   const halves=[rows.filter(r=>dot(r.p,normals[axis])<gap.position),rows.filter(r=>dot(r.p,normals[axis])>=gap.position)],areas=halves.map(h=>h.reduce((s,r)=>s+r.area,0));if(Math.min(...areas)<total*.2)continue;
-   const parts=componentCount(axis,gap.position);if(parts>4)continue;
-   const concentration=halves.reduce((s,h)=>s+Math.hypot(...[0,1,2].map(k=>h.reduce((s,r)=>s+r.normal[k],0))),0),balance=Math.abs(areas[0]/total-.5);
-   candidates.push({axis,normal:normals[axis],position:gap.position,score:1-concentration/total+.05*balance+.03*(parts-2)-.01*gap.clearance/extent-.3*defects.filter(d=>Math.abs(coordinate(d.id,axis)-gap.position)<1e-7).reduce((sum,d)=>sum+d.defect,0)/(totalDefect||1)});
+   const fractions=coordinates.map(p=>fraction(p[0]-gap.position,p[1]-gap.position,p[2]-gap.position)),left=rows.reduce((s,r,i)=>s+r.area*fractions[i],0),areas=[left,total-left];if(Math.min(...areas)<total*.2)continue;
+   const concentration=[0,1].reduce((s,side)=>s+Math.hypot(...[0,1,2].map(k=>rows.reduce((s,r,i)=>s+r.normal[k]*(side?1-fractions[i]:fractions[i]),0))),0),balance=Math.abs(left/total-.5);
+   candidates.push({axis,normal:normals[axis],position:gap.position,score:1-concentration/total+.05*balance-.01*gap.clearance/extent-.3*defects.filter(d=>Math.abs(coordinate(d.id,axis)-gap.position)<1e-7).reduce((sum,d)=>sum+d.defect,0)/(totalDefect||1)});
   }
  }
- candidates.sort((a,b)=>a.score-b.score);
+ candidates.sort((a,b)=>Math.abs(a.score-b.score)>1e-10?a.score-b.score:a.axis-b.axis||a.position-b.position);
  const refine=candidates.length?createSurfaceRefiner(mesh):undefined;
  const quality=(record:Child,v:Map<string,Surface['vertices'][number]>)=>{const [a,b,c]=record.face.vertices.map(id=>v.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],w=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm],length=Math.max(Math.hypot(...u),Math.hypot(...w),Math.hypot(c.xMm-b.xMm,c.yMm-b.yMm,c.zMm-b.zMm));return Math.hypot(u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0])/length**2;};
  for(const plane of candidates.slice(0,9))try{
@@ -55,7 +71,14 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
    const replacement=ids.map((ids,k)=>({face:{...(k?b:a).face,vertices:ids as [string,string,string]},triangle:ids.map(id=>coords.get(id)!)}));
    if(Math.min(...replacement.map(r=>quality(r,v)))>Math.min(quality(a,v),quality(b,v))*1.01){children[i]=replacement[0];children[j]=replacement[1];}
   }
-  let acceptable=true;for(const [parent,children] of refined.children){const original=sourceFaces.get(parent)!,q=quality({face:original,triangle:[]},vertices);if(children.some(c=>quality(c,v)<Math.min(.015,q*.2)))acceptable=false;}
+  let acceptable=true;for(const [parent,children] of refined.children){const original=sourceFaces.get(parent)!,q=quality({face:original,triangle:[]},vertices),originalEdges=new Set(original.vertices.map((a,i)=>edgeKey(a,original.vertices[(i+1)%3])));if(children.some(c=>quality(c,v)<Math.min(.015,q*.2)))acceptable=false;
+   // Material intersections already use a 1e-6 mm canonical station budget.
+   // Repeated optional sections must not subdivide one of those stations into
+   // ever shorter ears: absolute planarity can hide large relative strain on
+   // such an edge. Reject the proposal before any mesh/provenance mutation;
+   // pre-existing short edges and their physical detail remain untouched.
+   for(const child of children)for(let i=0;i<3;i++){const a=child.face.vertices[i],b=child.face.vertices[(i+1)%3];if(originalEdges.has(edgeKey(a,b)))continue;const p=v.get(a)!,r=v.get(b)!;if(Math.hypot(p.xMm-r.xMm,p.yMm-r.yMm,p.zMm-r.zMm)<1e-6)acceptable=false;}
+  }
   if(!acceptable)continue;
   refined.surface.faces=mesh.faces.flatMap(f=>refined.children.get(f.id)?.map(c=>c.face)??[f]);
   // A better diagonal changes each child's corner stations while keeping its

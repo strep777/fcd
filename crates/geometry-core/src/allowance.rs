@@ -253,7 +253,7 @@ pub(crate) fn cut(
         return Err("multipleContours");
     }
     let shape = shapes.remove(0);
-    if shape.holes.len() != holes.len() {
+    if !crate::advanced::preserves_source_holes(holes, &shape.holes) {
         return Err("holeCollapsed");
     }
     Ok(shape)

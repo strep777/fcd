@@ -131,18 +131,41 @@ export function imageBoundaryFit(width:number,height:number,rgba:Uint8Array,toPi
    const before=at(-3),after=at(3),length=distance(before,after);if(length<1)return p;
    const nx=-(after.yMm-before.yMm)/length,ny=(after.xMm-before.xMm)/length;
    if(Array.from({length:17},(_,k)=>k/2-4).some(t=>{const x=Math.floor(p.xMm+nx*t-.5),y=Math.floor(p.yMm+ny*t-.5);return x<0||y<0||x>=width-1||y>=height-1||[0,1].some(dy=>[0,1].some(dx=>rgba[4*((y+dy)*width+x+dx)+3]!==255));}))return p;
-   const value=(t:number)=>normalize(rgb({xMm:p.xMm+nx*t,yMm:p.yMm+ny*t})).reduce((s,v,c)=>s+v*direction[c],0);
-   const left=(value(-3)+value(-4))/2,right=(value(3)+value(4))/2,contrast=right-left;
-   if(Math.abs(contrast)<.035)return p;
-   const plates=[-4,-3,3,4].map(t=>rgb({xMm:p.xMm+nx*t,yMm:p.yMm+ny*t})),midRGB=[0,1,2].map(c=>plates.reduce((sum,q)=>sum+q[c],0)/4),level=normalize(midRGB).reduce((sum,v,c)=>sum+v*direction[c],0),crossings:number[]=[];
-   for(let t=-1;t<1;t+=.125){const u=value(t),v=value(t+.125);if((u-level)*(v-level)<=0&&Math.sign(v-u)===Math.sign(contrast)&&Math.abs(v-u)>.0001)crossings.push(t+.125*(level-u)/(v-u));}
-   if(crossings.length!==1||Math.abs(crossings[0])>.8)return p;
+   const nativeValue=(t:number)=>normalize(rgb({xMm:p.xMm+nx*t,yMm:p.yMm+ny*t})).reduce((s,v,c)=>s+v*direction[c],0);
+   // A low-contrast JPEG edge can have a two-pixel chroma transition and
+   // block-to-block ringing. First establish that the RGB transition really
+   // is broad. Sharp painted edges keep their original local observations.
+   const wideContrast=nativeValue(5)-nativeValue(-5),peakSlope=Math.max(...[-1.5,-1,-.5,0,.5,1,1.5].map(t=>Math.abs(nativeValue(t+.5)-nativeValue(t-.5))));
+   const broad=colors.length===2&&norm<.12&&Math.abs(wideContrast)>=.035&&peakSlope<Math.abs(wideContrast)*.55;
+   // Average only parallel measurements of that broad source transition;
+   // do not average the contour coordinates or move a certified corner.
+   const profile=(t:number)=>{
+    const sum=[0,0,0];let weight=0;
+    for(const s of [-2,-1,0,1,2]){
+     const q={xMm:p.xMm+nx*t-ny*s,yMm:p.yMm+ny*t+nx*s};
+     // At a cropped image edge use only observed pixels, with normalized
+     // weights. Clamping the missing samples creates artificial end caps.
+     if(q.xMm<.5||q.yMm<.5||q.xMm>width-.5||q.yMm>height-.5)continue;
+     const x=Math.floor(q.xMm-.5),y=Math.floor(q.yMm-.5);
+     if([0,1].some(dy=>[0,1].some(dx=>rgba[4*(Math.min(height-1,y+dy)*width+Math.min(width-1,x+dx))+3]!==255)))return;
+     const w=3-Math.abs(s),c=rgb(q);weight+=w;for(let k=0;k<3;k++)sum[k]+=c[k]*w;
+    }
+    return weight>=4?sum.map(v=>v/weight):undefined;
+   };
+   const value=broad?(t:number)=>{const c=profile(t);return c?normalize(c).reduce((a,v,k)=>a+v*direction[k],0):NaN;}:nativeValue;
+   const inner=broad?5:3,outer=broad?6:4,left=(value(-inner)+value(-outer))/2,right=(value(inner)+value(outer))/2,contrast=right-left;
+   if(!Number.isFinite(contrast)||Math.abs(contrast)<.035)return p;
+   const plates=[-outer,-inner,inner,outer].map(t=>broad?profile(t):rgb({xMm:p.xMm+nx*t,yMm:p.yMm+ny*t}));if(plates.some(q=>!q))return p;
+   const midRGB=[0,1,2].map(c=>plates.reduce((sum,q)=>sum+q![c],0)/4),level=normalize(midRGB).reduce((sum,v,c)=>sum+v*direction[c],0),crossings:number[]=[];
+   const search=broad?2.5:1;
+   for(let t=-search;t<search;t+=.125){const u=value(t),v=value(t+.125);if((u-level)*(v-level)<=0&&Math.sign(v-u)===Math.sign(contrast)&&Math.abs(v-u)>.0001)crossings.push(t+.125*(level-u)/(v-u));}
+   if(crossings.length!==1||Math.abs(crossings[0])>(broad?2:.8))return p;
    // A half-contrast crossing is meaningful only between settled plateaus.
    // Near another edge (or a blurred cap), truncated profiles otherwise move
    // an already quantized station farther into the material.
-   const settled=Math.max(Math.abs(value(-3)-value(-4)),Math.abs(value(3)-value(4)))<Math.abs(contrast)*.12;
+   const settled=Math.max(Math.abs(value(-inner)-value(-outer)),Math.abs(value(inner)-value(outer)))<Math.abs(contrast)*.12;
    if(!settled)return p;
-   const t=crossings[0];supported++;if(Math.abs(value(t+.5)-value(t-.5))<Math.abs(contrast)*.32)soft++;if(Math.abs(contrast)>=.08)reliable++;confidence.add(i);return {...p,xMm:p.xMm+nx*t,yMm:p.yMm+ny*t};
+   const t=crossings[0];supported++;if(Math.abs(value(t+.5)-value(t-.5))<Math.abs(contrast)*.32)soft++;if(broad||Math.abs(contrast)>=.08)reliable++;confidence.add(i);return {...p,xMm:p.xMm+nx*t,yMm:p.yMm+ny*t};
   });
   const tangents=new Map<string,XY>();
   for(let i=0;i<observed.length;i++)if(confidence.has(i)){const p=observed[i],values=(x:number,y:number)=>normalize(rgb({xMm:x,yMm:y})).reduce((s,v,c)=>s+v*direction[c],0),gx=values(p.xMm+.4,p.yMm)-values(p.xMm-.4,p.yMm),gy=values(p.xMm,p.yMm+.4)-values(p.xMm,p.yMm-.4),length=Math.hypot(gx,gy);if(length<.008)continue;const before=observed[(i-1+observed.length)%observed.length],after=observed[(i+1)%observed.length],sign=Math.sign(-gy*(after.xMm-before.xMm)+gx*(after.yMm-before.yMm));tangents.set(p.id,{xMm:-gy/length*sign,yMm:gx/length*sign});}

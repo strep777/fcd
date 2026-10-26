@@ -11,6 +11,7 @@ import {mkdtemp,writeFile} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {desktopArgs,executablePath,testedBuild} from './desktop-launch.mjs';
+import {assertCharacterSeparation} from './fixtures/character-functional-oracle.mjs';
 
 const directory=await mkdtemp(resolve('.local/tests/extraction-refinement-')),env={...process.env,FPCAD_DATA_DIR:directory};
 const helper=join(directory,'geometry.mjs');await build({stdin:{contents:"export {calibratedPoint} from './apps/desktop/main/reference-segmentation'; export {pigmentFamily} from './packages/reference/illustration'; export {edgeArcPoints} from './packages/pattern/edit'; export {analyze} from './apps/desktop/main/worker';",resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',outfile:helper});
@@ -21,10 +22,11 @@ const read=async()=>{const result=await page.evaluate(()=>window.fpcad.read());a
 const hidden=async()=>assert(await app.evaluate(({DesktopWindow})=>DesktopWindow.getAllWindows().every(w=>!w.isVisible())),'All test windows must remain hidden');
 const inside=(point,ring)=>{let yes=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a.yMm>point.yMm)!==(b.yMm>point.yMm)&&point.xMm<(b.xMm-a.xMm)*(point.yMm-a.yMm)/(b.yMm-a.yMm)+a.xMm)yes=!yes;}return yes;};
 function inspect(project){
+ const wholeSheet=project.references.find(r=>r.view==='sheet'),figureViews=new Map((wholeSheet?.illustration?.figures??[]).map(figure=>[figure.sourceGroup,figure.normalZ===1?'front':figure.normalZ===-1?'back':undefined])),sourceView=region=>region.view==='sheet'?figureViews.get(region.sourceGroup):region.view;
  const shapes=project.patternLibrary.map(region=>({region,outer:region.piece.nodes.flatMap(node=>edgeArcPoints(region.piece,node.id).slice(0,-1)),holes:region.piece.holes??[]}));
  const owner=(view,x,y,family)=>{
-  const ref=project.references.find(r=>r.view===view);assert(ref?.calibration,view+' calibration');const point=calibratedPoint(x+.5,y+.5,ref.calibration);
-  const found=shapes.filter(s=>s.region.view===view&&(family===undefined||pigmentFamily(s.region.piece.color)===family)&&inside(point,s.outer)&&!s.holes.some(r=>inside(point,r)));
+  const ref=wholeSheet??project.references.find(r=>r.view===view);assert(ref?.calibration,view+' calibration');const point=calibratedPoint(x+.5+(wholeSheet&&view==='front'?609:0),y+.5,ref.calibration);
+  const found=shapes.filter(s=>sourceView(s.region)===view&&(family===undefined||pigmentFamily(s.region.piece.color)===family)&&inside(point,s.outer)&&!s.holes.some(r=>inside(point,r)));
   assert(found.length<=1,`Overlapping saved pieces at ${view} ${x},${y}`);return found[0]?.region;
  };
  const structures=[[178,55],[188,80],[218,140],[249,90],[265,125]],head=structures.map(([x,y])=>{const region=owner('front',x,y,2);assert(region,`Missing saved yellow structure ${x},${y}`);return region.piece.id;});
@@ -36,8 +38,8 @@ function inspect(project){
   const ids=points.map(([x,y])=>{const region=owner('front',x,y,2);assert(region,`Missing golden shadow ${x},${y}`);return region.piece.id;});assert.equal(new Set(ids).size,1,'Gradual shadow must not split the saved pigment source');
  }
  const curved=project.patternLibrary.filter(r=>r.piece.curves?.length).length;assert(curved>0&&curved<project.patternLibrary.length,'The real artwork retains measured arcs alongside unsmoothed straight contours');
- const yellow=project.patternLibrary.filter(r=>pigmentFamily(r.piece.color)===2);assert.equal(yellow.filter(r=>r.view==='front').length,13);assert.equal(yellow.filter(r=>r.view==='back').length,8);
- return {regions:project.patternLibrary.length,curved,frontYellow:13,backYellow:8,headPieceIds:head,pinkPieceIds:pads};
+ const yellow=project.patternLibrary.filter(r=>pigmentFamily(r.piece.color)===2);assert.equal(yellow.filter(r=>sourceView(r)==='front').length,13);assert.equal(yellow.filter(r=>sourceView(r)==='back').length,9,'Separating the original fused tail and thigh adds one independently witnessed back yellow source');
+ return {regions:project.patternLibrary.length,curved,frontYellow:13,backYellow:9,headPieceIds:head,pinkPieceIds:pads};
 }
 try{
  await page.setViewportSize({width:1500,height:1000});await page.waitForFunction(()=>!!window.fpcad);await hidden();
@@ -45,23 +47,21 @@ try{
  const created=await page.evaluate(()=>window.fpcad.create({name:'描线结构与阴影重提取回归',unit:'mm'}));assert(created.ok);
  await page.reload();await workflow(page,'references');
  await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},resolve('tests/fixtures/character-front-back.jpg'));
- assert.equal(await page.getByLabel('双视图布局',{exact:true}).inputValue(),'front-left');
+ assert.equal(await page.getByLabel('双视图布局',{exact:true}).count(),0);
  for(const label of ['参考图内容','参考高度 mm'])assert.equal(await page.getByLabel(label,{exact:true}).count(),0,'Extraction uses fixed defaults without obsolete parameter controls');
- // This measured artwork has its known front view on the right. Preserve the
- // independent pixel witnesses below while exercising the explicit layout UI.
- await page.getByLabel('双视图布局',{exact:true}).selectOption('front-right');
- await page.getByRole('button',{name:'上传双视图并自动拆分',exact:true}).click();
- await waitForState(page,async()=>{const s=await window.fpcad.read(),failure=document.querySelector('.error-banner')?.textContent?.trim();if(failure)throw Error('UI upload failed: '+failure);return s.ok&&s.data.project.references?.length===2&&(s.data.project.patternLibrary?.length??0)>0;},undefined,{timeout:120000});
- const imported=(await read()).project;assert.equal(imported.references.find(r=>r.view==='front').width,666);assert.equal(imported.references.find(r=>r.view==='back').width,609);
+ // Both independently located characters remain in the full-resolution sheet.
+ await page.getByRole('button',{name:'上传设定图并提取花纹',exact:true}).click();
+ await waitForState(page,async()=>{const s=await window.fpcad.read(),failure=document.querySelector('.error-banner')?.textContent?.trim();if(failure)throw Error('UI upload failed: '+failure);return s.ok&&s.data.project.references?.length===1&&(s.data.project.patternLibrary?.length??0)>0;},undefined,{timeout:120000});
+ const imported=(await read()).project;assert.equal(imported.references[0].view,'sheet');assert.equal(imported.references[0].width,1275);assert.equal(imported.references[0].height,750);assert.equal(imported.references[0].illustration.figures.length,2);
  assert(imported.references.every(r=>r.calibration?.distanceMm===1800),'Default upload preserves the 1800 mm calibration');
  const geometry=await analyze(resolve('target/release/fpcad-worker.exe'),{...imported,pieces:imported.patternLibrary.map(r=>r.piece)});assert.deepEqual(geometry.flatMap(g=>g.issues.filter(i=>i.severity==='error')),[],'Every extracted editable contour must pass the native manufacturing validator');
- checks.push({name:'Actual upload button produces separate original-resolution structures and clean materials',...inspect(imported)});
+ const importedSemantics=await assertCharacterSeparation(imported,{onEvidence:e=>writeFile('test-results/extraction-refinement-upload-semantic.json',JSON.stringify(e,null,2))});checks.push({name:'Actual upload button produces separate original-resolution structures and clean materials',...inspect(imported),semanticLandmarks:importedSemantics.landmarks});
  await page.locator('.region-card').first().waitFor();await fitReferenceView(page);await desktopScreenshot(app,page,{path:'test-results/extraction-refinement-upload.png'});await hidden();
- await page.waitForFunction(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='按当前标定重新拆分');return button&&!button.disabled;});
- await page.getByRole('button',{name:'按当前标定重新拆分',exact:true}).click();
+ await page.waitForFunction(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='按当前标定重新提取');return button&&!button.disabled;});
+ await page.getByRole('button',{name:'按当前标定重新提取',exact:true}).click();
  await waitForState(page,async revision=>{const r=await window.fpcad.read(),failure=document.querySelector('.error-banner')?.textContent?.trim();if(failure)throw Error('UI re-extraction failed: '+failure);return r.ok&&r.data.project.revision===revision+1&&(r.data.project.patternLibrary?.length??0)>0;},imported.revision,{timeout:120000});
  const refined=(await read()).project,inspection=inspect(refined),oldIds=new Set(imported.patternLibrary.map(r=>r.piece.id));assert(refined.patternLibrary.every(r=>!oldIds.has(r.piece.id)),'Re-extraction replaces old source IDs once');
- checks.push({name:'Actual current-calibration button replaces sources once with separated, edge-constrained results',revision:refined.revision,...inspection});
+ const refinedSemantics=await assertCharacterSeparation(refined,{onEvidence:e=>writeFile('test-results/extraction-refinement-reextract-semantic.json',JSON.stringify(e,null,2))});checks.push({name:'Actual current-calibration button replaces sources once with separated, edge-constrained results',revision:refined.revision,...inspection,semanticLandmarks:refinedSemantics.landmarks});
  await page.locator(`.region-card[data-region-id="${inspection.headPieceIds[1]}"]`).click();await page.locator('.region-settings').waitFor();
  assert.equal(await page.locator(`.mask-view [data-source-region-id="${inspection.headPieceIds[1]}"][data-selected="true"]`).count(),1,'A selected saved horn highlights only its own source');
  await desktopScreenshot(app,page,{path:'test-results/extraction-refinement-horn.png'});await hidden();

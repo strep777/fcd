@@ -5,7 +5,7 @@
   <p>{{zh?'三种模式沿用同一穿戴者的身体尺寸。切换模式或物种会保留已输入的身高、围度、肩宽和肢长。':localize('All three modes retain the same wearer measurements. Switching mode or species preserves entered height, girths, shoulder width and limb lengths.')}}</p>
   <p v-if="bodyMode!=='costume'">{{zh?'身体围度填写穿戴者的 DTD 测量，身高不包含兽装耳朵。臀部、大腿和小腿的填充值表示向外增加的厚度，不是围度增量。':localize('Enter wearer DTD girths and height without costume ears. Hip, thigh and calf padding values are outward thicknesses, not added circumference.')}}</p>
   <p v-if="bodyMode==='dtd'" class="body-mode-note">{{zh?'DTD 人体基体按真人身高比例生成头部，不附加兽头、耳尾或兽爪，也不叠加填充与参考层厚。填充数值会保留，切回一体填充模式后生效。':localize('The DTD base uses a human head proportion and excludes animal head features, ears, tail, paws, padding and reference layers. Padding values are retained for the padded mode.')}}</p>
-  <p v-else-if="bodyMode==='padded'" class="body-mode-note">{{zh?'一体填充外形在 DTD 身体尺寸上增加局部填充，生成连续的身体外形；兽头、耳尾和兽爪另在兽装外形模式设置。':localize('The integrated padded body adds local padding to the DTD measurements to form a continuous body. Animal head features, ears, tail and paws are configured in costume mode.')}}</p>
+  <p v-else-if="bodyMode==='padded'" class="body-mode-note">{{zh?'一体填充外形按 DTD 尺寸生成连续衣身，领口、袖口和脚踝留开口。头、手爪、脚爪和耳尾在兽装外形模式中制作。':localize('The padded body follows DTD measurements and has open collar, cuffs and ankles. Create the head, hand paws, foot paws, ears and tail in costume mode.')}}</p>
   <p v-else class="body-mode-note">{{zh?'兽装外形包含头耳尾、爪和旧版全局填充参数。未记录生成模式的旧项目按此模式读取，已有尺寸不会自动换算。':localize('Costume mode includes head, ears, tail, claws and legacy global padding. Older recipes without a mode open here; stored dimensions are not converted.')}}</p>
   <label>{{zh?'材料有效补偿':localize('Material compensation')}}<select v-model="layerMaterial" :disabled="store.busy||bodyMode==='dtd'"><option value="">—</option><option v-for="m in store.data.project?.materials??[]" :key="m.id" :value="m.id">{{m.name}} / {{m.compensationMm}} mm</option></select></label>
   <button :disabled="store.busy||bodyMode==='dtd'||!layerMaterial" @click="useMaterialLayer">{{zh?'将补偿填入参考层厚（生成后生效）':localize('Copy compensation to layer (applies on generation)')}}</button>
@@ -51,7 +51,7 @@ const localPaddingKeys=['hipPaddingMm','thighPaddingMm','calfPaddingMm'] as cons
 const speciesEnglishLabels:Partial<Record<keyof typeof speciesRanges,string>>={hipPaddingMm:'Hip padding thickness mm',thighPaddingMm:'Thigh padding thickness mm',calfPaddingMm:'Calf padding thickness mm'};
 const speciesGroups=computed<{id:string;zh:string;en:string;keys:(keyof typeof speciesRanges)[]}[]>(()=>[
  {id:'body',zh:bodyMode.value==='costume'?'身体尺寸':'穿戴者 DTD 身体尺寸',en:bodyMode.value==='costume'?'Body dimensions':'Wearer DTD body dimensions',keys:['heightMm','neckGirthMm','chestGirthMm','waistGirthMm','hipGirthMm','shoulderWidthMm']},
- {id:'limbs',zh:bodyMode.value==='costume'?'四肢与手足':'穿戴者四肢尺寸',en:bodyMode.value==='costume'?'Limbs & paws':'Wearer limb dimensions',keys:['armLengthMm','legLengthMm','upperArmGirthMm','forearmGirthMm','thighGirthMm','shinGirthMm','footLengthMm',...(bodyMode.value==='costume'?['pawLengthMm','pawWidthMm','clawLengthMm'] as const:[])]},
+ {id:'limbs',zh:bodyMode.value==='costume'?'四肢与手足':'穿戴者四肢尺寸',en:bodyMode.value==='costume'?'Limbs & paws':'Wearer limb dimensions',keys:['armLengthMm','legLengthMm','upperArmGirthMm','forearmGirthMm','thighGirthMm','shinGirthMm',...(bodyMode.value==='padded'?[]:['footLengthMm'] as const),...(bodyMode.value==='costume'?['pawLengthMm','pawWidthMm','clawLengthMm'] as const:[])]},
  ...(bodyMode.value==='costume'?[{id:'appearance',zh:'头部与耳尾',en:'Head, ears & tail',keys:['headWidthMm','headLengthMm','snoutLengthMm','snoutWidthMm','earHeightMm','earWidthMm','earAngleRad','tailLengthMm','tailBaseGirthMm','tailTipGirthMm','tailCurvature'] as (keyof typeof speciesRanges)[]}]:[]),
  {id:'padding',zh:bodyMode.value==='costume'?'填充与层厚':'局部填充与层厚',en:bodyMode.value==='costume'?'Padding & layer':'Local padding & layer',keys:bodyMode.value==='costume'?['paddingMm','layerMm']:[...localPaddingKeys,'layerMm']}
 ]);
@@ -63,7 +63,7 @@ function setBodyMode(mode:BodyMode){
  if(mode==='costume')return;
  const defaults=speciesDefaults(speciesParams.value.species,mode);
  for(const key of localPaddingKeys)speciesParams.value[key]??=defaults[key]??0;
- for(const key of speciesAppearanceKeys){
+ for(const key of [...speciesAppearanceKeys,...(mode==='padded'?['footLengthMm'] as const:[])]){
   if(key==='legType')continue;
   const value=speciesParams.value[key],[min,max]=speciesRanges[key];
   if(!Number.isFinite(value)||value<min||value>max)speciesParams.value[key]=defaults[key];

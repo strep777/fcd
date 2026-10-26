@@ -36,6 +36,8 @@ pub struct Patch {
     pub face_ids: Vec<String>,
     pub uv: Vec<Uv>,
     pub boundary: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub holes: Vec<Vec<String>>,
     pub area_error_max: f64,
     pub edge_error_max: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -520,28 +522,89 @@ fn parameterize(
             return Err("PATCH_NOT_DISK");
         }
     }
-    let start = *next.keys().next().ok_or("PATCH_NEEDS_CUTS")?;
-    let mut boundary = vec![start];
-    let mut current = start;
-    loop {
-        current = *next.get(&current).ok_or("PATCH_NOT_DISK")?;
-        if current == start {
-            break;
+    if next.is_empty() {
+        return Err("PATCH_NEEDS_CUTS");
+    }
+    let mut pending: BTreeSet<_> = next.keys().copied().collect();
+    let mut boundaries = Vec::new();
+    while let Some(&start) = pending.iter().next() {
+        let mut ring = Vec::new();
+        let mut current = start;
+        loop {
+            if !pending.remove(&current) {
+                return Err("PATCH_NOT_DISK");
+            }
+            ring.push(current);
+            current = *next.get(&current).ok_or("PATCH_NOT_DISK")?;
+            if current == start {
+                break;
+            }
         }
-        if boundary.contains(&current) {
+        if ring.len() < 3 {
             return Err("PATCH_NOT_DISK");
         }
-        boundary.push(current);
+        boundaries.push(ring);
     }
-    if boundary.len() != next.len() || globals.len() + group.len() != edges.len() + 1 {
+    // A genus-zero panel may contain material holes. Those holes are paper
+    // boundaries, not a reason by themselves to add physical opening seams.
+    if boundaries.len() > 33 || globals.len() + group.len() + boundaries.len() != edges.len() + 2 {
         return Err("PATCH_NOT_DISK");
     }
-    let (first, second) = separated_boundary_anchors(&mesh.vertices, &boundary);
+    let all_boundary: Vec<_> = next.keys().copied().collect();
+    let (first, second) = separated_boundary_anchors(&mesh.vertices, &all_boundary);
     let pinned_length = length(sub(&mesh.vertices[first], &mesh.vertices[second]));
     if !pinned_length.is_finite() || pinned_length <= 0. {
         return Err("NUMERICAL_FAILURE");
     }
-    let (mut uv, area3) = if let Some(initial) = cache.charts.get(group) {
+    let local_faces: Vec<_> = group
+        .iter()
+        .map(|&i| faces[i].map(|g| locals[&g]))
+        .collect();
+    let supplied = if let Some(seed) = &mesh.initial_uv {
+        let points: BTreeMap<_, _> = seed
+            .iter()
+            .map(|v| (v.vertex_id.as_str(), [v.x_mm, v.y_mm]))
+            .collect();
+        if points.len() != seed.len() || points.values().flatten().any(|v| !v.is_finite()) {
+            return Err("NUMERICAL_FAILURE");
+        }
+        let uv = globals
+            .iter()
+            .map(|&g| {
+                points
+                    .get(mesh.vertices[g].id.as_str())
+                    .copied()
+                    .ok_or("INVALID_MESH")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if local_faces
+            .iter()
+            .any(|f| crate::numerical::positive_area2(f.map(|i| uv[i])).is_none())
+            || has_overlap(&local_faces, &uv)?
+        {
+            return Err("UNWRAP_FLIPPED");
+        }
+        Some(uv)
+    } else {
+        None
+    };
+    // A supplied physical chart is already the requested initial iterate.
+    // Solving an unrelated conformal chart only to overwrite it wastes work
+    // and can reject a valid seed before any of its own checks are reached.
+    let (mut uv, area3) = if let Some(uv) = supplied {
+        let area3 = group
+            .iter()
+            .map(|&i| {
+                let [a, b, c] = faces[i];
+                let e1 = sub(&mesh.vertices[b], &mesh.vertices[a]);
+                let e2 = sub(&mesh.vertices[c], &mesh.vertices[a]);
+                let l = length(e1);
+                let h = length(cross(e1, e2)) / l;
+                l * h / 2.
+            })
+            .collect::<Vec<_>>();
+        (uv, area3)
+    } else if let Some(initial) = cache.charts.get(group) {
         initial.clone()
     } else {
         let fixed = BTreeMap::from([
@@ -704,49 +767,36 @@ fn parameterize(
         }
         (uv, area3)
     };
-    let local_faces: Vec<_> = group
-        .iter()
-        .map(|&i| faces[i].map(|g| locals[&g]))
-        .collect();
-    if let Some(seed) = &mesh.initial_uv {
-        let points: BTreeMap<_, _> = seed
-            .iter()
-            .map(|v| (v.vertex_id.as_str(), [v.x_mm, v.y_mm]))
-            .collect();
-        if points.len() != seed.len() || points.values().flatten().any(|v| !v.is_finite()) {
-            return Err("NUMERICAL_FAILURE");
-        }
-        uv = globals
-            .iter()
-            .map(|&g| {
-                points
-                    .get(mesh.vertices[g].id.as_str())
-                    .copied()
-                    .ok_or("INVALID_MESH")
-            })
-            .collect::<Result<_, _>>()?;
-        if local_faces
-            .iter()
-            .any(|f| crate::numerical::positive_area2(f.map(|i| uv[i])).is_none())
-            || has_overlap(&local_faces, &uv)?
-        {
-            return Err("UNWRAP_FLIPPED");
-        }
-    }
     if (mesh.method == "arap" || mesh.method == "arap-balanced" || mesh.method == "arap-seamed")
         && (local_faces
             .iter()
             .any(|f| crate::numerical::positive_area2(f.map(|i| uv[i])).is_none())
             || has_overlap(&local_faces, &uv)?)
     {
+        // Convex disk initialization fills its outer loop. For a panel with
+        // holes it would erase a material opening; let the caller try a
+        // measured opening cut instead when the free LSCM chart is invalid.
+        if boundaries.len() != 1 {
+            return Err("UNWRAP_FLIPPED");
+        }
         uv = convex_disk_start(
             mesh,
             &globals,
             &local_faces,
-            &boundary.iter().map(|g| locals[g]).collect::<Vec<_>>(),
+            &boundaries[0].iter().map(|g| locals[g]).collect::<Vec<_>>(),
         )?;
     }
-    if mesh.method == "arap-seamed" && mesh.initial_uv.is_none() {
+    // A rigidly joined chart is only a starting iterate. If its local strain
+    // is not yet admissible, relax it before calibrating boundary lengths just
+    // as for a fresh LSCM start. Previously an explicit seed skipped both this
+    // step and (via seam_ready below) the sewing solve, retaining trial seams
+    // solely because that initial alignment was imperfect.
+    if mesh.method == "arap-seamed"
+        && (mesh.initial_uv.is_none()
+            || crate::arap::quality_ratios(mesh, &globals, &local_faces, &uv)
+                .iter()
+                .any(|&r| r > 1.))
+    {
         let ordinary = Mesh {
             method: "arap".into(),
             ..mesh.clone()
@@ -879,16 +929,39 @@ fn parameterize(
     let max = *errors.last().unwrap();
     let min_x = uv.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min);
     let min_y = uv.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min);
+    let signed_area = |ring: &[usize]| {
+        let origin = uv[locals[&ring[0]]];
+        ring.iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let p = uv[locals[a]];
+                let q = uv[locals[&ring[(i + 1) % ring.len()]]];
+                (p[0] - origin[0]) * (q[1] - origin[1]) - (p[1] - origin[1]) * (q[0] - origin[0])
+            })
+            .sum::<f64>()
+    };
+    let outers: Vec<_> = boundaries
+        .iter()
+        .enumerate()
+        .filter(|(_, ring)| signed_area(ring) > 0.)
+        .map(|(i, _)| i)
+        .collect();
+    if outers.len() != 1 || boundaries.iter().any(|ring| signed_area(ring) == 0.) {
+        return Err("PATCH_NOT_DISK");
+    }
+    let boundary = &boundaries[outers[0]];
     let seam = if mesh.method == "arap-seamed" {
         let mut relative = 0_f64;
         let mut absolute = 0_f64;
-        for i in 0..boundary.len() {
-            let a = boundary[i];
-            let b = boundary[(i + 1) % boundary.len()];
-            let rest = length(sub(&mesh.vertices[a], &mesh.vertices[b]));
-            let error = (norm2(uv[locals[&a]], uv[locals[&b]]) - rest).abs();
-            relative = relative.max(error / rest);
-            absolute += error;
+        for ring in &boundaries {
+            for i in 0..ring.len() {
+                let a = ring[i];
+                let b = ring[(i + 1) % ring.len()];
+                let rest = length(sub(&mesh.vertices[a], &mesh.vertices[b]));
+                let error = (norm2(uv[locals[&a]], uv[locals[&b]]) - rest).abs();
+                relative = relative.max(error / rest);
+                absolute += error;
+            }
         }
         Some((relative, absolute))
     } else {
@@ -909,6 +982,12 @@ fn parameterize(
         boundary: boundary
             .iter()
             .map(|&g| mesh.vertices[g].id.clone())
+            .collect(),
+        holes: boundaries
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != outers[0])
+            .map(|(_, ring)| ring.iter().map(|&g| mesh.vertices[g].id.clone()).collect())
             .collect(),
         area_error_max: max_area,
         edge_error_max: max_edge,

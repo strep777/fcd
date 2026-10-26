@@ -44,7 +44,18 @@ it.each([['jpeg','character-front-back.jpg',[['front',609,666],['back',0,609]],7
   expect(sha(input.regions)).toBe(regions);expect(sha([...input.arms])).toBe(arms);expect([...input.existing]).toEqual(existing);expect(input.head).toEqual(head);
   expect(Buffer.from(input.saturation.buffer,input.saturation.byteOffset,input.saturation.byteLength).equals(Buffer.from(saturation.buffer))).toBe(true);
   expect(Buffer.from(input.value.buffer,input.value.byteOffset,input.value.byteLength).equals(Buffer.from(value.buffer))).toBe(true);
-  for(const hand of result){expect(new Set(hand.regionIndices).size).toBe(hand.regionIndices.length);expect(hand.regionIndices.length).toBeGreaterThanOrEqual(3);for(const i of hand.regionIndices){expect(i).toBeGreaterThanOrEqual(0);expect(i).toBeLessThan(input.regions.length);expect(input.regions[i].side).toBe(hand.side);expect(['arm','paw']).toContain(input.regions[i].part);}}
+  for(const hand of result){expect(new Set(hand.regionIndices).size).toBe(hand.regionIndices.length);expect(hand.regionIndices.length).toBeGreaterThanOrEqual(3);
+   const palm=input.regions[hand.regionIndices[0]],palmPixels=new Set(palm.indices);expect(palm.part).toBe('arm');expect(palm.side).toBe(hand.side);
+   // A confirmed palm and two independently supported tips still establish
+   // the hand. Further previously mislabelled material needs actual pixel
+   // contact; overlap with an anatomical bounding box is not evidence.
+   const supported=hand.regionIndices.slice(1).filter(i=>['arm','paw'].includes(input.regions[i].part)&&input.regions[i].side===hand.side);expect(supported.length).toBeGreaterThanOrEqual(2);
+   for(const i of hand.regionIndices){expect(i).toBeGreaterThanOrEqual(0);expect(i).toBeLessThan(input.regions.length);const r=input.regions[i];if(i===hand.regionIndices[0]||supported.includes(i))continue;
+    expect(r.indices.length).toBeGreaterThanOrEqual(6);expect(r.indices.length).toBeLessThanOrEqual(input.span*input.span*.0025);expect(r.indices.reduce((s,i)=>s+input.value[i],0)/r.indices.length).toBeLessThanOrEqual(.3);
+    const xs=r.indices.map(i=>i%input.width),ys=r.indices.map(i=>Math.floor(i/input.width));expect(Math.max(Math.max(...xs)-Math.min(...xs)+1,Math.max(...ys)-Math.min(...ys)+1)).toBeLessThanOrEqual(input.span*.065);
+    const touching=r.indices.filter(i=>{const x=i%input.width,y=Math.floor(i/input.width);for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++)if(x+dx>=0&&x+dx<input.width&&y+dy>=0&&palmPixels.has((y+dy)*input.width+x+dx))return true;return false;}).length;expect(touching).toBeGreaterThanOrEqual(Math.max(3,r.indices.length*.05));
+   }
+  }
   return result;
  });
  try{for(const[view,left,width]of crops){

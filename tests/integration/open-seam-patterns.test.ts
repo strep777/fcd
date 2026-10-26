@@ -31,7 +31,9 @@ it('two-point open pen divides a sheet, preserves paint and accepts/undoes the e
   const candidate=await cutPreview(worker,loaded.surface!,loaded,{automaticCuts:true,partitionStrategy:'design',colorBoundaryCuts:false,method:'arap'},assets);
   expect(candidate.run.pieces).toHaveLength(2);
   const geometry=await analyze(worker,{...loaded,pieces:candidate.run.pieces});
-  expect(geometry.map(g=>g.areaMm2).sort((a,b)=>a-b)).toEqual([20000,20000]);
+  // Rigid native seeds can round a shoelace sum by one or two Float64 ULPs.
+  // Keep an arithmetic error bound rather than a manufacturing tolerance.
+  for(const g of geometry)expect(Math.abs(g.areaMm2-20000)).toBeLessThanOrEqual(8*Number.EPSILON*20000);
   expect(candidate.markings[0].paths).toHaveLength(2);
   repo.commit({type:'unwrap.candidate',...candidate},randomUUID(),'preview');repo.commit({type:'unwrap.accept'},randomUUID(),'accept');
   expect(repo.snapshot()!.pieces).toHaveLength(2);expect(bindingIssues(repo.snapshot()!)).toEqual([]);

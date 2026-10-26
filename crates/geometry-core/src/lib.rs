@@ -7,6 +7,8 @@ mod arap;
 pub mod clipping;
 #[cfg(test)]
 mod contour_budget_tests;
+#[cfg(test)]
+mod contour_contact_independent_tests;
 mod numerical;
 #[cfg(test)]
 mod numerical_contour_tests;
@@ -75,22 +77,29 @@ fn distance(a: &Point, b: &Point) -> f64 {
     (a.x_mm - b.x_mm).hypot(a.y_mm - b.y_mm)
 }
 fn on_segment(a: &Point, b: &Point, c: &Point) -> bool {
-    // The tolerance is a distance in mm, not a cross-product area. A fixed
-    // area threshold falsely joins disjoint short edges on detailed inserts.
-    cross(a, b, c).abs() <= 1e-6 * distance(a, b)
-        && c.x_mm >= a.x_mm.min(b.x_mm) - 1e-6
-        && c.x_mm <= a.x_mm.max(b.x_mm) + 1e-6
-        && c.y_mm >= a.y_mm.min(b.y_mm) - 1e-6
-        && c.y_mm <= a.y_mm.max(b.y_mm) + 1e-6
+    // Contact is a topological predicate, not a clearance requirement. A
+    // fixed micrometre halo makes opposite edges of a valid short corner
+    // intersect, even though the corner meets the separate short-edge limit.
+    // Use coordinate roundoff bounds and retain uncertain contacts.
+    let tolerance = |x: f64, y: f64, z: f64| {
+        16. * f64::EPSILON * (x.abs() + y.abs() + z.abs())
+    };
+    let ex = tolerance(a.x_mm, b.x_mm, c.x_mm);
+    let ey = tolerance(a.y_mm, b.y_mm, c.y_mm);
+    numerical::orientation([a.x_mm, a.y_mm], [b.x_mm, b.y_mm], [c.x_mm, c.y_mm]) == 0
+        && c.x_mm >= a.x_mm.min(b.x_mm) - ex
+        && c.x_mm <= a.x_mm.max(b.x_mm) + ex
+        && c.y_mm >= a.y_mm.min(b.y_mm) - ey
+        && c.y_mm <= a.y_mm.max(b.y_mm) + ey
 }
 fn intersects(a: &Point, b: &Point, c: &Point, d: &Point) -> bool {
     let (ab_c, ab_d, cd_a, cd_b) = (
-        cross(a, b, c),
-        cross(a, b, d),
-        cross(c, d, a),
-        cross(c, d, b),
+        numerical::orientation([a.x_mm, a.y_mm], [b.x_mm, b.y_mm], [c.x_mm, c.y_mm]),
+        numerical::orientation([a.x_mm, a.y_mm], [b.x_mm, b.y_mm], [d.x_mm, d.y_mm]),
+        numerical::orientation([c.x_mm, c.y_mm], [d.x_mm, d.y_mm], [a.x_mm, a.y_mm]),
+        numerical::orientation([c.x_mm, c.y_mm], [d.x_mm, d.y_mm], [b.x_mm, b.y_mm]),
     );
-    (ab_c * ab_d < 0.0 && cd_a * cd_b < 0.0)
+    (ab_c * ab_d < 0 && cd_a * cd_b < 0)
         || on_segment(a, b, c)
         || on_segment(a, b, d)
         || on_segment(c, d, a)
@@ -195,9 +204,6 @@ fn validate_with_limit(p: &[Point], limit: usize) -> Result<(), &'static str> {
 }
 pub fn offset(p: &[Point], width: f64) -> Result<Vec<Point>, &'static str> {
     offset_with_limit(p, width, 2000)
-}
-pub(crate) fn offset_sampled(p: &[Point], width: f64) -> Result<Vec<Point>, &'static str> {
-    offset_with_limit(p, width, SAMPLED_CONTOUR_LIMIT)
 }
 fn offset_with_limit(p: &[Point], width: f64, limit: usize) -> Result<Vec<Point>, &'static str> {
     validate_with_limit(p, limit)?;

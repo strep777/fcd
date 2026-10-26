@@ -11,7 +11,12 @@ page.on('pageerror',e=>errors.push(e.message));
 const read=async()=>{const r=await page.evaluate(()=>window.fpcad.read());assert(r.ok,JSON.stringify(r));return r.data;};
 const identity=s=>({project:s.project,history:s.history,recovery:s.recovery,recent:s.recent,savedRevision:s.savedRevision,canUndo:s.canUndo,canRedo:s.canRedo});
 const invoke=async(method,payload,scope=true,overrides={})=>{const p=(await read()).project;return app.request({protocolVersion:1,requestId:randomUUID(),method,payload,...(scope?{projectId:p.id,expectedRevision:p.revision}:{}),...overrides});};
-const reject=async(label,action,expected,allowCheckpoint=false)=>{const before=identity(await read()),r=await action();assert(!r.ok,label+': '+JSON.stringify(r));if(expected)assert(expected.includes(r.error.code),label+': '+r.error.code);const after=identity(await read());if(allowCheckpoint){delete before.recovery;delete after.recovery;}assert.deepEqual(after,before,label+' changed state after rejection');checks.push({label,code:r.error.code});};
+const reject=async(label,action,expected,allowCheckpoint=false)=>{
+ // Let a preceding successful edit finish its normal autosave before checking
+ // that this rejected operation leaves even the recovery list unchanged.
+ await page.waitForFunction(async()=>{const r=await window.fpcad.read();return r.ok&&r.data.recovery.includes(r.data.project.revision);},undefined,{timeout:35000});
+ const before=identity(await read()),r=await action();assert(!r.ok,label+': '+JSON.stringify(r));if(expected)assert(expected.includes(r.error.code),label+': '+r.error.code);const after=identity(await read());if(allowCheckpoint){delete before.recovery;delete after.recovery;}assert.deepEqual(after,before,label+' changed state after rejection');checks.push({label,code:r.error.code});
+};
 const chooseOpen=async path=>app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},path);
 try{
  await page.waitForFunction(()=>!!window.fpcad);await page.evaluate(()=>window.fpcad.create({name:'异常操作复验',unit:'mm'}));

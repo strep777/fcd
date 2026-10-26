@@ -9,7 +9,9 @@ type XY=[number,number];
 const signed=(r:XY[])=>r.reduce((s,a,i)=>{const b=r[(i+1)%r.length],o=r[0];return s+(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);},0)/2;
 it('normalizes a captured numerical retrace while retaining the exact input and area budget',async()=>{
  const contour=JSON.parse(await readFile(resolve('tests/fixtures/design-manufacturing-retrace.json'),'utf8')) as {outer:XY[];holes:XY[][]},before=structuredClone(contour),worker=resolve('target/release/fpcad-worker.exe'),piece={...rectangle(),nodes:contour.outer.map(([xMm,yMm])=>({id:randomUUID(),xMm,yMm}))},p=project();
- expect((await analyze(worker,{...p,pieces:[piece]}))[0].issues.some(i=>i.messageKey==='selfIntersection')).toBe(true);
+ // The saved opposite edges are close but disjoint. Normalization may
+ // remove the numerical retrace without requiring a false contact error.
+ expect((await analyze(worker,{...p,pieces:[piece]}))[0].issues.filter(i=>i.severity==='error')).toEqual([]);
  const outline=designManufacturingOutline(contour),valid={...piece,nodes:outline.outer.map(([xMm,yMm])=>({id:randomUUID(),xMm,yMm}))};
  expect(contour).toEqual(before);expect(outline.outer.length).toBeLessThan(contour.outer.length);expect(outline.holes).toHaveLength(contour.holes.length);expect((await analyze(worker,{...p,pieces:[valid]}))[0].issues.filter(i=>i.severity==='error')).toEqual([]);
  const perimeter=contour.outer.reduce((sum,a,i)=>{const b=contour.outer[(i+1)%contour.outer.length];return sum+Math.hypot(a[0]-b[0],a[1]-b[1]);},0);expect(Math.abs(signed(outline.outer)-signed(contour.outer))).toBeLessThanOrEqual(perimeter*1e-6);

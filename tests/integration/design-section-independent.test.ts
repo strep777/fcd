@@ -16,14 +16,19 @@ const worker=resolve('target/release/fpcad-worker.exe');
 afterEach(()=>vi.restoreAllMocks());
 function grid(divisions=1):Surface{
  const vertices:Surface['vertices']=[],faces:Surface['faces']=[];
- for(let y=0;y<=8*divisions;y++)for(let x=0;x<=4*divisions;x++)vertices.push({id:randomUUID(),xMm:x*20/divisions,yMm:y*20/divisions,zMm:0});
+ const xs=[0,17,39,64,93],ys=[0,19,43,71,103,127,154,183,217],station=(values:number[],index:number)=>{const cell=Math.min(values.length-2,Math.floor(index/divisions));return values[cell]+(values[cell+1]-values[cell])*(index-cell*divisions)/divisions;};
+ // The physical rectangle centre (46.5,51.5) lies inside source triangles.
+ // Equal subdivision of each original cell retains its exact diagonal and
+ // source barycentric domain, while avoiding an old edge on that centre.
+ for(let y=0;y<=8*divisions;y++)for(let x=0;x<=4*divisions;x++)vertices.push({id:randomUUID(),xMm:station(xs,x),yMm:station(ys,y),zMm:0});
  for(let y=0;y<8*divisions;y++)for(let x=0;x<4*divisions;x++){
-  if(x>=divisions&&x<2*divisions&&y>=5*divisions&&y<6*divisions)continue; // An independently prescribed 20 x 20 mm hole.
+  if(x>=divisions&&x<2*divisions&&y>=5*divisions&&y<6*divisions)continue; // The prescribed 22 x 27 mm hole at (17,127).
   const a=y*(4*divisions+1)+x,b=a+1,c=a+4*divisions+1,d=c+1;
   for(const ids of [[a,b,d],[a,d,c]])faces.push({id:randomUUID(),vertices:ids.map(i=>vertices[i].id) as [string,string,string],region:y<4*divisions?'design:#bb8822':'design:#2244bb'});
  }
  return {id:randomUUID(),source:'obj',topologyVersion:1,vertices,faces};
 }
+function faceArea(mesh:Surface,face:Surface['faces'][number]){const [a,b,c]=face.vertices.map(id=>mesh.vertices.find(v=>v.id===id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],v=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm];return Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])/2;}
 function quality(mesh:Surface,face:Surface['faces'][number]){
  const vertices=new Map(mesh.vertices.map(v=>[v.id,v])),[a,b,c]=face.vertices.map(id=>vertices.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],v=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm];
  return Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])/Math.max(Math.hypot(...u),Math.hypot(...v),Math.hypot(c.xMm-b.xMm,c.yMm-b.yMm,c.zMm-b.zMm))**2;
@@ -39,7 +44,7 @@ it('a section refines the adjoining material edge without a T junction, lost par
   expect(children.reduce((sum,c)=>{const[a,b,d]=c.triangle;return sum+((b[0]-a[0])*(d[1]-a[1])-(b[1]-a[1])*(d[0]-a[0]))/1e6;},0)).toBeCloseTo(1,10);
   for(const child of children){expect(final.has(child.face.id)).toBe(true);expect(child.face.region).toBe(original.region);expect(quality(result!.surface,child.face)).toBeGreaterThanOrEqual(.1);}
  }
- const oldVertices=new Set(mesh.vertices.map(v=>v.id)),newOnInterface=result!.surface.vertices.filter(v=>!oldVertices.has(v.id)&&Math.abs(v.yMm-80)<1e-8);expect(newOnInterface.length).toBeGreaterThan(0);
+ const oldVertices=new Set(mesh.vertices.map(v=>v.id)),newOnInterface=result!.surface.vertices.filter(v=>!oldVertices.has(v.id)&&Math.abs(v.yMm-103)<1e-8);expect(newOnInterface.length).toBeGreaterThan(0);
  for(const vertex of newOnInterface){const incident=result!.surface.faces.filter(f=>f.vertices.includes(vertex.id));expect(new Set(incident.map(f=>f.region)).size).toBe(2);}
 });
 it('failed plane refinements leave every input face, coordinate, material and saved seam unchanged',()=>{
@@ -48,8 +53,8 @@ it('failed plane refinements leave every input face, coordinate, material and sa
  expect(attempts).toBeGreaterThan(0);expect(mesh).toEqual(before);
 });
 it('opens the interior pyramid apex on the section boundary instead of isolating a smaller curved disk',()=>{
- const mesh=grid(2);for(const v of mesh.vertices)v.zMm=Math.max(0,20*(1-Math.max(Math.abs(v.xMm-40)/40,Math.abs(v.yMm-40)/40)));
- const apex=mesh.vertices.find(v=>v.xMm===40&&v.yMm===40)!,before=structuredClone(mesh),result=section.sectionDesignDomain(mesh,mesh.faces.filter(f=>f.region==='design:#bb8822'),randomUUID);
+ const mesh=grid(2);for(const v of mesh.vertices)v.zMm=Math.max(0,20*(1-Math.max(Math.abs(v.xMm-39)/(v.xMm<39?39:54),Math.abs(v.yMm-43)/(v.yMm<43?43:60))));
+ const apex=mesh.vertices.find(v=>v.xMm===39&&v.yMm===43)!,before=structuredClone(mesh),result=section.sectionDesignDomain(mesh,mesh.faces.filter(f=>f.region==='design:#bb8822'),randomUUID);
  expect(result).toBeDefined();expect(mesh).toEqual(before);validateSurface(result!.surface);
  expect(Math.abs(result!.plane.normal.reduce((sum,n,i)=>sum+n*[apex.xMm,apex.yMm,apex.zMm][i],0)-result!.plane.position)).toBeLessThan(1e-9);
  expect(result!.owned.get('design-section')!.some(e=>e.a===apex.id||e.b===apex.id)).toBe(true);
@@ -70,7 +75,8 @@ it('re-solves an already solved adjoining holed chart and composes every materia
  const working={surface:finer,provenance,topologySeams:0,materialDomains:2},target=new Set(finer.faces.filter(f=>f.region==='design:#bb8822').map(f=>f.id)),neighbor=new Set(finer.faces.filter(f=>f.region==='design:#2244bb').map(f=>f.id)),previousStations=new Set(finer.faces.map(f=>f.id));
  const exactTarget=(faces:Surface['faces'])=>faces.length===target.size&&faces.every(f=>target.has(f.id));
  const nativePlanar=planar.planarReports,nativeProjection=projected.projectedReport,nativeSession=workerApi.createWorkerSession,nativeSection=section.sectionDesignDomain,neighborCalls:string[][]=[];
- // Inject one solver rejection to reach the production repair path. Geometry,
+ // Reject the complete original domain for every method/seed to reach the
+ // production repair path; a successful alternate seed must not bypass it. Geometry,
  // section selection, remeshing, provenance, hole reports and final native
  // manufacturing validation remain production implementations.
  vi.spyOn(planar,'planarReports').mockImplementation((mesh,allowHoles)=>{if(exactTarget(mesh.faces))return {reports:[],holes:new Map(),remaining:mesh.faces};if(mesh.faces.every(f=>f.region==='design:#2244bb'))neighborCalls.push(mesh.faces.map(f=>f.id));return nativePlanar(mesh,allowHoles);});
@@ -79,19 +85,19 @@ it('re-solves an already solved adjoining holed chart and composes every materia
   const native=nativeSession(path,signal);
   return {dispose:native.dispose,request:async(input,limits)=>{
    const job=input as {operation?:string;mesh?:{faces:Surface['faces']}};
-   if(job.operation==='surface.unwrap'&&job.mesh&&exactTarget(job.mesh.faces)&&solverRejections===0){solverRejections++;throw new DomainError('PATCH_NEEDS_CUTS');}
+   if(job.operation==='surface.unwrap'&&job.mesh&&exactTarget(job.mesh.faces)){solverRejections++;throw new DomainError('PATCH_NEEDS_CUTS');}
    return native.request(input,limits);
   }};
  });
  const sections:NonNullable<ReturnType<typeof section.sectionDesignDomain>>[]=[];vi.spyOn(section,'sectionDesignDomain').mockImplementation((...args)=>{const result=nativeSection(...args);if(result)sections.push(result);return result;});
  const {run}=await unwrapDesignSurface(worker,p,working,{partitionStrategy:'design',method:'arap',automaticCuts:true,colorBoundaryCuts:true,iterations:30});
- expect(solverRejections).toBe(1);expect(sections.length).toBe(1);expect(neighborCalls.length).toBeGreaterThanOrEqual(2);expect(neighborCalls[0].every(id=>neighbor.has(id))).toBe(true);expect(neighborCalls.slice(1).some(ids=>ids.some(id=>!neighbor.has(id)))).toBe(true);
+ expect(solverRejections).toBeGreaterThanOrEqual(1);expect(sections.length).toBe(1);expect(neighborCalls.length).toBeGreaterThanOrEqual(2);expect(neighborCalls[0].every(id=>neighbor.has(id))).toBe(true);expect(neighborCalls.slice(1).some(ids=>ids.some(id=>!neighbor.has(id)))).toBe(true);
  expect([...sections[0].children.keys()].some(id=>previousStations.has(id))).toBe(true);
  const removed=new Set(sections.flatMap(r=>[...r.children.keys()]));for(const binding of run.bindings)expect(binding.report.faceIds.some(id=>removed.has(id))).toBe(false);
  expect(new Set(run.bindings.flatMap(b=>b.report.faceIds))).toEqual(new Set(working.surface.faces.map(f=>f.id)));expect(working.provenance.size).toBe(working.surface.faces.length);
- const restored=restoreDesignBindings(p,working,run),coverage=new Map<string,number>(),colorAreas=new Map<string,number>();
- for(const binding of restored.bindings){const piece=restored.pieces.find(piece=>piece.id===binding.pieceId)!;for(const t of binding.trim!.triangles){const[a,b,c]=t.barycentric,ratio=(b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1]);expect(ratio).toBeGreaterThan(0);coverage.set(t.faceId,(coverage.get(t.faceId)??0)+ratio);colorAreas.set(piece.color,(colorAreas.get(piece.color)??0)+ratio*200);for(const w of t.barycentric){expect(w.every(n=>Number.isFinite(n)&&n>=-1e-9&&n<=1+1e-9)).toBe(true);expect(w.reduce((s,n)=>s+n,0)).toBeCloseTo(1,10);}}}
+ const restored=restoreDesignBindings(p,working,run),coverage=new Map<string,number>(),colorAreas=new Map<string,number>(),sourceAreas=new Map(p.surface.faces.map(f=>[f.id,faceArea(p.surface!,f)]));
+ for(const binding of restored.bindings){const piece=restored.pieces.find(piece=>piece.id===binding.pieceId)!;for(const t of binding.trim!.triangles){const[a,b,c]=t.barycentric,ratio=(b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1]);expect(ratio).toBeGreaterThan(0);coverage.set(t.faceId,(coverage.get(t.faceId)??0)+ratio);colorAreas.set(piece.color,(colorAreas.get(piece.color)??0)+ratio*sourceAreas.get(t.faceId)!);for(const w of t.barycentric){expect(w.every(n=>Number.isFinite(n)&&n>=-1e-9&&n<=1+1e-9)).toBe(true);expect(w.reduce((s,n)=>s+n,0)).toBeCloseTo(1,10);}}}
  for(const face of p.surface.faces)expect(coverage.get(face.id),face.id).toBeCloseTo(1,9);
- expect(colorAreas.get('#bb8822')).toBeCloseTo(6400,7);expect(colorAreas.get('#2244bb')).toBeCloseTo(6000,7);
+ expect(colorAreas.get('#bb8822')).toBeCloseTo(93*103,7);expect(colorAreas.get('#2244bb')).toBeCloseTo(93*(217-103)-22*27,7);
  const holed=restored.pieces.filter(piece=>piece.color==='#2244bb');expect(holed).toHaveLength(1);expect(holed[0].holes).toHaveLength(1);expect(restored.bindings.find(b=>b.pieceId===holed[0].id)!.trim!.holes).toHaveLength(1);expect(bindingIssues({...p,pieces:restored.pieces,bindings:restored.bindings})).toEqual([]);expect(p).toEqual(before);
 },30000);

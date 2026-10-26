@@ -10,7 +10,15 @@ it('cuts a cylinder through original triangle interiors with a straight physical
  const original=new Set(mesh.vertices.map(v=>v.id)),created=result!.surface.vertices.filter(v=>!original.has(v.id));expect(created.length).toBeGreaterThan(0);for(const v of created)expect(Math.abs(result!.plane.normal.reduce((sum,n,i)=>sum+n*[v.xMm,v.yMm,v.zMm][i],0)-result!.plane.position)).toBeLessThan(1e-7);
  for(const children of result!.children.values()){const sum=children.reduce((sum,c)=>{const[a,b,d]=c.triangle;return sum+((b[0]-a[0])*(d[1]-a[1])-(b[1]-a[1])*(d[0]-a[0]))/1e6;},0);expect(sum).toBeCloseTo(1,10);}
 });
-it('has no side effects when a component is too small for a physical section',()=>{const mesh=cylinder();mesh.faces=mesh.faces.slice(0,2);const before=structuredClone(mesh);expect(sectionDesignDomain(mesh,mesh.faces,randomUUID)).toBeUndefined();expect(mesh).toEqual(before);});
+it('a two-triangle component either yields a valid physical section or is inapplicable without changing source geometry',()=>{
+ const mesh=cylinder();mesh.faces=mesh.faces.slice(0,2);const before=structuredClone(mesh),result=sectionDesignDomain(mesh,mesh.faces,randomUUID);expect(mesh).toEqual(before);
+ if(!result)return;
+ validateSurface(result.surface);expect(result.parts.length).toBeGreaterThanOrEqual(2);expect(new Set(result.parts.flat().map(f=>f.id))).toEqual(new Set(result.surface.faces.map(f=>f.id)));
+ const world=new Map(result.surface.vertices.map(v=>[v.id,v]));
+ const area=(f:Surface['faces'][number],points:Map<string,Surface['vertices'][number]>)=>{const [a,b,c]=f.vertices.map(id=>points.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],v=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm];return Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])/2;};
+ const original=new Map(mesh.vertices.map(v=>[v.id,v]));for(const v of mesh.vertices)expect(world.get(v.id)).toEqual(v);
+ for(const face of mesh.faces){const children=result.children.get(face.id);expect(children?.length).toBeGreaterThan(0);expect(children!.reduce((s,c)=>s+area(c.face,world),0)).toBeCloseTo(area(face,original),8);expect(children!.reduce((s,c)=>{const [a,b,d]=c.triangle;return s+((b[0]-a[0])*(d[1]-a[1])-(b[1]-a[1])*(d[0]-a[0]))/1e6;},0)).toBeCloseTo(1,10);}
+});
 it('a posed tubular limb gets a longitudinal section in its own frame',()=>{
  const mesh=cylinder(),angle=.71,c=Math.cos(angle),s=Math.sin(angle);
  mesh.vertices=mesh.vertices.map(v=>({...v,xMm:c*v.xMm+s*v.yMm,yMm:-s*v.xMm+c*v.yMm,zMm:v.zMm}));

@@ -1,0 +1,18 @@
+{
+  "scope": "One authorized old formal native solve on the exact frozen139face/91vertex same-material union and its original rigid joined seed. No manufacturing source, geometry threshold, iteration or convergence coefficient changed.",
+  "fixtureSha256": "eaf65325e4a01b5788367158235be0fb18e67e24c21d2cd31ea66ca8d3ed9c18",
+  "requestSha256": "a76aad18d9f0af0619ea78c90e55a166ea60eecda2c1c3c4788581f27b392c37",
+  "workerSha256": "4aa3a39ea93b1a26255104f58c3247c90d9bc8b30b6bc0cd69473e5ce8a1e433",
+  "faces": 139,
+  "vertices": 91,
+  "seedVertices": 91,
+  "method": "arap-seamed",
+  "iterations": 100,
+  "repairCuts": false,
+  "exitStatus": 0,
+  "response": {
+    "code": "ARAP_NOT_CONVERGED",
+    "ok": false
+  },
+  "capturedNativeEvidence": "test-results/2026-10-26-reference-sheet/native-baseline/arm-small-union-failure.json"
+}

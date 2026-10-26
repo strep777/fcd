@@ -1,6 +1,6 @@
 import {hiddenWindowId} from './desktop-window.mjs';
 import {desktopScreenshot} from './desktop-screenshot.mjs';
-import {chooseProject} from './ui-navigation.mjs';
+import {chooseProject,production} from './ui-navigation.mjs';
 import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile} from 'node:fs/promises';
@@ -36,7 +36,7 @@ try{
  await apply({type:'seam.put',seam:{...seam,locked:true}});
  await reject('locked seam cannot be changed','command.apply',{type:'seam.put',seam:{...seam,locked:true,expectedEaseMm:8}},'SEAM_LOCKED');
  await reject('locked seam cannot be unlinked','command.apply',{type:'seam.delete',seamId:seam.id},'SEAM_LOCKED');
- await page.reload();await chooseProject(page);await page.waitForFunction(()=>!!document.querySelector('[data-stage="pattern"]'));await page.locator('[data-stage="pattern"]').click();await page.getByRole('tab',{name:'接缝',exact:true}).click();
+ await page.reload();await chooseProject(page);await production(page,'seams');
  await page.locator('.seam-row').first().waitFor();const visibleRow=page.locator('.seam-row').first();
  assert(await visibleRow.getByLabel('接缝名称',{exact:true}).isDisabled());assert(await visibleRow.getByRole('button',{name:'解除关联',exact:true}).isDisabled());await visibleRow.getByRole('button',{name:'解锁',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.seam-row input')?.disabled);checks.push('locked seam UI disables edits and provides a working unlock action');
  const standalone=structuredClone(a);standalone.id=randomUUID();standalone.name='独立裁片';standalone.nodes=standalone.nodes.map(n=>({...n,id:randomUUID()}));standalone.notches=[];await apply({type:'piece.put',piece:standalone});

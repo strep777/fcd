@@ -4,7 +4,7 @@ import {chooseProject} from './ui-navigation.mjs';
 import {waitForState} from './wait-state.mjs';
 import {desktop} from './tauri-desktop.mjs';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {executablePath,desktopArgs} from './desktop-launch.mjs';
 const directory=await mkdtemp(resolve('.local/tests/original-pen-')),env={...process.env,FPCAD_DATA_DIR:directory};
@@ -14,7 +14,7 @@ try{
  await page.evaluate(()=>window.fpcad.create({name:'原图与钢笔回归',unit:'mm'}));
  await app.evaluate(({dialog},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});},resolve('tests/fixtures/character-front-back.jpg'));
  const response=await page.evaluate(async()=>{const r=await window.fpcad.read();return window.fpcad.autoReference(r.data.project.id,r.data.project.revision,'front-right',1800,6,true);});assert(response.ok,JSON.stringify(response));
- const initial=response.data.project,regions=initial.patternLibrary;assert(regions.length>10&&regions.length<120);assert(initial.references.some(r=>r.sheet?.png));
+ const initial=response.data.project,regions=initial.patternLibrary;assert(regions.length>10&&regions.length<120);assert.equal(initial.references.length,1);assert.equal(initial.references[0].view,'sheet');assert.equal(initial.references[0].width,1275);assert.equal(initial.references[0].height,750);assert.deepEqual(Buffer.from(initial.references[0].resources.source.data.split(',')[1],'base64'),await readFile(resolve('tests/fixtures/character-front-back.jpg')));
  await page.reload();await chooseProject(page);await page.waitForSelector('.region-card');assert.equal(await page.locator('svg.mask-view').count(),1);assert.equal(await page.locator('.mask-view image').count(),1);assert.equal(await page.locator('.dual-view-preview figure').count(),0);
  assert.equal(await page.locator('.mode-switch').count(),0);await page.locator('[data-stage="guide"]').click();assert((await page.locator('.guide-page').innerText()).includes('确认选区并加入花纹库'));await page.locator('[data-stage="references"]').click();
  await desktopScreenshot(app,page,{path:'test-results/original-regions.png'});checks.push('原图联合预览、连续色区与独立教程页');
@@ -27,7 +27,7 @@ try{
  const run=(await page.evaluate(()=>window.fpcad.read())).data.project.referenceRun;const ref=initial.references.find(r=>r.id===run.referenceId);assert.equal(run.mask.width,ref.width);assert.equal(run.mask.height,ref.height);assert(run.pixelCount>10000);checks.push('绘制与拖动无计算；确认后原始分辨率 mask 候选');
  assert(run.accepted);assert.equal((await page.evaluate(()=>window.fpcad.read())).data.project.revision,initial.revision+1);await page.locator('.workspace-heading strong').click();await fitReferenceView(page);assert.equal(await page.locator('.pen-node').count(),0);await page.locator('[aria-label="Selection tool"]').selectOption('lasso');await canvas.scrollIntoViewIfNeeded();
  const p=await pixel(100,100);await page.mouse.move(p.x,p.y);await page.mouse.down();for(const [x,y] of [[150,100],[160,140],[130,160],[100,140],[100,100]]){const q=await pixel(x,y);await page.mouse.move(q.x,q.y,{steps:4});}await page.mouse.up();assert((await page.locator('.pen-node').count())>=3);checks.push('套索完成后仍保留编辑节点');
- await page.locator('.cross-view-completion > summary').click();const base=regions.find(r=>r.referenceId===ref.id&&r.anatomy?.part==='tail')??regions.find(r=>r.referenceId===ref.id);await page.locator('[aria-label="Completion base"]').selectOption(base.piece.id);assert((await page.locator('[aria-label="Completion companion"] option').count())>0);await page.getByRole('button',{name:'生成可编辑补全路径',exact:true}).click();assert(await page.getByRole('button',{name:'确认选区并加入花纹库',exact:true}).isDisabled());assert((await page.locator('.pen-node').count())>4);checks.push('跨视图候选匹配与刚性对齐生成可编辑推断；未经复核不能提交');
+ await page.locator('.region-completion > summary').click();const base=regions.find(r=>r.referenceId===ref.id&&r.anatomy?.part==='tail')??regions.find(r=>r.referenceId===ref.id);await page.locator('[aria-label="Completion base"]').selectOption(base.piece.id);assert((await page.locator('[aria-label="Completion companion"] option').count())>0);await page.getByRole('button',{name:'生成可编辑补全路径',exact:true}).click();assert(await page.getByRole('button',{name:'确认选区并加入花纹库',exact:true}).isDisabled());assert((await page.locator('.pen-node').count())>4);checks.push('跨视图候选匹配与刚性对齐生成可编辑推断；未经复核不能提交');
  const review=page.getByRole('checkbox',{name:'已核对补全路径、孔洞和遮挡边界；接受此推断',exact:true});await page.locator('.pen-node').last().click();await review.check();assert(await page.getByRole('button',{name:'确认选区并加入花纹库',exact:true}).isEnabled());const reviewNodes=await page.locator('.pen-node').count();await canvas.focus();await page.keyboard.press('Delete');assert.equal(await page.locator('.pen-node').count(),reviewNodes-1);assert(!await review.isChecked());assert(await page.getByRole('button',{name:'确认选区并加入花纹库',exact:true}).isDisabled());checks.push('删除推断路径节点后必须重新核对');
  await desktopScreenshot(app,page,{path:'test-results/pen-completion.png'});assert.deepEqual(errors,[]);
  await page.reload();await chooseProject(page);await page.waitForSelector('.region-card');assert.equal(await page.locator('.mask-view image').count(),1);checks.push('重载保留联合原图和已接受花纹');

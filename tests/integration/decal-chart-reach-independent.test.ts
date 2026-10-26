@@ -20,7 +20,10 @@ const shape:Shape={wrap:true,anchorFaceId:'0,0a',origin:[0,0,0],axes:[[1,0,0],[0
 // must therefore survive chart traversal and the actual preview clipping.
 it('includes distant cubic material instead of limiting reach to endpoint radius',()=>{
  const mesh=plane(),before=structuredClone(mesh),chart=decalChart(mesh,shape)!;
- for(const x of[20,50,90,91])expect(chart.get(`${x},0`)).toEqual({xMm:x,yMm:0});
+ for(const x of[20,50,90,91]){
+  const point=chart.get(`${x},0`)!;expect({xMm:point.xMm,yMm:point.yMm}).toEqual({xMm:x,yMm:0});
+  expect(Number.isFinite(point.distanceMm)).toBe(true);expect(point.distanceMm).toBeGreaterThanOrEqual(0);
+ }
  const fragments=previewFragments(mesh,shape)!;
  expect(fragments.some(f=>f.faceId==='90,0a'||f.faceId==='90,0b')).toBe(true);
  const vertices=new Map(mesh.vertices.map(p=>[p.id,p])),faces=new Map(mesh.faces.map(f=>[f.id,f]));

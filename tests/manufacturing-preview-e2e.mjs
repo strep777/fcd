@@ -33,10 +33,10 @@ try{
  assert.equal(await rows.count(),2);assert(await all.isChecked());assert(await rows.evaluateAll(nodes=>nodes.every(n=>n.checked)));
  await all.uncheck();assert(await rows.evaluateAll(nodes=>nodes.every(n=>!n.checked)));
  // A blank canvas click clears the active piece as well as the print selection.
- await canvas.click({position:{x:3,y:3}});assert(await page.locator('.pattern-properties .inspector-empty').isVisible());
- const unspaced=await read();await page.locator('.pattern-spacing input[type="number"]').fill('7');await page.getByRole('button',{name:'应用到所有裁片',exact:true}).click();
+ await canvas.click({position:{x:3,y:3}});assert.equal(await page.locator('.pattern-properties').count(),0,'Simple preview does not mount advanced pattern properties');
+ await page.getByLabel('界面模式',{exact:true}).selectOption('true');const unspaced=await read();await page.locator('.pattern-spacing input[type="number"]').fill('7');await page.getByRole('button',{name:'应用到所有裁片',exact:true}).click();
  await page.waitForFunction(revision=>window.fpcad.read().then(r=>r.ok&&r.data.project.revision===revision+1),unspaced.revision);
- const spaced=await read();assert.equal(spaced.pieces.length,2);assert(spaced.pieces.every(p=>p.allowanceMm===7));assert.deepEqual(spaced.pieces.map(p=>p.nodes),unspaced.pieces.map(p=>p.nodes));assert(await page.locator('.pattern-properties .inspector-empty').isVisible());
+ const spaced=await read();assert.equal(spaced.pieces.length,2);assert(spaced.pieces.every(p=>p.allowanceMm===7));assert.deepEqual(spaced.pieces.map(p=>p.nodes),unspaced.pieces.map(p=>p.nodes));assert(await page.locator('.pattern-properties .inspector-empty').isVisible());await page.getByLabel('界面模式',{exact:true}).selectOption('false');assert.equal(await page.locator('.pattern-properties').count(),0,'Returning to simple preview removes advanced pattern properties');
  await all.check();assert(await rows.evaluateAll(nodes=>nodes.every(n=>n.checked)));assert.match(await selection.locator('.select-all span').innerText(),/2\s*\/\s*2/);
  await page.getByRole('button',{name:'选中裁片总览',exact:true}).click();const overview=page.getByRole('dialog',{name:'选中裁片总览',exact:true});await overview.waitFor();
  assert.deepEqual((await overview.getByLabel('选择分页裁片',{exact:true}).locator('option').evaluateAll(nodes=>nodes.map(n=>n.value))).sort(),spaced.pieces.map(p=>p.id).sort());

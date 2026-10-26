@@ -37,7 +37,7 @@ export function runProjection(workerPath:string,project:Project,sourceId:string,
 
 export function runTexture(workerPath:string,project:Project,textureId:string,seed:{x:number;y:number},tolerance:number,signal:AbortSignal):Promise<Marking>{return runTask({kind:'texture',workerPath,project:geometryProject(project),textureId,seed,tolerance},markingSchema,signal);}
 
-export function runSurfaceMarking(workerPath:string,project:Project,shape:NonNullable<Marking['surfaceShape']>,color:string,name:string,signal:AbortSignal):Promise<Marking>{return runTask({kind:'surface-marking',workerPath,project:geometryProject(project),shape,color,name},markingSchema,signal);}
+export function runSurfaceMarking(workerPath:string,project:Project,shape:NonNullable<Marking['surfaceShape']>,color:string,name:string,signal:AbortSignal,fabrication?:Marking['fabrication']):Promise<Marking>{return runTask({kind:'surface-marking',workerPath,project:geometryProject(project),shape,color,name,fabrication},markingSchema,signal);}
 
 export function runInference(workerPath:string,project:Project,markingId:string,mode:'extend'|'symmetry',distanceMm:number,planeXmm:number,signal:AbortSignal):Promise<Marking>{return runTask({kind:'inference',workerPath,project:geometryProject(project),markingId,mode,distanceMm,planeXmm},markingSchema,signal);}
 
@@ -50,3 +50,5 @@ export function runReferenceSegment(reference:Reference,seed:{x:number;y:number}
 export function runEditSurfaceMarking(workerPath:string,project:Project,markingId:string|undefined,shape:NonNullable<Marking['surfaceShape']>|undefined,stroke:SurfaceBrush|undefined,signal:AbortSignal):Promise<Marking>{return runTask({kind:'surface-edit',workerPath,project:geometryProject(project),markingId,shape,stroke},markingSchema,signal);}
 
 export function runEditLibraryRegion(workerPath:string,project:Project,pieceId:string,edit:LibraryRegionEdit,signal:AbortSignal,replaceManual=false){return runTask({kind:'library-edit',workerPath,project:geometryProject(project),pieceId,edit,replaceManual},z.object({region:regionSchema,markings:z.array(markingSchema).max(500),models:z.array(modelRecordSchema).max(30)}).strict(),signal);}
+
+export function runAutomaticPlacement(workerPath:string,project:Project,pieceIds:string[],parts:import('../../../packages/reference/body-parts').BodyPart[]|undefined,signal:AbortSignal){return runTask({kind:'automatic-placement',workerPath,project:geometryProject(project),pieceIds,parts},z.object({markings:z.array(markingSchema).max(500),skipped:z.array(z.object({pieceId:z.string(),name:z.string(),reason:z.string()}))}),signal);}

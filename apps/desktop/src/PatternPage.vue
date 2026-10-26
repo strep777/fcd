@@ -1,9 +1,9 @@
 <template>
  <section class="pattern-page">
   <nav class="subtabs pattern-subtabs" role="tablist" :aria-label="language==='zh'?'制版工具':localize('Pattern tools')">
-   <button v-for="p in panels" :key="p[0]" role="tab" :aria-selected="panel===p[0]" :class="{active:panel===p[0]}" @click="emit('update:panel',p[0] as PatternTab)">{{p[1]}}</button>
+   <button v-for="p in panels" :key="p[0]" role="tab" :aria-selected="panel===p[0]" :class="{active:panel===p[0]}" @click="panel=p[0]">{{p[1]}}</button>
   </nav>
-  <WorkflowPage v-show="panel==='workflow'" :language="language" @navigate="(s,id,t)=>emit('navigate',s,id,t)"/>
+  <WorkflowPage v-if="advanced" v-show="panel==='workflow'" :language="language" @navigate="(s,id,t)=>emit('navigate',s,id,t)"/>
   <WorkspaceSplit v-show="panel!=='workflow'" storage-key="pattern-tools" :language="language" :label="language==='zh'?'制版预览与裁片工具宽度':localize('Pattern preview and tools width')" :initial=".72" :min-first="320" :min-second="290">
    <template #first><div id="pattern-viewport" class="preview-host pattern-host"/></template>
    <template #second>
@@ -12,12 +12,12 @@
      <section v-show="panel==='pieces'">
       <CutLibraryPanel :language="language" manufacturing @loaded="selectPiece($event)"/>
       <CutSelection :key="project?.id+'-cuts'" :language="language" :selected-id="selectedId" :paper="paper" @select="selectPiece($event)"/>
-      <PatternProperties/>
+      <PatternProperties v-if="advanced"/>
      </section>
-     <MaterialsPanel v-show="panel==='materials'" :key="project?.id" :target-id="targetId??''" :language="language" :selected-id="selectedId"/>
-     <SeamsPanel v-show="panel==='seams'" :key="project?.id" :target-id="targetId??''" :language="language"/>
-     <NestingPanel v-show="panel==='nesting'" :key="project?.id" :language="language" @select="selectPiece($event)"/>
-     <button v-show="panel!=='pieces'" class="primary production-export" @click="emit('export')">{{language==='zh'?'导出 ↗':localize('Export ↗')}}</button>
+     <MaterialsPanel v-if="advanced" v-show="panel==='materials'" :key="project?.id" :target-id="targetId??''" :language="language" :selected-id="selectedId"/>
+     <SeamsPanel v-if="advanced" v-show="panel==='seams'" :key="project?.id" :target-id="targetId??''" :language="language"/>
+     <NestingPanel v-if="advanced" v-show="panel==='nesting'" :key="project?.id" :language="language" @select="selectPiece($event)"/>
+     <button v-if="advanced" v-show="panel!=='pieces'" class="primary production-export" @click="emit('export')">{{language==='zh'?'导出 ↗':localize('Export ↗')}}</button>
     </aside>
    </template>
   </WorkspaceSplit>
@@ -26,7 +26,7 @@
 <script setup lang="ts">
 import {localize} from './localization';
 
-import {computed} from 'vue';
+import {computed,inject,ref,watch} from 'vue';
 import WorkspaceSplit from './WorkspaceSplit.vue';
 import PatternProperties from './PatternProperties.vue';
 import CutSelection from './CutSelection.vue';
@@ -37,8 +37,10 @@ import NestingPanel from './NestingPanel.vue';
 import WorkflowPage from './WorkflowPage.vue';
 import {usePatternContext} from './modules/patternEditorContext';
 import type {Stage,PatternTab} from './modules/workflow-tabs';
-const props=defineProps<{language:'zh'|'en';panel:PatternTab;targetId?:string}>(),emit=defineEmits<{'update:panel':[panel:PatternTab];navigate:[stage:Stage,id?:string,tab?:'materials'|'seams'|'nesting'];export:[]}>(),{project,paper,selectedId,selectPiece}=usePatternContext();
-const panels=computed(()=>props.language==='zh'?[['pieces','裁片编辑'],['materials','材料'],['seams','接缝'],['nesting','排料'],['workflow','制作流程']]:[['pieces',localize('Patterns')],['materials',localize('Materials')],['seams',localize('Seams')],['nesting',localize('Nesting')],['workflow',localize('Workflow')]]);
+const props=defineProps<{language:'zh'|'en';targetId?:string}>(),emit=defineEmits<{navigate:[stage:Stage,id?:string,tab?:'materials'|'seams'|'nesting'];export:[]}>(),{project,paper,selectedId,selectPiece}=usePatternContext();
+const panel=defineModel<PatternTab>('panel',{required:true}),advanced=inject('advancedMode',ref(false));
+watch([advanced,panel],([enabled,current])=>{if(!enabled&&current!=='pieces')panel.value='pieces';},{immediate:true,flush:'sync'});
+const panels=computed<[PatternTab,string][]>(()=>advanced.value?(props.language==='zh'?[['pieces','裁片编辑'],['materials','材料'],['seams','接缝'],['nesting','排料'],['workflow','制作流程']]:[['pieces',localize('Patterns')],['materials',localize('Materials')],['seams',localize('Seams')],['nesting',localize('Nesting')],['workflow',localize('Workflow')]]):[['pieces',props.language==='zh'?'版型预览':localize('Pattern preview')]]);
 </script>
 <style scoped>
 .pattern-page{height:100%;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}

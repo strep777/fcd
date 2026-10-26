@@ -1,0 +1,9 @@
+{
+  "origin": "test-results/2026-10-25-pattern-quality/body-only-final-joins/colored-65-independent-input.json",
+  "inputSha256": "1087a4644bd029ac93d346d60acba15783e83f6da2d5f54fda1a3d49be6a075c",
+  "captureSha256": "76949dad61bfafecb42586b4ce689797f0ddef5934351e6daf332c1b1b33c1d8",
+  "jpeg": "tests/fixtures/character-front-back.jpg",
+  "jpegSha256": "ce2cad952e7efc4228ed236736b1d5370803aa5616b251a4bbffa164cd4ea768",
+  "regions": 101,
+  "scope": "Complete immutable pre-fabrication source contours, curves, holes and anatomy. Reference pixels are reconstructed from the existing originalJPEG; PNG/resource duplicates omitted, geometry unchanged."
+}

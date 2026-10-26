@@ -1,6 +1,10 @@
 import {execFile} from 'node:child_process';
 import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {testedBuild} from '../tests/desktop-launch.mjs';
+import {setPriority,getPriority,constants} from 'node:os';
+import {createHash} from 'node:crypto';
+// Native test windows remain hidden; lower the test tree's CPU priority as well.
+if(process.platform==='win32')setPriority(0,constants.priority.PRIORITY_LOW);
 const cli=process.argv.slice(2),jobsIndex=cli.indexOf('--jobs');let jobs=1;
 if(jobsIndex>=0){jobs=Number(cli[jobsIndex+1]);if(!Number.isInteger(jobs)||jobs<1||jobs>3)throw Error('Desktop jobs must be 1 to 3');cli.splice(jobsIndex,2);}
 const retest=cli[0]==='--retest',suites=cli.slice(retest?1:0);
@@ -20,9 +24,10 @@ if(new Set(selected).size!==selected.length)throw Error('Duplicate suite names')
 const dependencies={'studio-ui-e2e':['workflow-pages-e2e','simple-markings-e2e']},pending=new Set(selected),running=new Map(),done=new Set();
 async function runSuite(suite){
  if(!/^[a-z0-9-]+$/.test(suite))throw Error('Invalid suite name');
+ const sourceHash=()=>createHash('sha256').update(readFileSync(`tests/${suite}.mjs`)).digest('hex'),sourceSha256=sourceHash();
  const start=Date.now(),r=await new Promise(resolve=>execFile(process.execPath,['--import',new URL('../tests/desktop-child-process.mjs',import.meta.url).href,`tests/${suite}.mjs`],{encoding:'utf8',maxBuffer:16*1024*1024,env:process.env,windowsHide:true},(error,stdout,stderr)=>resolve({status:error?(typeof error.code==='number'?error.code:1):0,stdout,stderr,error})));
  writeFileSync(`test-results/desktop/${suite}.log`,(r.stdout??'')+(r.stderr??'')+(r.error?.message??''));
- const result={suite,execution:['mapping-context-reset-e2e','visual-path-editing-e2e','model-sizing-ui-e2e'].includes(suite)?'production-source-components':'desktop-application',exitCode:r.status,durationMs:Date.now()-start,...(retest?{retestedAt:new Date().toISOString()}:{})},index=report.results.findIndex(item=>item.suite===suite);
+ const result={suite,execution:['mapping-context-reset-e2e','visual-path-editing-e2e','model-sizing-ui-e2e'].includes(suite)?'production-source-components':'desktop-application',exitCode:r.status,durationMs:Date.now()-start,sourceSha256,sourceUnchangedDuringRun:sourceHash()===sourceSha256,...(retest?{retestedAt:new Date().toISOString()}:{})},index=report.results.findIndex(item=>item.suite===suite);
  if(index<0)report.results.push(result);else report.results[index]=result;
  console.log(suite,r.status===0?'passed':'FAILED');if(r.status!==0)console.error(r.stdout,r.stderr,r.error??'');
  writeFileSync('test-results/desktop-verification.json',JSON.stringify(report,null,2));
@@ -32,7 +37,7 @@ while(pending.size||running.size){
  if(!running.size)throw Error('Desktop suite dependency cycle');await Promise.race(running.values());
 }
 if(!retest)report.results.sort((a,b)=>selected.indexOf(a.suite)-selected.indexOf(b.suite));
-report.concurrency=jobs;
+report.concurrency=jobs;report.runnerPriority=getPriority();
 report.passed=report.results.every(r=>r.exitCode===0);writeFileSync('test-results/desktop-verification.json',JSON.stringify(report,null,2));
 if(!report.passed)process.exitCode=1;
 

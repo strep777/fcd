@@ -1,11 +1,15 @@
 import {nativeSurfaceResponseSchema} from '../../../packages/surface/native-report';
+import {nativeSolveIdentity,restoreCachedReports} from './native-solve-cache';
 import {assertUserCutsValid} from '../../../packages/surface/cut-path-contract';
 import {designManufacturingOutline} from './design-outline';
+import {intrinsicTreeSeed} from '../../../packages/surface/intrinsic-tree-seed';
 import {parentPort} from 'node:worker_threads';
 import {numericalTriangleArea} from '../../../packages/surface/numerical';
 import {projectedReport} from '../../../packages/surface/projected-report';
 import {designComponents,splitDesignDomain,seamPathCount,designQualityFailure,measureBoundaryStrain} from '../../../packages/surface/design-partition';
 import {sectionDesignDomain} from '../../../packages/surface/design-section';
+import {manufacturingSection} from '../../../packages/surface/manufacturing-section';
+import {physicalFacets} from '../../../packages/surface/physical-facets';
 import {narrowPanelSplit} from '../../../packages/surface/panel-neck';
 import type {Child} from '../../../packages/surface/refine';
 import {mergeDesignCharts} from '../../../packages/surface/merge-design-charts';
@@ -14,7 +18,7 @@ import {planarReports,simplifyReportBoundary} from '../../../packages/surface/pl
 import {scopeFaces} from '../../../packages/surface/cut-geometry';
 import {pointBounds} from '../../../packages/pattern/edit';
 import {inspectImage} from '../../../packages/reference/image-input';
-import {MESH_VERTICES,MESH_FACES,MESH_FILE_BYTES,UNWRAP_FACES} from '../../../packages/surface/limits';
+import {MESH_VERTICES,MESH_FACES,MESH_FILE_BYTES,UNWRAP_FACES,UNWRAP_REPAIR_PASSES} from '../../../packages/surface/limits';
 import {automaticCutMesh} from './automatic-cuts';
 import {randomUUID} from 'node:crypto';
 import {readFile,stat} from 'node:fs/promises';
@@ -22,10 +26,10 @@ import {surfaceSchema,bodyParamsSchema,surfaceRunSchema,type UnwrapOptions,type 
 import {DomainError,hash} from './repository';
 import {createWorkerSession,analyze} from './worker';
 export const pieceGeometryHash=(p:Piece)=>hash(JSON.stringify({nodes:p.nodes,holes:p.holes??[],curves:p.curves??[]}));
-export const cutColorHash=(project:Project)=>hash(JSON.stringify((project.markings??[]).map(m=>({id:m.id,color:m.color,sourceHash:m.sourceHash,surfaceHash:m.surfaceHash,fragments:m.fragments}))));
-export function bindingIssues(project:Project):Issue[]{if(!project.bindings?.length)return [];const surfaceHash=project.surface?hash(JSON.stringify(project.surface)):null;return (project.bindings??[]).flatMap<Issue>(b=>{
+export const cutColorHash=(project:Project)=>hash(JSON.stringify((project.markings??[]).map(m=>({id:m.id,color:m.color,sourceHash:m.sourceHash,surfaceHash:m.surfaceHash,fragments:m.fragments,...(m.fabrication==='detail'?{fabrication:'detail'}:{})}))));
+export function bindingIssues(project:Project):Issue[]{if(!project.bindings?.length)return [];const surfaceHash=project.surface?hash(JSON.stringify(project.surface)):null,colorHash=project.bindings.some(b=>b.colorHash)?cutColorHash(project):undefined;return (project.bindings??[]).flatMap<Issue>(b=>{
  const piece=project.pieces.find(p=>p.id===b.pieceId);if(!piece)return [];
- if(!project.surface||b.surfaceId!==project.surface.id||b.topologyVersion!==project.surface.topologyVersion||b.surfaceHash!==surfaceHash||b.geometryHash!==pieceGeometryHash(piece)||b.colorHash&&b.colorHash!==cutColorHash(project))return [{ruleId:`${b.pieceId}:binding`,entityId:b.pieceId,severity:'error' as const,messageKey:'STALE_BINDING'}];
+ if(!project.surface||b.surfaceId!==project.surface.id||b.topologyVersion!==project.surface.topologyVersion||b.surfaceHash!==surfaceHash||b.geometryHash!==pieceGeometryHash(piece)||b.colorHash&&b.colorHash!==colorHash)return [{ruleId:`${b.pieceId}:binding`,entityId:b.pieceId,severity:'error' as const,messageKey:'STALE_BINDING'}];
  const issues:Issue[]=[];if(b.report.status==='needsReview')issues.push({ruleId:`${b.pieceId}:distortion`,entityId:b.pieceId,severity:'warning',messageKey:'SURFACE_DISTORTION'});if(project.surface.customTemplate)issues.push({ruleId:b.pieceId+':custom-template',entityId:b.pieceId,severity:'warning',messageKey:'CUSTOM_TEMPLATE_REVIEW'});if(project.surface.template&&!project.surface.assembly)issues.push({ruleId:`${b.pieceId}:modular-template`,entityId:b.pieceId,severity:'warning',messageKey:'MODULAR_TEMPLATE_REVIEW'});if(project.surface.assembly)issues.push({ruleId:`${b.pieceId}:assembled-template`,entityId:b.pieceId,severity:'warning',messageKey:'ASSEMBLED_DIMENSIONS_REQUIRE_REVIEW'});return issues;
 });}
 export function parseObj(text:string,scale=1):Surface{
@@ -60,7 +64,17 @@ export function validateSurface(mesh:Surface){
  for(const f of mesh.faces){const ids=f.vertices.map(id=>vertexIndices.get(id));if(ids.some(id=>id===undefined))throw new DomainError('INVALID_MESH');const indices=ids as [number,number,number],p=indices.map(index=>mesh.vertices[index]);if(numericalTriangleArea(p.map(v=>[v.xMm,v.yMm,v.zMm]))===undefined)throw new DomainError('DEGENERATE_MESH');
   for(let i=0;i<3;i++){const a=indices[i],b=indices[(i+1)%3],key=edgeKey(a,b),direction=a<b?1:2,seen=edges.get(key)??0;if(seen===3)throw new DomainError('NONMANIFOLD_MESH');if(seen===direction)throw new DomainError('MESH_ORIENTATION');edges.set(key,seen|direction);}
  }
- if(mesh.assembly){if([...edges.values()].some(direction=>direction!==3))throw new DomainError('NONMANIFOLD_MESH');const neighbors=new Map(mesh.vertices.map(v=>[v.id,new Set<string>()]));for(const f of mesh.faces)for(const a of f.vertices)for(const b of f.vertices)neighbors.get(a)!.add(b);const seen=new Set<string>(),queue=[mesh.faces[0].vertices[0]];while(queue.length){const id=queue.pop()!;if(seen.has(id))continue;seen.add(id);for(const next of neighbors.get(id)!)if(!seen.has(next))queue.push(next);}if(mesh.faces.some(f=>f.vertices.some(id=>!seen.has(id))))throw new DomainError('DISCONNECTED_TEMPLATE');}
+ if(mesh.assembly){
+  const boundary=[...edges].filter(([,direction])=>direction!==3);
+  if(mesh.assembly.garmentOpenings){
+   if(mesh.source!=='species-template-1'||mesh.template?.parameters.bodyMode!=='padded')throw new DomainError('NONMANIFOLD_MESH');
+   const links=new Map<number,number[]>();for(const [key]of boundary){const a=Math.floor(key/vertexCount),b=key%vertexCount;links.set(a,[...links.get(a)??[],b]);links.set(b,[...links.get(b)??[],a]);}
+   if([...links.values()].some(row=>row.length!==2))throw new DomainError('NONMANIFOLD_MESH');
+   const seen=new Set<number>();let loops=0;for(const start of links.keys())if(!seen.has(start)){loops++;const queue=[start];while(queue.length){const i=queue.pop()!;if(seen.has(i))continue;seen.add(i);queue.push(...links.get(i)!);}}
+   if(loops!==mesh.assembly.garmentOpenings)throw new DomainError('NONMANIFOLD_MESH');
+  }else if(boundary.length)throw new DomainError('NONMANIFOLD_MESH');
+  const neighbors=new Map(mesh.vertices.map(v=>[v.id,new Set<string>()]));for(const f of mesh.faces)for(const a of f.vertices)for(const b of f.vertices)neighbors.get(a)!.add(b);const seen=new Set<string>(),queue=[mesh.faces[0].vertices[0]];while(queue.length){const id=queue.pop()!;if(seen.has(id))continue;seen.add(id);for(const next of neighbors.get(id)!)if(!seen.has(next))queue.push(next);}if(mesh.faces.some(f=>f.vertices.some(id=>!seen.has(id))))throw new DomainError('DISCONNECTED_TEMPLATE');
+ }
  const textureIds=new Set((mesh.textures??[]).map(t=>t.id)),textured=new Set<string>();if(textureIds.size!==(mesh.textures?.length??0))throw new DomainError('INVALID_MESH');for(const t of mesh.textures??[]){for(const asset of [t,t.proxy]){const bytes=Buffer.from(asset.png.split(',')[1],'base64');let input;try{input=inspectImage(bytes);}catch(e){throw new DomainError((e as Error).message);}if(input.mime!=='image/png'||input.orientation!==1||input.width!==asset.width||input.height!==asset.height||asset===t&&hash(bytes)!==t.sha256)throw new DomainError('IMAGE_RESOURCE_MISMATCH');}const factor=Math.min(1,512/Math.max(t.width,t.height));if(t.proxy.width!==Math.max(1,Math.round(t.width*factor))||t.proxy.height!==Math.max(1,Math.round(t.height*factor)))throw new DomainError('IMAGE_RESOURCE_MISMATCH');}for(const f of mesh.textureFaces??[]){if(!faceIds.has(f.faceId)||!textureIds.has(f.textureId)||textured.has(f.faceId))throw new DomainError('INVALID_MESH');textured.add(f.faceId);}
  const lineIds=new Set((mesh.cutLines??[]).map(l=>l.id));if(lineIds.size!==(mesh.cutLines?.length??0))throw new DomainError('INVALID_CUT');
  for(const line of mesh.cutLines??[]){if(!line.name.trim()||line.mirroredFrom&&!lineIds.has(line.mirroredFrom)||line.mirroredFrom===line.id)throw new DomainError('INVALID_CUT');const seen=new Set<number>();for(const e of line.edges){const key=namedEdgeKey(e.a,e.b);if(e.a===e.b||!edges.has(key)||seen.has(key))throw new DomainError('INVALID_CUT');seen.add(key);}}
@@ -77,12 +91,16 @@ export function generateTorso(raw:BodyParams,previous?:Surface):Surface{
  for(let ring=0;ring<sections.length-1;ring++)for(let j=0;j<n;j++){const a=ring*n+j,b=ring*n+(j+1)%n,c=(ring+1)*n+j,d=(ring+1)*n+(j+1)%n;for(const indices of [[a,c,b],[b,c,d]]){const index=faces.length;faces.push({id:stable?previous.faces[index].id:randomUUID(),vertices:indices.map(i=>vertices[i].id) as [string,string,string],region:`torso-${Math.floor(j/12)+1}`});}}
  return surfaceSchema.parse({id:stable?previous.id:randomUUID(),topologyVersion:stable?previous.topologyVersion+1:1,source:'torso-loft-1',vertices,faces,parameters:p,cutConstraints:stable?previous.cutConstraints:undefined});
 }
-export async function unwrapSurface(worker:string,surface:Surface,project:Project,options:UnwrapOptions={},signal?:AbortSignal,solvedSurface?:(mesh:Surface)=>void,refinedSurface?:(mesh:Surface,children:Map<string,Child[]>)=>void|boolean,generatedFrom?:Surface):Promise<SurfaceRun>{
+export async function unwrapSurface(worker:string,surface:Surface,project:Project,options:UnwrapOptions={},signal?:AbortSignal,solvedSurface?:(mesh:Surface)=>void,refinedSurface?:(mesh:Surface,children:Map<string,Child[]>)=>void|boolean,generatedFrom?:Surface,canRejoinSourceFaces?:(a:string,b:string)=>boolean):Promise<SurfaceRun>{
  const session=createWorkerSession(worker,signal),solveStarted=performance.now();
- const nativeStats={calls:0,elapsedMs:0,cacheHits:0,groups:{} as Record<string,{calls:number;ms:number;faces:number}>,slow:[] as {phase:string;method:string;faces:number;ms:number}[]},nativeCache=new Map<string,{patches:SurfaceRun['bindings'][number]['report'][]}|{error:DomainError}>();let cachedVertices=0,solvePhase='initial';
+ const nativeStats={calls:0,elapsedMs:0,cacheHits:0,groups:{} as Record<string,{calls:number;ms:number;faces:number}>,slow:[] as {phase:string;method:string;faces:number;ms:number}[]},nativeCache=new Map<string,{patches:SurfaceRun['bindings'][number]['report'][];vertices:string[];faces:string[];size:number}|{error:DomainError;size:0}>();let cachedVertices=0,solvePhase='initial';
+ const rememberNative=(key:string,value:NonNullable<ReturnType<typeof nativeCache.get>>)=>{if(value.size>100000)return;while(nativeCache.size&&(cachedVertices+value.size>100000||nativeCache.size>=4000)){const oldest=nativeCache.keys().next().value!,entry=nativeCache.get(oldest)!;cachedVertices-=entry.size;nativeCache.delete(oldest);}nativeCache.set(key,value);cachedVertices+=value.size;};
  try{
  const sourceSurface=surface;validateSurface(sourceSurface);try{assertUserCutsValid(sourceSurface);}catch(error){throw new DomainError((error as Error).message);}const selected=scopeFaces(sourceSurface);if(!selected.length)throw new DomainError('EMPTY_CUT_SCOPE');
- if(selected.length!==surface.faces.length){const faces=new Set(selected.map(f=>f.id)),vertices=new Set(selected.flatMap(f=>f.vertices)),edges=new Set(selected.flatMap(f=>f.vertices.map((a,i)=>[a,f.vertices[(i+1)%3]].sort().join(':'))));surface={...surface,faces:selected,vertices:surface.vertices.filter(v=>vertices.has(v.id)),cutConstraints:surface.cutConstraints?.filter(c=>edges.has([c.a,c.b].sort().join(':'))),textureFaces:surface.textureFaces?.filter(f=>faces.has(f.faceId)),assembly:undefined,cutLines:undefined,cutBaseConstraints:undefined};}
+ // Candidate solving may reconnect trial cuts or refine local faces. Keep
+ // those changes on a working copy even for direct unwrap API callers.
+ surface=structuredClone(sourceSurface);
+ if(selected.length!==surface.faces.length){const faces=new Set(selected.map(f=>f.id)),vertices=new Set(selected.flatMap(f=>f.vertices)),edges=new Set(selected.flatMap(f=>f.vertices.map((a,i)=>[a,f.vertices[(i+1)%3]].sort().join(':'))));surface={...surface,faces:surface.faces.filter(f=>faces.has(f.id)),vertices:surface.vertices.filter(v=>vertices.has(v.id)),cutConstraints:surface.cutConstraints?.filter(c=>edges.has([c.a,c.b].sort().join(':'))),textureFaces:surface.textureFaces?.filter(f=>faces.has(f.faceId)),assembly:undefined,cutLines:undefined,cutBaseConstraints:undefined};}
  // Material boundaries subdivide input triangles; budget the source and each
  // native solve separately, while retaining the generated-mesh resource cap.
  if(generatedFrom&&(generatedFrom!==project.surface||options.partitionStrategy!=='design'))throw new DomainError('INVALID_MESH');
@@ -93,32 +111,77 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
  const vertexTables=new WeakMap<Surface['vertices'],{points:Map<string,Surface['vertices'][number]>;order:Map<string,number>}>();
  const vertexTable=(vertices:Surface['vertices'])=>{let table=vertexTables.get(vertices);if(!table){table={points:new Map(vertices.map(v=>[v.id,v])),order:new Map(vertices.map((v,i)=>[v.id,i]))};vertexTables.set(vertices,table);}return table;};
  let sewingStage=false;
- const workerSolve=async(mesh:Surface,method:'lscm'|'arap'|'arap-balanced'|'arap-seamed'=sewingStage?'arap-seamed':options.method??'lscm',iterations=options.iterations??30,seed?:SurfaceRun['bindings'][number]['report']['uv'])=>{
+ const solveInput=(mesh:Surface,method:string,iterations:number,seed?:SurfaceRun['bindings'][number]['report']['uv'])=>{
   if(mesh.faces.length>UNWRAP_FACES)throw new DomainError('UNWRAP_LIMIT');
   // A domain solve needs only its own vertices, in the same relative order.
   // Re-sending the entire model for every small panel wastes parsing and IPC.
   const used=new Set(mesh.faces.flatMap(f=>f.vertices)),table=vertexTable(mesh.vertices),vertices=[...used].sort((a,b)=>table.order.get(a)!-table.order.get(b)!).map(id=>table.points.get(id)!);
-  const input={protocolVersion:1,operation:'surface.unwrap',mesh:{vertices,faces:mesh.faces,repair_cuts:options.automaticCuts===true&&options.partitionStrategy!=='design',method,iterations,...(seed?{initial_uv:seed}:{})}},key=hash(JSON.stringify(input)),cached=nativeCache.get(key);
-  if(cached){nativeStats.cacheHits++;if('error' in cached)throw cached.error;return cached;}
+  // Temporary repair labels do not change a single connected solve domain.
+  // Canonicalize that label so unchanged charts reuse their measured result
+  // across manufacturing passes. Distinct region boundaries stay distinct.
+  const singleRegion=options.partitionStrategy==='design'&&mesh.faces.every(f=>f.region===mesh.faces[0]?.region),faces=singleRegion?mesh.faces.map(f=>({...f,region:'design-panel'})):mesh.faces;
+  return {protocolVersion:1,operation:'surface.unwrap',mesh:{vertices,faces,repair_cuts:options.automaticCuts===true&&options.partitionStrategy!=='design',method,iterations,...(seed?{initial_uv:seed}:{})}};
+ };
+ const workerSolve=async(mesh:Surface,method:'lscm'|'arap'|'arap-balanced'|'arap-seamed'=sewingStage?'arap-seamed':options.method??'lscm',iterations=sewingStage?Math.max(100,options.iterations??30):options.iterations??30,seed?:SurfaceRun['bindings'][number]['report']['uv'])=>{
+  const input=solveInput(mesh,method,iterations,seed),key=nativeSolveIdentity(input),cached=nativeCache.get(key);
+  if(cached){nativeStats.cacheHits++;nativeCache.delete(key);nativeCache.set(key,cached);if('error' in cached)throw cached.error;return {patches:restoreCachedReports(cached.patches,cached,input.mesh)};}
   const started=performance.now();nativeStats.calls++;
-  try{const result=nativeSurfaceResponseSchema.parse(await session.request(input));const size=result.patches.reduce((n,p)=>n+p.uv.length,0);if(cachedVertices+size<100000&&nativeCache.size<4000){nativeCache.set(key,result);cachedVertices+=size;}return result;}
-  catch(error){if(error instanceof DomainError&&['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(error.code)&&nativeCache.size<4000)nativeCache.set(key,{error});throw error;}
+  try{const result=nativeSurfaceResponseSchema.parse(await session.request(input));const size=result.patches.reduce((n,p)=>n+p.uv.length,0);rememberNative(key,{patches:result.patches,vertices:input.mesh.vertices.map(v=>v.id),faces:input.mesh.faces.map(f=>f.id),size});return result;}
+  catch(error){if(error instanceof DomainError&&['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(error.code))rememberNative(key,{error,size:0});throw error;}
   finally{const ms=performance.now()-started;nativeStats.elapsedMs+=ms;if(process.env.FPCAD_PROFILE_UNWRAP==='1'){const key=solvePhase+':'+method,row=nativeStats.groups[key]??={calls:0,ms:0,faces:0};row.calls++;row.ms+=ms;row.faces+=mesh.faces.length;nativeStats.slow.push({phase:solvePhase,method,faces:mesh.faces.length,ms});nativeStats.slow.sort((a,b)=>b.ms-a.ms);nativeStats.slow.length=Math.min(20,nativeStats.slow.length);}}
  };
- const planarHoles=new Map<string,string[][]>(),reportHoles=(report:SurfaceRun['bindings'][number]['report'])=>planarHoles.get([...report.faceIds].sort().join(':'))??[];
+ const planarHoles=new Map<string,string[][]>(),reportHoles=(report:SurfaceRun['bindings'][number]['report'])=>report.holes??planarHoles.get([...report.faceIds].sort().join(':'))??[];
+ const manufacturingProbe=(report:SurfaceRun['bindings'][number]['report'],i=0):Piece=>{
+  const uv=new Map(report.uv.map(v=>[v.vertexId,v])),node=(id:string)=>({id:randomUUID(),xMm:uv.get(id)!.xMm,yMm:uv.get(id)!.yMm});
+  const piece:Piece={id:randomUUID(),name:'Probe '+i,nodes:report.boundary.map(node),holes:reportHoles(report).map(r=>r.map(node)),closed:true,allowanceMm:project.defaultAllowanceMm??10,allowanceSource:'project',join:'round',cutQty:1,mirror:false,material:'毛皮',furRad:0,color:'#73c9b6'};
+  if(options.partitionStrategy==='design'&&options.colorBoundaryCuts){const outline=designManufacturingOutline({outer:piece.nodes.map(n=>[n.xMm,n.yMm]),holes:(piece.holes??[]).map(r=>r.map(n=>[n.xMm,n.yMm]))},1e-6),point=([xMm,yMm]:[number,number])=>({id:randomUUID(),xMm,yMm});piece.nodes=outline.outer.map(point);piece.holes=outline.holes.map(r=>r.map(point));}
+  return piece;
+ };
+ // Manufacturing repair creates independent solve groups. Keep their actual
+ // material identity so valid neighbours can absorb a repair sliver later.
+ const repairMaterials=new Map<string,string>(),materialRegion=(region:string)=>repairMaterials.get(region)??region;
+ const repairGroup=(faces:Surface['faces'],region:string)=>{
+  const material=materialRegion(faces[0].region);
+  if(faces.some(f=>materialRegion(f.region)!==material))throw new DomainError('INVALID_GEOMETRY');
+  repairMaterials.set(region,material);return faces.map(f=>[f.id,region] as const);
+ };
+ const acceptManufacturingUnion=async(report:SurfaceRun['bindings'][number]['report'])=>{
+  const checked=await analyze(worker,{...project,pieces:[manufacturingProbe(report)]},signal,session);
+  return checked.length===1&&!checked[0].issues.some(issue=>issue.severity==='error');
+ };
  const seamReasons=new Map<string,{ends:[string,string];reason:'topology'|'distortion'|'manufacturing'}>();
  const physical=(mesh:Surface)=>{const vv=vertexTable(mesh.vertices).points;return (id:string)=>{const v=vv.get(id)!;return [v.xMm,v.yMm,v.zMm].join(',');};};
  const rememberEdges=(mesh:Surface,edges:{a:string;b:string}[],reason:'topology'|'distortion'|'manufacturing')=>{const point=physical(mesh);for(const e of edges){const ends=[point(e.a),point(e.b)].sort() as [string,string],key=ends.join('|');if(!seamReasons.has(key))seamReasons.set(key,{ends,reason});}};
  const rememberPartition=(mesh:Surface,parts:Surface['faces'][],reason:'topology'|'distortion'|'manufacturing')=>{const owners=new Map(parts.flatMap((faces,i)=>faces.map(f=>[f.id,i] as const))),edges=new Map<string,{a:string;b:string;owners:number[]}>();for(const faces of parts)for(const f of faces)f.vertices.forEach((a,j)=>{const b=f.vertices[(j+1)%3],key=[a,b].sort().join(':'),e=edges.get(key)??{a,b,owners:[]};e.owners.push(owners.get(f.id)!);edges.set(key,e);});rememberEdges(mesh,[...edges.values()].filter(e=>e.owners.length===2&&e.owners[0]!==e.owners[1]),reason);};
- const qualityFailure=(report:Parameters<typeof designQualityFailure>[0]&{boundary?:string[]})=>!!(report.boundary&&report.boundary.length>2000)||designQualityFailure(report);
+ const qualityFailure=(report:Parameters<typeof designQualityFailure>[0]&{boundary?:string[];holes?:string[][]})=>!!(report.boundary&&report.boundary.length>2000)||!!report.holes?.some(r=>r.length>2000)||designQualityFailure(report);
+ // Certify an existing physical chart before asking ARAP to optimize it.
+ // Exact small strips can already satisfy every bound, while an unnecessary
+ // ill-conditioned linear solve fails depending on vertex storage order.
+ const certifySeed=async(mesh:Surface,seed:SurfaceRun['bindings'][number]['report']['uv'])=>{
+  try{const rows=(await workerSolve(mesh,'lscm',undefined,seed)).patches.map(simplifyReportBoundary).map(r=>measureBoundaryStrain(mesh,r,vertexTable(mesh.vertices).points));if(rows.length===1&&!qualityFailure(rows[0]))return rows[0];}
+  catch(e){if(!(e instanceof DomainError)||!['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(e.code))throw e;}
+ };
  const designCache=new Map<string,SurfaceRun['bindings'][number]['report'][]>(),cacheKey=(faces:Surface['faces'])=>faces.map(f=>f.id+':'+f.vertices.join(',')).sort().join('|');
  let previousCharts:{key:string;report:SurfaceRun['bindings'][number]['report']}[]=[];
  // Reserve section work for the whole input. A fixed global allowance was
  // exhausted by the first head/hand charts, forcing the later legs and tail
  // onto mesh-edge stair steps solely because of traversal order. Keep a
- // bounded budget proportional to the initial mesh, not to later refinements.
- const sectionBudget=Math.max(32,Math.min(256,Math.ceil(cut.mesh.faces.length/64)));
- const rejectedUnions=new Set<string>();let sectionAttempts=0;
+ // bounded budget proportional to the initial material domains, independent
+ // of their coplanar tessellation and later refinements.
+ const sectionBudget=Math.max(32,Math.min(256,designComponents(cut.mesh.faces).length*12));
+ const rejectedUnions=new Set<string>(),rejectedSewnStarts=new Set<string>();let sectionAttempts=0;
+ // A local allowance repair must not repeat an identical failed sewing
+ // start on an untouched panel. Retain only a bounded decision fingerprint;
+ // changed geometry, topology, seed or solver settings are distinct inputs.
+ const rejectSewnStart=(key:string)=>{if(rejectedSewnStarts.size>=4000)rejectedSewnStarts.delete(rejectedSewnStarts.values().next().value!);rejectedSewnStarts.add(key);};
+ // Reconnected IDs are restored through exact material provenance. Direct
+ // unwrap callers keep their source vertex identities for ordinary bindings.
+ // Original-model locked edges are protected individually by source-face
+ // adjacency and the complete proposed union check. An unrelated original
+ // lock need not retain every trial seam. A working-mesh lock can lie inside
+ // one original face, so conservatively keep its global no-rejoin guard.
+ const rejoinTrialSeams=!!generatedFrom&&!!canRejoinSourceFaces&&!(sourceSurface.cutConstraints??[]).some(edge=>edge.locked);
+ const finalDartJoins=new WeakMap<Surface,(reports:SurfaceRun['bindings'][number]['report'][])=>Promise<SurfaceRun['bindings'][number]['report'][]>>();
  const solveDesign=async(mesh:Surface)=>{
   sewingStage=false;
   const result:SurfaceRun['bindings'][number]['report'][]=[],components=designComponents(mesh.faces),faceMap=new Map(mesh.faces.map(f=>[f.id,f]));
@@ -132,11 +195,17 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
    // An injective measured chart that already meets every physical distortion
    // limit needs no iterative solve. Curved/overlapping charts still use ARAP.
    if(sewingStage)planar.reports=planar.reports.map(r=>measureBoundaryStrain(part,r,vertexTable(part.vertices).points)); const projected=planar.reports.length?undefined:projectedReport(part,vertexTable(part.vertices).points),projection=projected&&sewingStage?measureBoundaryStrain(part,projected,vertexTable(part.vertices).points):projected;
-   try{reports=planar.reports.length?planar.reports:projection&&!qualityFailure(projection)?[projection]:(await workerSolve(part,undefined,undefined,task.seed)).patches.map(simplifyReportBoundary);if(reports.some(qualityFailure))failure='UNWRAP_DISTORTION';}catch(e){if(!(e instanceof DomainError)||!['UNWRAP_LIMIT','UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(e.code))throw e;failure=e.code;}
+   try{const intrinsic=intrinsicTreeSeed(part,vertexTable(part.vertices).points),certified=intrinsic?await certifySeed(part,intrinsic):undefined;reports=certified?[certified]:planar.reports.length?planar.reports:projection&&!qualityFailure(projection)?[projection]:(await workerSolve(part,undefined,undefined,task.seed)).patches.map(simplifyReportBoundary);if(reports.some(qualityFailure))failure='UNWRAP_DISTORTION';}catch(e){if(!(e instanceof DomainError)||!['UNWRAP_LIMIT','UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(e.code))throw e;failure=e.code;}
+   if(failure){const seed=intrinsicTreeSeed(part,vertexTable(part.vertices).points);if(seed)try{const certified=await certifySeed(part,seed),intrinsic=certified?[certified]:(await workerSolve(part,undefined,undefined,seed)).patches.map(simplifyReportBoundary);if(intrinsic.every(r=>!qualityFailure(r))){reports=intrinsic;failure='';}}catch(e){if(!(e instanceof DomainError)||!['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(e.code))throw e;}}
    if(!sewingStage&&failure==='UNWRAP_DISTORTION'&&options.method==='arap')try{const balanced=(await workerSolve(part,'arap-balanced',100,reports.length===1?reports[0].uv:undefined)).patches.map(simplifyReportBoundary);if(balanced.every(r=>!qualityFailure(r))){reports=balanced;failure='';}}catch(e){if(!(e instanceof DomainError)||!['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(e.code))throw e;}
    parentPort?.postMessage({kind:'progress',value:{stage:'unwrap',completed:result.reduce((n,r)=>n+r.faceIds.length,0),total:mesh.faces.length}});
    if(!failure){designCache.set(cacheKey(task.faces),reports);result.push(...reports);continue;}
    if(!options.automaticCuts)throw new DomainError(failure);
+   // A small set of exact physical facets admits a canonical unfolding start.
+   // Their internal coplanar diagonals do not define sewing cuts. Rejoin these
+   // temporary facet charts below whenever the full native check permits it.
+   const facets=task.depth===0?physicalFacets(mesh,task.faces):undefined;
+   if(facets){rememberPartition(mesh,facets,failure==='UNWRAP_DISTORTION'?'distortion':'topology');queue.push(...facets.map(faces=>({faces,depth:task.depth+1})));continue;}
    // Try an opening dart before making independent panels. Keep it only when
    // the measured result passes the same quality limits.
     // Trial darts stay local. Failed slits must not survive into child charts:
@@ -156,8 +225,8 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
    let acceptedDart=false;
    // Tessellation density must not decide whether a panel gets a dart.
    // Use a bounded search on the complete chart before introducing a section.
-   const dartStarted=performance.now();
-   for(let trial=0;trial<4&&performance.now()-dartStarted<12000;trial++){solvePhase='dart';
+
+   for(let trial=0;trial<4;trial++){solvePhase='dart';
     const failingFaces=dartReports.flatMap(r=>r.faceDistortion??[]).filter(d=>qualityFailure({areaErrorMax:d.areaError,edgeErrorMax:d.edgeError,distortionMax:d.distortion})).map(d=>d.faceId);
     const dart=necessaryTopologyCuts(dartPart,[failingFaces.length?failingFaces:dartPart.faces.map(f=>f.id)]);
     if(!dart.edges.length)break;
@@ -189,7 +258,7 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
    // proposal until its triangulation quality and complete provenance pass.
    // Sewing calibration must use the same interior sections: reverting to
    // mesh-edge partitions here reintroduced stair-step seams after preview.
-   let section=refinedSurface&&task.faces.length>=20&&task.depth<12&&sectionAttempts++<sectionBudget?sectionDesignDomain(mesh,task.faces,randomUUID):undefined;
+   let section=refinedSurface&&task.faces.length>=2&&task.depth<12&&sectionAttempts++<sectionBudget?sectionDesignDomain(mesh,task.faces,randomUUID):undefined;
    if(section&&refinedSurface!(section.surface,section.children)===false)section=undefined;
    let children:Surface['faces'][];
    if(section){
@@ -208,17 +277,18 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
    if(children.length<2)throw new DomainError(failure);queue.push(...children.map(faces=>({faces,depth:task.depth+1})));
   }};
   await drain();
-  solvePhase='merge';const mergeStarted=performance.now(),merged=await mergeDesignCharts(mesh,result,async faces=>{
+  solvePhase='merge';const merged=await mergeDesignCharts(mesh,result,async(faces,seed)=>{
    const part={...mesh,faces},flat=planarReports(part,true,vertexTable(part.vertices).points);
    for(const [key,holes]of flat.holes)planarHoles.set(key,holes);
    if(flat.reports.length===1)return flat.reports[0];
    const projection=projectedReport(part,vertexTable(part.vertices).points);if(projection&&!qualityFailure(projection))return projection;
-   try{const reports=(await workerSolve(part)).patches.map(simplifyReportBoundary);return reports.length===1&&!qualityFailure(reports[0])?reports[0]:undefined;}
+   if(seed){const certified=await certifySeed(part,seed);if(certified)return certified;}
+   for(const initial of seed?[seed,undefined]:[undefined])try{const reports=(await workerSolve(part,undefined,undefined,initial)).patches.map(simplifyReportBoundary);if(reports.length===1&&!qualityFailure(reports[0]))return reports[0];}
    catch(e){if(!(e instanceof DomainError)||!['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(e.code))throw e;}
-  // Coalescing gets its own bounded budget after partitioning, reserving time for
-  // strict seam calibration, material remapping and acceptance validation.
-  // Reaching this budget keeps already solved charts; no quality check skips.
-  },rejectedUnions,()=>performance.now()-mergeStarted<30000);result.splice(0,result.length,...merged);
+  // Bound geometric proposals rather than wall time. CPU load must not decide
+  // how many physical seams survive. Native quality checks still certify each
+  // of the same deterministic proposals before either chart changes.
+  },rejectedUnions,()=>true,rejoinTrialSeams,canRejoinSourceFaces,512,repairMaterials.size?{materialRegion:region=>region,accept:acceptManufacturingUnion}:undefined);surface.faces=mesh.faces;result.splice(0,result.length,...merged);
   sewingStage=true;designCache.clear();
   const sewingFaces=new Map(mesh.faces.map(f=>[f.id,f]));
   for(let i=result.length-1;i>=0;i--){const report=result[i];if(report.seamErrorMax!==undefined&&!qualityFailure(report))continue;result.splice(i,1);queue.push({faces:report.faceIds.map(id=>sewingFaces.get(id)!),depth:0,seed:report.uv});}
@@ -226,15 +296,33 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
   // Sewing calibration can introduce new subdivisions. Coalesce those final
   // charts using the sewing solver too, so an earlier failed ARAP union cannot
   // permanently keep a now-redundant manufacturing seam.
-  solvePhase='sewing-merge';const finalMergeStarted=performance.now();
-  const solveSewnUnion=async(faces:Surface['faces'])=>{
-   const part={...mesh,faces},projection=projectedReport(part,vertexTable(part.vertices).points);
+  solvePhase='sewing-merge';
+  const solveSewnUnion=async(faces:Surface['faces'],seed?:SurfaceRun['bindings'][number]['report']['uv'],vertices=mesh.vertices)=>{
+   const part={...mesh,faces,vertices},projection=projectedReport(part,vertexTable(part.vertices).points);
    if(projection){const measured=measureBoundaryStrain(part,projection,vertexTable(part.vertices).points);if(!qualityFailure(measured))return measured;}
-   try{const reports=(await workerSolve(part,'arap-seamed',100)).patches.map(simplifyReportBoundary);return reports.length===1&&!qualityFailure(reports[0])?reports[0]:undefined;}
-   catch(e){if(!(e instanceof DomainError)||!['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(e.code))throw e;return undefined;}
+   // An admissible projected chart can preserve orientation even when its
+   // boundary still needs sewing calibration. The ordinary solver handles
+   // projections that fail strain limits; do not repeat that poor start here.
+   const intrinsic=intrinsicTreeSeed(part,vertexTable(part.vertices).points),projectionSeed=projection&&!designQualityFailure(projection)?projection.uv:undefined,seeds=[...(seed?[seed]:[]),...(intrinsic?[intrinsic]:[]),...(projectionSeed?[projectionSeed]:[]),undefined];
+   for(const initial of seeds)if(initial){const certified=await certifySeed(part,initial);if(certified)return certified;}
+   for(const initial of seeds){const key=nativeSolveIdentity(solveInput(part,'arap-seamed',100,initial));if(rejectedSewnStarts.has(key))continue;
+    try{const reports=(await workerSolve(part,'arap-seamed',100,initial)).patches.map(simplifyReportBoundary);if(reports.length===1&&!qualityFailure(reports[0]))return reports[0];}
+    catch(e){if(!(e instanceof DomainError)||!['UNWRAP_OVERLAP','UNWRAP_FLIPPED','UNWRAP_NOT_CONVERGED','PATCH_NOT_DISK','PATCH_NEEDS_CUTS','NUMERICAL_FAILURE','ARAP_NOT_CONVERGED'].includes(e.code))throw e;}
+    rejectSewnStart(key);
+   }
   };
   const sewingRejected=new Set<string>();
-  const sewn=await mergeDesignCharts(mesh,result,solveSewnUnion,sewingRejected,()=>performance.now()-finalMergeStarted<30000);
+  const repairMerge=repairMaterials.size?{materialRegion,accept:acceptManufacturingUnion}:undefined;
+  // Leave this search until the manufacturing repair loop has finished. A
+  // partial join made before a neighbouring allowance repair can be split
+  // again, wasting work and introducing a different trial decomposition.
+  finalDartJoins.set(mesh,async reports=>{
+   // A chart's calibrated UV can improve after its neighbour changes. Retry
+   // those starts; rejectedSewnStarts skips only identical full solver input.
+   const joined=await mergeDesignCharts(mesh,reports,solveSewnUnion,new Set(),()=>true,rejoinTrialSeams,canRejoinSourceFaces,512,{materialRegion,accept:acceptManufacturingUnion},{solve:(faces,vertices,seed)=>solveSewnUnion(faces,seed,vertices),accept:acceptManufacturingUnion});
+   surface.faces=mesh.faces;surface.vertices=mesh.vertices;return joined;
+  });
+  const sewn=await mergeDesignCharts(mesh,result,solveSewnUnion,sewingRejected,()=>true,rejoinTrialSeams,canRejoinSourceFaces,512,repairMerge);surface.faces=mesh.faces;
   result.splice(0,result.length,...sewn);
   // A low-distortion disk may still have an almost severed cloth connection.
   // Split that short chord and recheck every child with the sewing solver.
@@ -244,13 +332,13 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
   for(let i=0;i<result.length;i++){
    const report=result[i],parts=narrowPanelSplit(mesh,report);if(!parts)continue;
    const replacements:typeof result=[];
-   for(const faces of parts){const part={...mesh,faces},used=new Set(faces.flatMap(f=>f.vertices));const reports=(await workerSolve(part,'arap-seamed',100,report.uv.filter(p=>used.has(p.vertexId)))).patches.map(simplifyReportBoundary);if(reports.some(qualityFailure))throw new DomainError('UNWRAP_DISTORTION');replacements.push(...reports);}
+   for(const faces of parts){const used=new Set(faces.flatMap(f=>f.vertices)),child=await solveSewnUnion(faces,report.uv.filter(p=>used.has(p.vertexId)));if(!child)throw new DomainError('UNWRAP_DISTORTION');replacements.push(child);}
    rememberPartition(mesh,parts,'manufacturing');result.splice(i,1,...replacements);openedNeck=true;i--;
   }
   // A small lobe can join another neighbour across a wide seam after its
   // unsuitable hinge is opened. Reuse rejected unions and the same time
   // budget; the neck guard prevents recreating that hinge.
-  if(openedNeck){const repaired=await mergeDesignCharts(mesh,result,solveSewnUnion,sewingRejected,()=>performance.now()-finalMergeStarted<30000);result.splice(0,result.length,...repaired);}
+  if(openedNeck){const repaired=await mergeDesignCharts(mesh,result,solveSewnUnion,sewingRejected,()=>true,rejoinTrialSeams,canRejoinSourceFaces,512,repairMerge);surface.faces=mesh.faces;result.splice(0,result.length,...repaired);}
   const solvedFaces=new Map(mesh.faces.map(f=>[f.id,f]));previousCharts=result.map(report=>({key:cacheKey(report.faceIds.map(id=>solvedFaces.get(id)!)),report}));
   // Manufacturing repair changes only the failing panels. Keep the solved
   // decomposition of each untouched material component, including its darts,
@@ -273,13 +361,27 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
  }
  // A disk can still create an invalid seam allowance. Bounded repair cuts test the actual 10 mm manufacturing contour.
  const optimizedCost=cost(response);let repairPasses=0,manufacturingSeams=0;
- if(options.automaticCuts||options.partitionStrategy==='design'&&options.colorBoundaryCuts)for(let pass=0;pass<6;pass++){
- const probes:Piece[]=response.patches.map((report,i)=>{const uv=new Map(report.uv.map(v=>[v.vertexId,v])),node=(id:string)=>({id:randomUUID(),xMm:uv.get(id)!.xMm,yMm:uv.get(id)!.yMm});return {id:randomUUID(),name:'Probe '+i,nodes:report.boundary.map(node),holes:reportHoles(report).map(r=>r.map(node)),closed:true,allowanceMm:project.defaultAllowanceMm??10,allowanceSource:'project',join:'round',cutQty:1,mirror:false,material:'毛皮',furRad:0,color:'#73c9b6'};});
- if(options.partitionStrategy==='design'&&options.colorBoundaryCuts)for(const p of probes){const outline=designManufacturingOutline({outer:p.nodes.map(n=>[n.xMm,n.yMm]),holes:(p.holes??[]).map(r=>r.map(n=>[n.xMm,n.yMm]))}),node=([xMm,yMm]:[number,number])=>({id:randomUUID(),xMm,yMm});p.nodes=outline.outer.map(node);p.holes=outline.holes.map(r=>r.map(node));}
+ if(options.automaticCuts||options.partitionStrategy==='design'&&options.colorBoundaryCuts)for(let pass=0;pass<UNWRAP_REPAIR_PASSES;pass++){
+ const probes=response.patches.map(manufacturingProbe);
  const geometry=await analyze(worker,{...project,pieces:probes},signal,session),failed=new Set(geometry.filter(g=>g.issues.some(i=>i.severity==='error')).map(g=>g.id));if(!failed.size)break;
- const assigned=new Map<string,string>();for(let i=0;i<probes.length;i++){if(!failed.has(probes[i].id))continue;const report=response.patches[i];if(report.faceIds.length<2)throw new DomainError('INVALID_GEOMETRY');const selected=new Set(report.faceIds),selectedFaces=surface.faces.filter(f=>selected.has(f.id));let children:Surface['faces'][];if(options.partitionStrategy==='design')children=splitDesignDomain(surface,selectedFaces);else{const vertices=new Map(surface.vertices.map(v=>[v.id,v])),centres=selectedFaces.map(face=>({face,p:[0,1,2].map(axis=>face.vertices.reduce((sum,id)=>{const v=vertices.get(id)!;return sum+[v.xMm,v.yMm,v.zMm][axis];},0)/3)})),axis=[0,1,2].sort((a,b)=>(Math.max(...centres.map(c=>c.p[b]))-Math.min(...centres.map(c=>c.p[b])))-(Math.max(...centres.map(c=>c.p[a]))-Math.min(...centres.map(c=>c.p[a]))))[0],sorted=centres.sort((a,b)=>a.p[axis]-b.p[axis]),middle=Math.ceil(sorted.length/2);children=[sorted.slice(0,middle).map(c=>c.face),sorted.slice(middle).map(c=>c.face)];}if(children.length<2)throw new DomainError('INVALID_GEOMETRY');children.forEach((faces,j)=>faces.forEach(f=>assigned.set(f.id,'repair-'+pass+'-'+i+'-'+j)));}
+ // A failed allowance hole or closed dart needs a cut through that feature.
+ // Test its paper-space location and refine the actual source triangles;
+ // arbitrary model-space halves can miss the obstruction over and over.
+ let targeted=false;
+ if(options.partitionStrategy==='design'&&refinedSurface)for(let i=0;i<probes.length;i++){
+  if(!failed.has(probes[i].id))continue;const report=response.patches[i];let hole:number|undefined;
+  if(report.holes?.length){const isolated=report.holes.map((_,j)=>({...probes[i],holes:[probes[i].holes![j]]})),checks=await analyze(worker,{...project,pieces:isolated},signal,session);const index=checks.findIndex(g=>g.issues.some(issue=>issue.severity==='error'));if(index>=0)hole=index;}
+  const section=manufacturingSection(cut.mesh,report,hole,randomUUID);if(!section||refinedSurface(section.surface,section.children)===false)continue;
+  const assigned=new Map(section.parts.flatMap((faces,j)=>repairGroup(faces,'repair-'+pass+'-'+i+'-'+j)));
+  section.surface.faces=section.surface.faces.map(f=>({...f,region:assigned.get(f.id)??f.region}));
+  rememberPartition(section.surface,section.parts,'manufacturing');cut={mesh:section.surface,cutEdges:cut.cutEdges};surface.faces=cut.mesh.faces;surface.vertices=cut.mesh.vertices;surface.cutConstraints=cut.mesh.cutConstraints;
+  response=await solve(cut.mesh);if(response.patches.length>maxPieces)throw new DomainError('PATCH_LIMIT');repairPasses++;manufacturingSeams++;targeted=true;break;
+ }
+ if(targeted)continue;
+ const assigned=new Map<string,string>();for(let i=0;i<probes.length;i++){if(!failed.has(probes[i].id))continue;const report=response.patches[i];if(report.faceIds.length<2)throw new DomainError('INVALID_GEOMETRY');const selected=new Set(report.faceIds),selectedFaces=surface.faces.filter(f=>selected.has(f.id));let children:Surface['faces'][];if(options.partitionStrategy==='design')children=splitDesignDomain(surface,selectedFaces);else{const vertices=new Map(surface.vertices.map(v=>[v.id,v])),centres=selectedFaces.map(face=>({face,p:[0,1,2].map(axis=>face.vertices.reduce((sum,id)=>{const v=vertices.get(id)!;return sum+[v.xMm,v.yMm,v.zMm][axis];},0)/3)})),axis=[0,1,2].sort((a,b)=>(Math.max(...centres.map(c=>c.p[b]))-Math.min(...centres.map(c=>c.p[b])))-(Math.max(...centres.map(c=>c.p[a]))-Math.min(...centres.map(c=>c.p[a]))))[0],sorted=centres.sort((a,b)=>a.p[axis]-b.p[axis]),middle=Math.ceil(sorted.length/2);children=[sorted.slice(0,middle).map(c=>c.face),sorted.slice(middle).map(c=>c.face)];}if(children.length<2)throw new DomainError('INVALID_GEOMETRY');children.forEach((faces,j)=>repairGroup(faces,'repair-'+pass+'-'+i+'-'+j).forEach(([id,region])=>assigned.set(id,region)));}
  rememberPartition(surface,designComponents(surface.faces.map(f=>({...f,region:assigned.get(f.id)??f.region}))), 'manufacturing');manufacturingSeams+=failed.size;cut=automaticCutMesh({...cut.mesh,faces:cut.mesh.faces.map(f=>({...f,region:assigned.get(f.id)??f.region}))},options);response=await solve(cut.mesh);if(response.patches.length>maxPieces)throw new DomainError('PATCH_LIMIT');repairPasses++;
  }
+ const joinFinalDarts=finalDartJoins.get(cut.mesh);if(rejoinTrialSeams&&joinFinalDarts)response={...response,patches:await joinFinalDarts(response.patches)};
  const owners=new Map(response.patches.flatMap((p,i)=>p.faceIds.map(id=>[id,i] as const))),edges=new Map<string,{ids:[string,string];owners:number[]}>();for(const f of surface.faces)f.vertices.forEach((a,i)=>{const b=f.vertices[(i+1)%3],ids=[a,b].sort() as [string,string],key=ids.join(':');const edge=edges.get(key)??{ids,owners:[]};edge.owners.push(owners.get(f.id)!);edges.set(key,edge);});cut.cutEdges=[...edges.values()].filter(e=>e.owners.length===2&&e.owners[0]!==e.owners[1]).map(e=>e.ids);
  const optimization={passes,trials,repairPasses,optimizedCost,initialCost,finalCost:cost(response),improved:passes>0};
 
@@ -299,7 +401,7 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
   }
   const piece:Piece={id:randomUUID(),name:surface.template?`${surface.faces.find(f=>f.id===report.faceIds[0])?.region??'Surface'} / ${i+1}`:`Surface ${i+1}`,nodes:report.boundary.map(id=>{const v=uv.get(id);if(!v)throw new DomainError('WORKER_PROTOCOL');return {id:randomUUID(),xMm:v.xMm,yMm:v.yMm};}),closed:true,allowanceMm:project.defaultAllowanceMm??10,allowanceSource:'project',join:'round',cutQty:1,mirror:false,material:'毛皮',furRad:Math.hypot(furX,furY)>1e-8?Math.atan2(furY,furX):Math.PI/2,color:['#73c9b6','#a9b7da','#d5b483','#ca9cbb'][i%4]};
   if(reportHoles(report).length)piece.holes=reportHoles(report).map(r=>r.map(id=>({id:randomUUID(),xMm:uv.get(id)!.xMm,yMm:uv.get(id)!.yMm})));
-  if(options.partitionStrategy==='design'&&options.colorBoundaryCuts){const outline=designManufacturingOutline({outer:piece.nodes.map(n=>[n.xMm,n.yMm]),holes:(piece.holes??[]).map(r=>r.map(n=>[n.xMm,n.yMm]))}),node=([xMm,yMm]:[number,number])=>({id:randomUUID(),xMm,yMm});piece.nodes=outline.outer.map(node);piece.holes=outline.holes.map(r=>r.map(node));report.boundaryToleranceMm=Math.max(report.boundaryToleranceMm??0,1e-6);}
+  if(options.partitionStrategy==='design'&&options.colorBoundaryCuts){const outline=designManufacturingOutline({outer:piece.nodes.map(n=>[n.xMm,n.yMm]),holes:(piece.holes??[]).map(r=>r.map(n=>[n.xMm,n.yMm]))},1e-6),node=([xMm,yMm]:[number,number])=>({id:randomUUID(),xMm,yMm});piece.nodes=outline.outer.map(node);piece.holes=outline.holes.map(r=>r.map(node));report.boundaryToleranceMm=Math.min(1e-4,(report.boundaryToleranceMm??0)+1e-6);}
   cursorX+=box.w+50;rowHeight=Math.max(rowHeight,box.h);
   pieces.push(piece);bindings.push({pieceId:piece.id,surfaceId:surface.id,topologyVersion:surface.topologyVersion,geometryHash:pieceGeometryHash(piece),surfaceHash,report});
  }

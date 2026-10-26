@@ -49,12 +49,12 @@ export function armPigmentStations(project,view,side){
 }
 // Identify the same physical pigments by original-image landmarks. Region
 // indices and representative palette values can change after classification.
-export async function jpegCuffFeatures(project,illustrationRegions){
+export async function jpegCuffFeatures(project,illustrationRegions,{illustrationSheet,pairedColors}={}){
  const landmarks={front:[[390,384],[390,435],[410,451],[378,455]],back:[[551,307],[560,265],[586,244],[600,269]]},result={};
  for(const [view,points]of Object.entries(landmarks)){
-  const ref=project.references.find(r=>r.view===view),rgba=new Uint8Array(await sharp(Buffer.from(ref.png.split(',')[1],'base64')).ensureAlpha().raw().toBuffer()),detected=illustrationRegions(ref.width,ref.height,rgba),sources=project.patternLibrary.filter(s=>s.referenceId===ref.id);
+  const ref=project.references.find(r=>r.view===view)??project.references.find(r=>r.view==='sheet'),sheet=ref.view==='sheet',rgba=new Uint8Array(await sharp(Buffer.from(ref.png.split(',')[1],'base64')).ensureAlpha().raw().toBuffer()),detected=sheet?illustrationSheet(ref.width,ref.height,rgba,true,'character'):illustrationRegions(ref.width,ref.height,rgba),sources=project.patternLibrary.filter(s=>s.referenceId===ref.id),group=sheet?ref.illustration.figures.find(f=>f.normalZ===(view==='front'?1:-1))?.sourceGroup:undefined;
   assert.equal(sources.length,detected.regions.length,'Every original component must have a saved source');
-  const features=points.map(([x,y],i)=>{const index=detected.regions.findIndex(r=>r.indices.includes(y*ref.width+x));assert(index>=0,'Original cuff/hand/claw landmark must have a material owner');const raw=detected.regions[index],source=sources[index],rgb=[1,3,5].map(k=>parseInt(raw.color.slice(k,k+2),16));assert.equal(source.piece.color,raw.color);assert(i===0?rgb[0]>150&&rgb[1]>150&&rgb[2]<100:i===1?Math.min(...rgb)>150&&Math.max(...rgb)-Math.min(...rgb)<40:Math.max(...rgb)<80,'Original landmark must retain its yellow, neutral or black pigment');return {sourcePieceId:source.piece.id,color:raw.color,pixels:raw.indices.length};});
+  const features=points.map(([localX,y],i)=>{const x=localX+(sheet&&view==='front'?609:0),index=detected.regions.findIndex(r=>r.indices.includes(y*ref.width+x));assert(index>=0,'Original cuff/hand/claw landmark must have a material owner');const raw=detected.regions[index],source=sources[index],color=sheet?pairedColors[raw.color]??raw.color:raw.color,rgb=[1,3,5].map(k=>parseInt(color.slice(k,k+2),16));assert.equal(source.piece.color,color);if(sheet){assert.notEqual(group,undefined);assert.equal(raw.sourceGroup,group);assert.equal(source.sourceGroup,group);}assert(i===0?rgb[0]>150&&rgb[1]>150&&rgb[2]<100:i===1?Math.min(...rgb)>150&&Math.max(...rgb)-Math.min(...rgb)<40:Math.max(...rgb)<80,'Original landmark must retain its yellow, neutral or black pigment');return {sourcePieceId:source.piece.id,color,pixels:raw.indices.length};});
   assert.equal(new Set(features.map(f=>f.sourcePieceId)).size,4,'Cuff, hand and both claws must be distinct original components');result[view]={yellow:features[0],paws:features.slice(1)};
  }
  return result;
@@ -62,7 +62,9 @@ export async function jpegCuffFeatures(project,illustrationRegions){
 export function assertJpegCuffOrder(project,sourceFeatures){
  const checks=[armPigmentStations(project,'front','left'),armPigmentStations(project,'back','right')];
  for(const check of checks){
-  const row=color=>check.rows.find(r=>r.part==='arm'&&r.color===color),back=check.view==='back',blue=row(back?'#02a6f4':'#04a3f0'),yellow=row(back?'#f7e13c':'#f9e33c'),sources=project.patternLibrary.filter(s=>s.view===check.view),reference=project.references.find(r=>r.view===check.view),modelSide=back?'left':'right';
+  const sheet=project.references.length===1&&project.references[0].view==='sheet',reference=project.references.find(r=>r.view===check.view)??project.references.find(r=>r.view==='sheet'),group=sheet?reference.illustration.figures.find(f=>f.normalZ===(check.view==='front'?1:-1))?.sourceGroup:undefined;
+  if(sheet)assert.notEqual(group,undefined);
+  const row=color=>check.rows.find(r=>r.part==='arm'&&r.color===color),back=check.view==='back',blue=row(sheet||back?'#02a6f4':'#04a3f0'),yellow=row(sheet||!back?'#f9e33c':'#f7e13c'),sources=project.patternLibrary.filter(s=>sheet?s.view==='sheet'&&s.sourceGroup===group:s.view===check.view),modelSide=back?'left':'right';
   assert(blue&&yellow,'Keep the original raised-arm blue and yellow cuff attachments');assert.equal(check.modelSide,modelSide,'Keep the front/back species side transform');assert.equal(yellow.sourcePieceId,sourceFeatures[check.view].yellow.sourcePieceId,'Keep the actual yellow cuff source');
   assert(reference?.calibration,'The actual source calibration supplies the pigment area');const c=reference.calibration,pixelMm=c.distanceMm/Math.hypot(c.b.x-c.a.x,c.b.y-c.a.y),pawRegion=new RegExp(`^(?:palm(?:-pad)?|finger|hand-claw)-${modelSide}(?:-|$)`),palmRegion=new RegExp(`^palm-${modelSide}(?:-|$)`);
   const features=sourceFeatures[check.view].paws.map(({sourcePieceId,color,pixels},i)=>{

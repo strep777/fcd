@@ -3,22 +3,17 @@ import {encodeResponse} from '../../../packages/api/response-wire';
 import {withPatternSpacing} from '../../../packages/manufacturing/pattern-spacing';
 import {SurfaceTaskQueue} from './surface-task-queue';
 import {patternOverview} from './print-preview-batch';
-import {placementAnatomies} from '../../../packages/reference/placement-registration';
-import {partName,sideName} from '../../../packages/reference/body-parts';
 import {AssistantSettings} from './assistant-settings';
 import {editableLibraryRegion,refreshLibraryRegionMetadata} from './library-region-edit';
 import {moveNode} from '../../../packages/pattern/edit';
 import {editableMarking} from './surface-marking-edit';
-import {runReferences,runManualMask,runReferenceSegment} from './surface-runtime';
-import {dualViewSplit} from '../../../packages/reference/dual-view-split';
-import upng from '@pdf-lib/upng';
+import {runAutomaticPlacement,runReferences,runManualMask,runReferenceSegment} from './surface-runtime';
 import {classifyModel} from './model-anatomy';
 import {AssistantBridge} from './assistant-bridge';
 import {editSurfaceCuts,normalizeCutSurface} from './cut-tools';
 import {svgPrintPlan} from '../../../packages/manufacturing/print-pages';
 import {mappedMarking} from './fragment-mapping';
 import {adjustPattern} from './pattern-adjustment';
-import {splitReferences} from './automatic-reference';
 import {workflowBytes,readWorkflow,cutBundle,readCutBundle,selectedProject,printHtml} from './workflow-exchange';
 import {unlink} from 'node:fs/promises';
 import {cornerPiece} from '../../../packages/pattern/corners';
@@ -39,7 +34,6 @@ import {runNesting} from './nesting-runtime';
 import {generateSpecies} from './species';
 import {editMarking,editMarkingSource,markingIssues} from './markings';
 import {dialogs as dialog,publish,serve} from './host-channel';
-import {rasterImage} from './raster-image';
 import {windowsVault} from './windows-vault';
 import { join,resolve } from 'node:path';
 import { mkdir } from 'node:fs/promises';
@@ -55,7 +49,7 @@ import { JobManager } from './jobs';
 import {normalizeManualNesting} from './nesting';
 import {seamIssues,seamReports,outputSeamIssues} from './seams';
 import {readObj,generateTorso,validateSurface,bindingIssues} from './surface';
-import {readReference,segmentationProxy,manualReference,validateReference,referenceFromPng} from './references';
+import {wholeReferenceSheet,readReference,segmentationProxy,manualReference,validateReference,referenceFromPng} from './references';
 const dataDirectory=resolve(process.env.FPCAD_DATA_DIR??'.local/workspace');let repository:Repository;let jobs:JobManager;let queue:Promise<unknown>=Promise.resolve();let debounce:NodeJS.Timeout|undefined,maxWait:NodeJS.Timeout|undefined;
 let surfaceController:AbortController|undefined;
 const surfaceTasks=new SurfaceTaskQueue();let publishedState:Session|undefined,activeSurfaceTask:ReturnType<SurfaceTaskQueue['track']>;
@@ -84,14 +78,14 @@ async function handle(raw:unknown):Promise<Response>{try{
  const fingerprint=hash(JSON.stringify(req));
  if(['command.apply','command.undo','command.redo','result.accept','pattern.boolean','nesting.run','surface.unwrap','surface.accept','body.generate','species.generate','species.assemble','reference.segment','reference.mask','seam.notches','species.fit','template.morph','surface.sculpt','pattern.corner','pattern.import','surface.import','template.import','template.fit','reference.accept','reference.auto','reference.splitAll','marking.auto','marking.infer','marking.surface','marking.surface.edit','marking.surface.brush','marking.texture','marking.project','marking.source.edit','library.region.edit','marking.edit'].includes(req.method)&&repository.replay(req.requestId,fingerprint))return {ok:true,data:await state()};
  if('projectId' in req)repository.assertRevision(req.projectId,req.expectedRevision);
- // Reuse the validated value just committed by open; do not reload its large assets.
- let openedProject:Project|undefined;
+ // Reuse validated command results; do not reload and parse their large assets again.
+ let committedProject:Project|undefined;
  switch(req.method){
  case 'session.read':break;
  case 'session.delete':{const active=repository.sessionId===req.payload.sessionId;repository.deleteSession(req.payload.sessionId);jobs.releaseDeleted();geometryCache.clear();if(active){clearTimeout(debounce);clearTimeout(maxWait);debounce=undefined;maxWait=undefined;}break;}
  case 'session.activate':checkpoint();repository.activate(req.payload.sessionId);break;
  case 'project.create':checkpoint();repository.create(req.payload.name);break;
- case 'project.open':{const selection=await dialog.open({properties:['openFile'],filters:[{name:'FurryPattern CAD',extensions:['fpcad']}]});if(selection.canceled)return {ok:true,data:publishedState??await state(),cancelled:true};let started=performance.now();const p=await readProject(selection.filePaths[0]);started=profile('open:archive',started);if(p.surface)validateSurface(p.surface);for(const model of p.modelLibrary??[])validateSurface(model.surface);for(const ref of p.references??[])validateReference(ref);started=profile('open:assets',started);cache(p,await analyze(workerPath,p));started=profile('open:geometry',started);checkpoint();openedProject=repository.open(p,selection.filePaths[0]);profile('open:database',started);break;}
+ case 'project.open':{const selection=await dialog.open({properties:['openFile'],filters:[{name:'FurryPattern CAD',extensions:['fpcad']}]});if(selection.canceled)return {ok:true,data:publishedState??await state(),cancelled:true};let started=performance.now();const p=await readProject(selection.filePaths[0]);started=profile('open:archive',started);if(p.surface)validateSurface(p.surface);for(const model of p.modelLibrary??[])validateSurface(model.surface);for(const ref of p.references??[])validateReference(ref);started=profile('open:assets',started);cache(p,await analyze(workerPath,p));started=profile('open:geometry',started);checkpoint();committedProject=repository.open(p,selection.filePaths[0]);profile('open:database',started);break;}
  case 'project.save':if(!await save(req.payload.saveAs))return {ok:true,data:publishedState??await state(),cancelled:true};break;
  case 'command.apply':{const current=repository.snapshot()!;if(['markings.batch','marking.source.update','marking.put','reference.put','reference.candidate','reference.accept','unwrap.candidate','unwrap.accept','piece.adjusted','surface.refined'].includes(req.payload.type))throw new DomainError('FORBIDDEN');else if(req.payload.type==='patterns.allowance'){
  const controller=createSurfaceController();surfaceController=controller;
@@ -111,9 +105,9 @@ async function handle(raw:unknown):Promise<Response>{try{
  }
  const p={...current,pieces:[req.payload.piece]};cache(p,await analyze(workerPath,p));}else if(req.payload.type==='pieces.replace'){await analyze(workerPath,{...current,pieces:req.payload.pieces});}if(req.payload.type==='library.region.put'){
  const result=await refreshLibraryRegionMetadata(workerPath,current,req.payload.region);repository.commit({type:'library.region.update',...result},req.requestId,fingerprint);
- }else repository.commit(req.payload,req.requestId,fingerprint);autosave();break;}
- case 'command.undo':repository.historyMove(false,req.requestId,fingerprint);autosave();break;
- case 'command.redo':repository.historyMove(true,req.requestId,fingerprint);autosave();break;
+ }else committedProject=repository.commit(req.payload,req.requestId,fingerprint);autosave();break;}
+ case 'command.undo':committedProject=repository.historyMove(false,req.requestId,fingerprint);autosave();break;
+ case 'command.redo':committedProject=repository.historyMove(true,req.requestId,fingerprint);autosave();break;
  case 'recovery.restore':repository.restore(req.payload.revision);break;
  case 'validation.run':geometryCache.clear();break;
  case 'library.region.edit':{const p=repository.snapshot()!,controller=createSurfaceController();editableLibraryRegion(p,req.payload.pieceId);surfaceController=controller;try{const result=await runEditLibraryRegion(workerPath,p,req.payload.pieceId,req.payload.edit,controller.signal);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'library.region.update',...result},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
@@ -126,43 +120,31 @@ async function handle(raw:unknown):Promise<Response>{try{
  case 'marking.edit':{const p=repository.snapshot()!,marking=await editMarking(workerPath,p,req.payload.markingId,req.payload.pieceId,req.payload.rings);repository.commit({type:'marking.put',marking},req.requestId,fingerprint);autosave();break;}
  case 'marking.infer':{const p=repository.snapshot()!,r=req.payload,controller=createSurfaceController();surfaceController=controller;try{let m=await runInference(workerPath,p,r.markingId,r.mode,r.distanceMm,r.planeXmm,controller.signal);if(p.bindings?.some(b=>b.trim))m=await mappedMarking(workerPath,p,m,controller.signal);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
  case 'marking.surface.edit':case 'marking.surface.brush':{const p=repository.snapshot()!,controller=createSurfaceController();if(req.payload.markingId)editableMarking(p,req.payload.markingId);surfaceController=controller;try{const m=await runEditSurfaceMarking(workerPath,p,req.payload.markingId,req.method==='marking.surface.edit'?req.payload.shape:undefined,req.method==='marking.surface.brush'?req.payload.stroke:undefined,controller.signal);const markings=[m];if(req.method==='marking.surface.brush'&&req.payload.stroke.symmetric){if(req.payload.markingId||!m.surfaceShape||!p.surface)throw new DomainError('MARKING_EDIT_FRAME');let mirrored=await runSurfaceMarking(workerPath,p,mirrorPaintShape(p.surface,m.surfaceShape),m.color,(m.name+' · 对称').slice(0,120),controller.signal);if(p.bindings?.some(b=>b.trim))mirrored=await mappedMarking(workerPath,p,mirrored,controller.signal);markings.push(mirrored);}if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit(markings.length>1?{type:'markings.batch',markings}:{type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
- case 'marking.surface':{const p=repository.snapshot()!,r=req.payload,controller=createSurfaceController();surfaceController=controller;try{let m=await runSurfaceMarking(workerPath,p,r.shape,r.color,r.name,controller.signal);if(p.bindings?.some(b=>b.trim))m=await mappedMarking(workerPath,p,m,controller.signal);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
+ case 'marking.surface':{const p=repository.snapshot()!,r=req.payload,controller=createSurfaceController();surfaceController=controller;try{let m=await runSurfaceMarking(workerPath,p,r.shape,r.color,r.name,controller.signal,r.fabrication);if(p.bindings?.some(b=>b.trim))m=await mappedMarking(workerPath,p,m,controller.signal);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
  case 'marking.texture':{const p=repository.snapshot()!,r=req.payload,controller=createSurfaceController();surfaceController=controller;try{let m=await runTexture(workerPath,p,r.textureId,r.seed,r.tolerance,controller.signal);if(p.bindings?.some(b=>b.trim))m=await mappedMarking(workerPath,p,m,controller.signal);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
  case 'marking.project':{const p=repository.snapshot()!,controller=createSurfaceController();surfaceController=controller;try{const m=await runProjection(workerPath,p,req.payload.pieceId,req.payload.view,req.payload.offsetXmm,req.payload.offsetYmm,controller.signal,req.payload.replaceManual);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
  case 'marking.auto':{
   const p=repository.snapshot()!,ids=req.payload.pieceIds;if(new Set(ids).size!==ids.length||ids.some(id=>!p.patternLibrary?.some(r=>r.piece.id===id)))throw new DomainError('INVALID_SELECTION');if(!p.surface)throw new DomainError('SURFACE_MISSING');
-  const controller=createSurfaceController();surfaceController=controller;const timeout=setTimeout(()=>controller.abort(),120000);const markings:NonNullable<Project['markings']>=[],skipped:{pieceId:string;name:string;reason:string}[]=[];
-  try{for(const id of ids){if(controller.signal.aborted)throw new DomainError('CANCELLED');const region=p.patternLibrary!.find(r=>r.piece.id===id)!,contexts=placementAnatomies(region).filter(a=>!req.payload.parts||req.payload.parts.includes(a.part));for(const context of contexts){if(controller.signal.aborted)throw new DomainError('CANCELLED');try{const m=await runProjection(workerPath,p,id,region.view,0,0,controller.signal,false,true,context);markings.push(m);if(new Set([...(p.markings??[]).map(m=>m.id),...markings.map(m=>m.id)]).size>500)throw new DomainError('PROJECTION_LIMIT');if(markings.reduce((sum,item)=>sum+item.fragments.reduce((count,f)=>count+f.rings.reduce((n,ring)=>n+ring.length,0),0),0)>1000000)throw new DomainError('PROJECTION_LIMIT');}catch(error){const code=error instanceof DomainError?error.code:'UNWRAP_FAILED';if(!['ANATOMY_REQUIRED','ANATOMY_SIDE_REQUIRED','MODEL_PART_MISSING','NO_VISIBLE_PROJECTION','INVALID_PLACEMENT','MARKING_LOCKED','MANUAL_MARKING_REVIEW','INVALID_GEOMETRY','AMBIGUOUS_PROJECTION'].includes(code))throw error;skipped.push({pieceId:id,name:region.anatomy?.contexts?region.piece.name+' / '+partName(context.part)+' '+sideName(context.side):region.piece.name,reason:code});}}}
+  const controller=createSurfaceController();surfaceController=controller;
+  try{const {markings,skipped}=await runAutomaticPlacement(workerPath,p,ids,req.payload.parts,controller.signal);
    if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);if(markings.length){repository.commit({type:'markings.batch',markings},req.requestId,fingerprint);autosave();}return {ok:true,data:await state(),autoPlacementReport:{placed:markings.length,skipped}};
-  }finally{clearTimeout(timeout);if(surfaceController===controller)surfaceController=undefined;}break;
+  }finally{if(surfaceController===controller)surfaceController=undefined;}break;
  }
  case 'reference.auto':case 'reference.splitAll':{
  const options=req.payload;let references:NonNullable<Project['references']>=[];
  if(req.method==='reference.auto'){
   const filters=[{name:'Reference image',extensions:['png','jpg','jpeg','webp']}];
-  if(req.payload.layout==='separate'){
-   const front=await dialog.open({title:'选择正面图片',properties:['openFile'],filters});if(front.canceled)return {ok:true,data:publishedState??await state(),cancelled:true};
-   const back=await dialog.open({title:'选择背面图片',properties:['openFile'],filters});if(back.canceled)return {ok:true,data:publishedState??await state(),cancelled:true};
-   references=[await readReference(front.filePaths[0],'front'),await readReference(back.filePaths[0],'back')];
-  }else{
-   const choice=await dialog.open({title:'选择正背双视图合图',properties:['openFile'],filters});if(choice.canceled)return {ok:true,data:publishedState??await state(),cancelled:true};
-   const combined=await readReference(choice.filePaths[0],'front'),image=rasterImage.createFromDataURL(combined.png);let mid=Math.floor(combined.width/2);
-   if(combined.resources){const codec=(upng as unknown as {default?:typeof upng}).default??upng,proxy=codec.decode(Uint8Array.from(Buffer.from(combined.resources.proxy.png.split(',')[1],'base64')).buffer),split=dualViewSplit(proxy.width,proxy.height,new Uint8Array(codec.toRGBA8(proxy)[0]),combined.width);mid=split.x;}
-   if(mid<2)throw new DomainError('IMAGE_LIMIT');
-   const left=image.crop({x:0,y:0,width:mid,height:combined.height}).toPNG(),right=image.crop({x:mid,y:0,width:combined.width-mid,height:combined.height}).toPNG(),frontLeft=req.payload.layout==='front-left';
-   references=[referenceFromPng(frontLeft?left:right,combined.name+' / 正面','front'),referenceFromPng(frontLeft?right:left,combined.name+' / 背面','back')];
-   references=references.map((r,i)=>({...r,sheet:{id:combined.id,width:combined.width,height:combined.height,x:(i===0?frontLeft:!frontLeft)?0:mid,y:0,...(i===0?{png:combined.png}:{})}}));
-  }
+  const choice=await dialog.open({title:'选择整张设定图',properties:['openFile'],filters});if(choice.canceled)return {ok:true,data:publishedState??await state(),cancelled:true};
+  references=[await readReference(choice.filePaths[0],'sheet')];
  }
- const p=repository.snapshot()!;if(req.method==='reference.splitAll')references=p.references??[];
- if(req.method==='reference.splitAll'&&req.payload.swapViews)references=references.map(r=>({...r,view:r.view==='front'?'back' as const:'front' as const,name:r.name.replace(/\s*\/\s*(正面|背面)$/,r.view==='front'?' / 背面':' / 正面')}));
+ const p=repository.snapshot()!;if(req.method==='reference.splitAll')references=[wholeReferenceSheet(p.references??[])];
  references=references.map(r=>r.resources?r:{...referenceFromPng(Buffer.from(r.png.split(',')[1],'base64'),r.name,r.view),id:r.id,calibration:r.calibration});
  const extractionController=createSurfaceController();surfaceController=extractionController;try{
  const result=await runReferences(references,options.heightMm,options.clusters,options.excludeBackground,options.mode??'simple',options.subject??'character',extractionController.signal);
  const geometry=await analyze(workerPath,{...p,pieces:result.regions.map(r=>r.piece)},extractionController.signal);if(geometry.some(g=>g.issues.some(i=>i.severity==='error')))throw new DomainError('INVALID_GEOMETRY');
  pack({...p,references:result.references,patternLibrary:result.regions});
  if(extractionController.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);
- repository.commit({type:'library.regions',...result,replaceViews:['front','back']},req.requestId,fingerprint);checkpoint();
+ repository.commit({type:'library.regions',...result,replaceViews:['sheet','front','back']},req.requestId,fingerprint);checkpoint();
  }finally{if(surfaceController===extractionController)surfaceController=undefined;}break;
  }
  case 'workflow.file':case 'patterns.bundle':{
@@ -194,7 +176,7 @@ async function handle(raw:unknown):Promise<Response>{try{
    const bytes=options.format==='pdf'?await pdfExport(subset,selectedGeometry,options.warningAckIds,options.paper,false,options.pageNumbers):Buffer.from(svgExport(subset,selectedGeometry,options.warningAckIds));await atomicWrite(path!,bytes);
   }break;
  }
- case 'reference.import':{const selection=await dialog.open({properties:['openFile'],filters:[{name:'Reference image',extensions:['png','jpg','jpeg','webp']}]});if(selection.canceled)return {ok:true,data:publishedState??await state(),cancelled:true};const reference=await readReference(selection.filePaths[0],req.payload.view);pack({...repository.snapshot()!,references:[...(repository.snapshot()!.references??[]).filter(r=>r.view!==reference.view),reference]});repository.commit({type:'reference.put',reference},req.requestId,fingerprint);autosave();break;}
+ case 'reference.import':{const selection=await dialog.open({properties:['openFile'],filters:[{name:'Reference image',extensions:['png','jpg','jpeg','webp']}]});if(selection.canceled)return {ok:true,data:publishedState??await state(),cancelled:true};const reference=await readReference(selection.filePaths[0],'sheet');pack({...repository.snapshot()!,references:[reference]});repository.commit({type:'reference.put',reference},req.requestId,fingerprint);autosave();break;}
  case 'reference.segment':{const p=repository.snapshot()!,reference=p.references?.find(r=>r.id===req.payload.referenceId);if(!reference)throw new DomainError('ENTITY_MISSING');const controller=createSurfaceController();surfaceController=controller;try{if(req.payload.options&&!reference.resources)validateReference(reference);const run=await runReferenceSegment(reference,req.payload.seed,req.payload.tolerance,req.payload.options,req.payload.fitToleranceMm,segmentationProxy(reference,req.payload.options),controller.signal);const geometry=await analyze(workerPath,{...p,pieces:run.pieces??[run.piece]},controller.signal);if(geometry.some(g=>g.issues.some(i=>i.severity==='error')))throw new DomainError('INVALID_GEOMETRY');if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'reference.candidate',run,...(req.payload.library===undefined?{}:{library:req.payload.library})},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
  case 'reference.mask':{const p=repository.snapshot()!,reference=p.references?.find(r=>r.id===req.payload.referenceId);if(!reference)throw new DomainError('ENTITY_MISSING');validateReference(reference);const controller=createSurfaceController();surfaceController=controller;try{const run=await runManualMask(reference,req.payload.sourceHash,req.payload.mask,req.payload.color,controller.signal);const geometry=await analyze(workerPath,{...p,pieces:run.pieces??[run.piece]},controller.signal);if(geometry.some(g=>g.issues.some(i=>i.severity==='error')))throw new DomainError('INVALID_GEOMETRY');if(controller.signal.aborted)throw new DomainError('CANCELLED');if(repository.snapshot()?.revision!==p.revision)throw new DomainError('STALE_RESULT');repository.commit({type:'reference.candidate',run,...(req.payload.library===undefined?{}:{library:req.payload.library})},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
  case 'reference.accept':repository.commit({type:'reference.accept',library:req.payload.library},req.requestId,fingerprint);checkpoint();break;
@@ -226,7 +208,7 @@ async function handle(raw:unknown):Promise<Response>{try{
  case 'result.accept':jobs.accept(req.payload.jobId,req.payload.resultHash,req.requestId,fingerprint);break;
  case 'export.create':{const projectPath=await projectDestination(false);if(!projectPath)return {ok:true,data:publishedState??await state(),cancelled:true};const choice=await dialog.save({defaultPath:`pattern.${req.payload.format}`,filters:[{name:req.payload.format.toUpperCase(),extensions:[req.payload.format]}]});if(choice.canceled||!choice.filePath)return {ok:true,data:publishedState??await state(),cancelled:true};const p=repository.snapshot()!,geometry=await analyze(workerPath,p);gate(p,geometry,req.payload.warningAckIds);await writeSavedProject(p,projectPath);const bytes=req.payload.format==='dxf'?Buffer.from(dxfExport(p,geometry,req.payload.warningAckIds,req.payload.nested)):req.payload.format==='svg'?Buffer.from(svgExport(p,geometry,req.payload.warningAckIds,req.payload.nested)):req.payload.format==='pdf'?await pdfExport(p,geometry,req.payload.warningAckIds,req.payload.paper,req.payload.nested):await pngExport(p,geometry,req.payload.warningAckIds,req.payload.nested);await atomicWrite(choice.filePath,bytes);break;}
  }
- const started=performance.now(),data=await state(openedProject);profile(req.method+':state',started);return {ok:true,data};
+ const started=performance.now(),data=await state(committedProject);profile(req.method+':state',started);return {ok:true,data};
  }catch(e){const code=e instanceof DomainError?e.code:e instanceof Error&&e.name==='ZodError'?'VALIDATION_ERROR':'IO_ERROR';return {ok:false,error:{code,messageKey:code}};}}
 function dispatch(raw:unknown,active=()=>true,request?:Request){const task=request?surfaceTasks.track(request):undefined;const next=queue.then(async()=>{try{if(!active())return {ok:false as const,error:{code:'ASSISTANT_DISABLED',messageKey:'ASSISTANT_DISABLED'}};if(task?.cancelled)return {ok:false as const,error:{code:'CANCELLED',messageKey:'CANCELLED'}};activeSurfaceTask=task;return await handle(raw);}finally{if(activeSurfaceTask===task)activeSurfaceTask=undefined;surfaceTasks.release(task);}});queue=next.catch(()=>{});return next;}
 const assistant=new AssistantBridge(async(request,active)=>{const response=await dispatch(request,active,request);if(response.ok&&request.method!=='session.read'&&request.method!=='validation.run'&&request.method!=='patterns.preview')changed();return response;});

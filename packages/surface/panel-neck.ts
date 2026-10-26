@@ -34,7 +34,10 @@ export function narrowPanelSplit(mesh:Surface,report:SurfaceReport):Surface['fac
   while(queue.length)for(const link of adj[queue.pop()!])if(!blocked.has(link.key)&&!seen.has(link.other)){seen.add(link.other);queue.push(link.other);}
   if(seen.has(e.owners[1]))continue;
   const area=[...seen].reduce((sum,i)=>sum+areas[i],0);
-  if(Math.min(area,total-area)<total*.1)continue;
+  // Preserve small material motifs as one piece. Adding a sewing edge to a
+  // lobe smaller than a 10 x 10 mm fabric patch creates an even smaller scrap
+  // without helping flattening. The native strain/overlap checks still apply.
+  if(Math.min(area,total-area)<Math.max(total*.1,100))continue;
   return [faces.filter((_,i)=>seen.has(i)),faces.filter((_,i)=>!seen.has(i))];
  }
 }

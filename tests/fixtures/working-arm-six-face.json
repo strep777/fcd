@@ -1,0 +1,362 @@
+{
+  "provenance": {
+    "snapshot": "final-chart123-audit-input.json",
+    "indices": [
+      99,
+      98
+    ]
+  },
+  "mesh": {
+    "id": "ba9dffd2-accf-4f32-a814-3038d4f9c3c0",
+    "topologyVersion": 2,
+    "source": "species-template-1",
+    "vertices": [
+      {
+        "id": "bf639c43-5863-4e58-8769-07cd311cec34",
+        "xMm": 206.66390991210938,
+        "yMm": 1423.5753173828125,
+        "zMm": -12.901188850402832
+      },
+      {
+        "id": "85c70545-74ca-4587-bcdd-f40fa2120353",
+        "xMm": 208.5730438232422,
+        "yMm": 1421.9627685546875,
+        "zMm": -1.053059458732605
+      },
+      {
+        "id": "12aedb51-38e8-493f-8caf-05e95a64b421",
+        "xMm": 199.8643594353258,
+        "yMm": 1423.6525799979518,
+        "zMm": -2.9602220063853584
+      },
+      {
+        "id": "ccbeb78e-45b0-4b95-a1f6-1a606b0c7f45",
+        "xMm": 195.84550670711195,
+        "yMm": 1423.6982458214052,
+        "zMm": 0.2444226332434895
+      },
+      {
+        "id": "5d051567-45cc-40db-97ac-501cbc46f12b",
+        "xMm": 200.49922991362337,
+        "yMm": 1422.8434913264668,
+        "zMm": 3.376570943537554
+      },
+      {
+        "id": "b07e0f88-5d18-40df-86cd-6224766e4d94",
+        "xMm": 192.4916926672388,
+        "yMm": 1423.716984384111,
+        "zMm": 7.769839209435733
+      },
+      {
+        "id": "23f2a8c6-3f9a-4136-b752-7c3e42e7cc00",
+        "xMm": 192.5076528345647,
+        "yMm": 1423.7361735226582,
+        "zMm": 7.418262933840739
+      },
+      {
+        "id": "b997c959-3915-475f-b1e9-5521ce22f805",
+        "xMm": 206.6639089805642,
+        "yMm": 1423.5753174758688,
+        "zMm": -12.90118824739385
+      }
+    ],
+    "faces": [
+      {
+        "id": "1a064af7-cbda-4307-b56b-e0875b2cea30",
+        "vertices": [
+          "85c70545-74ca-4587-bcdd-f40fa2120353",
+          "12aedb51-38e8-493f-8caf-05e95a64b421",
+          "b997c959-3915-475f-b1e9-5521ce22f805"
+        ],
+        "region": "design:#02a6f4"
+      },
+      {
+        "id": "bad759a7-fe28-4936-86eb-dcc4ee620ab3",
+        "vertices": [
+          "bf639c43-5863-4e58-8769-07cd311cec34",
+          "85c70545-74ca-4587-bcdd-f40fa2120353",
+          "b997c959-3915-475f-b1e9-5521ce22f805"
+        ],
+        "region": "design:#02a6f4"
+      },
+      {
+        "id": "50343335-bf2a-4e2b-a552-b31a8c080c6d",
+        "vertices": [
+          "85c70545-74ca-4587-bcdd-f40fa2120353",
+          "ccbeb78e-45b0-4b95-a1f6-1a606b0c7f45",
+          "12aedb51-38e8-493f-8caf-05e95a64b421"
+        ],
+        "region": "design:#02a6f4"
+      },
+      {
+        "id": "860607fd-3f52-4c6e-b6ef-206ff5785da0",
+        "vertices": [
+          "5d051567-45cc-40db-97ac-501cbc46f12b",
+          "b07e0f88-5d18-40df-86cd-6224766e4d94",
+          "23f2a8c6-3f9a-4136-b752-7c3e42e7cc00"
+        ],
+        "region": "design:#02a6f4"
+      },
+      {
+        "id": "3b1ee952-e786-4a13-8e74-7979ae68c602",
+        "vertices": [
+          "ccbeb78e-45b0-4b95-a1f6-1a606b0c7f45",
+          "85c70545-74ca-4587-bcdd-f40fa2120353",
+          "5d051567-45cc-40db-97ac-501cbc46f12b"
+        ],
+        "region": "design:#02a6f4"
+      },
+      {
+        "id": "44d54dd8-173c-4f37-b229-17b33510c151",
+        "vertices": [
+          "23f2a8c6-3f9a-4136-b752-7c3e42e7cc00",
+          "ccbeb78e-45b0-4b95-a1f6-1a606b0c7f45",
+          "5d051567-45cc-40db-97ac-501cbc46f12b"
+        ],
+        "region": "design:#02a6f4"
+      }
+    ],
+    "template": {
+      "id": "wearer-padded",
+      "version": "1.1.0",
+      "license": "original-project-source",
+      "parameters": {
+        "bodyMode": "padded",
+        "hipPaddingMm": 55,
+        "thighPaddingMm": 115,
+        "calfPaddingMm": 30,
+        "species": "canine",
+        "legType": "digitigrade",
+        "heightMm": 1800,
+        "neckGirthMm": 380,
+        "chestGirthMm": 1000,
+        "waistGirthMm": 850,
+        "hipGirthMm": 1000,
+        "shoulderWidthMm": 480,
+        "armLengthMm": 600,
+        "legLengthMm": 900,
+        "headWidthMm": 260,
+        "headLengthMm": 280,
+        "snoutLengthMm": 130,
+        "snoutWidthMm": 150,
+        "earHeightMm": 160,
+        "earWidthMm": 100,
+        "earAngleRad": 0,
+        "tailLengthMm": 900,
+        "tailBaseGirthMm": 200,
+        "tailTipGirthMm": 40,
+        "tailCurvature": 0.15,
+        "upperArmGirthMm": 400,
+        "forearmGirthMm": 310,
+        "thighGirthMm": 580,
+        "shinGirthMm": 380,
+        "pawLengthMm": 180,
+        "pawWidthMm": 170,
+        "footLengthMm": 280,
+        "clawLengthMm": 25,
+        "paddingMm": 0,
+        "layerMm": 0
+      },
+      "parts": [
+        "torso",
+        "leg-left",
+        "foot-left",
+        "arm-left",
+        "leg-right",
+        "foot-right",
+        "arm-right"
+      ],
+      "measurements": [
+        {
+          "name": "hipGirth",
+          "targetMm": 1000,
+          "actualMm": 1258.6946596623932,
+          "residualMm": 258.6946596623932
+        },
+        {
+          "name": "waistGirth",
+          "targetMm": 850,
+          "actualMm": 864.0393032773596,
+          "residualMm": 14.039303277359636
+        },
+        {
+          "name": "chestGirth",
+          "targetMm": 1000,
+          "actualMm": 999.9999999999999,
+          "residualMm": -1.1368683772161603e-13
+        },
+        {
+          "name": "neckGirth",
+          "targetMm": 380,
+          "actualMm": 379.9999999999999,
+          "residualMm": -1.1368683772161603e-13
+        },
+        {
+          "name": "height",
+          "targetMm": 1573,
+          "actualMm": 1573,
+          "residualMm": 0
+        }
+      ],
+      "warnings": [
+        "ASSEMBLED_DIMENSIONS_REQUIRE_REVIEW",
+        "MANUFACTURING_TRIAL_REQUIRED"
+      ]
+    },
+    "cutConstraints": []
+  },
+  "charts": [
+    {
+      "planarExact": true,
+      "faceIds": [
+        "bad759a7-fe28-4936-86eb-dcc4ee620ab3",
+        "1a064af7-cbda-4307-b56b-e0875b2cea30"
+      ],
+      "uv": [
+        {
+          "vertexId": "bf639c43-5863-4e58-8769-07cd311cec34",
+          "xMm": 4.622896603521898,
+          "yMm": 11.191608601475938
+        },
+        {
+          "vertexId": "85c70545-74ca-4587-bcdd-f40fa2120353",
+          "xMm": 0,
+          "yMm": 0
+        },
+        {
+          "vertexId": "b997c959-3915-475f-b1e9-5521ce22f805",
+          "xMm": 4.622897388170161,
+          "yMm": 11.191607811296954
+        },
+        {
+          "vertexId": "12aedb51-38e8-493f-8caf-05e95a64b421",
+          "xMm": 9.073803803548687,
+          "yMm": -2.220446049250313e-16
+        }
+      ],
+      "boundary": [
+        "bf639c43-5863-4e58-8769-07cd311cec34",
+        "85c70545-74ca-4587-bcdd-f40fa2120353",
+        "12aedb51-38e8-493f-8caf-05e95a64b421"
+      ],
+      "areaErrorMax": 0,
+      "edgeErrorMax": 0,
+      "distortionMean": 0,
+      "distortionP95": 0,
+      "distortionMax": 0,
+      "faceDistortion": [
+        {
+          "faceId": "bad759a7-fe28-4936-86eb-dcc4ee620ab3",
+          "areaError": 0,
+          "edgeError": 0,
+          "angleError": 0,
+          "distortion": 0
+        },
+        {
+          "faceId": "1a064af7-cbda-4307-b56b-e0875b2cea30",
+          "areaError": 0,
+          "edgeError": 0,
+          "angleError": 0,
+          "distortion": 0
+        }
+      ],
+      "status": "acceptable",
+      "boundaryToleranceMm": 0.000099,
+      "seamErrorMax": 1.1640811098013912e-9,
+      "seamLengthErrorMm": 4.849008666113746e-15
+    },
+    {
+      "seamErrorMax": 0,
+      "seamLengthErrorMm": 0,
+      "faceIds": [
+        "50343335-bf2a-4e2b-a552-b31a8c080c6d",
+        "3b1ee952-e786-4a13-8e74-7979ae68c602",
+        "44d54dd8-173c-4f37-b229-17b33510c151",
+        "860607fd-3f52-4c6e-b6ef-206ff5785da0"
+      ],
+      "uv": [
+        {
+          "vertexId": "85c70545-74ca-4587-bcdd-f40fa2120353",
+          "xMm": 18.426357998466706,
+          "yMm": 5.961474053515326
+        },
+        {
+          "vertexId": "12aedb51-38e8-493f-8caf-05e95a64b421",
+          "xMm": 11.585689714259512,
+          "yMm": 0
+        },
+        {
+          "vertexId": "ccbeb78e-45b0-4b95-a1f6-1a606b0c7f45",
+          "xMm": 6.532094984150843,
+          "yMm": 0.9403138777150151
+        },
+        {
+          "vertexId": "5d051567-45cc-40db-97ac-501cbc46f12b",
+          "xMm": 9.175208386196827,
+          "yMm": 5.961474053515329
+        },
+        {
+          "vertexId": "b07e0f88-5d18-40df-86cd-6224766e4d94",
+          "xMm": 0,
+          "yMm": 5.961474053515321
+        },
+        {
+          "vertexId": "23f2a8c6-3f9a-4136-b752-7c3e42e7cc00",
+          "xMm": 0.18044374361267115,
+          "yMm": 5.658705358086699
+        }
+      ],
+      "boundary": [
+        "85c70545-74ca-4587-bcdd-f40fa2120353",
+        "b07e0f88-5d18-40df-86cd-6224766e4d94",
+        "23f2a8c6-3f9a-4136-b752-7c3e42e7cc00",
+        "ccbeb78e-45b0-4b95-a1f6-1a606b0c7f45",
+        "12aedb51-38e8-493f-8caf-05e95a64b421"
+      ],
+      "areaErrorMax": 4.440892098500626e-16,
+      "edgeErrorMax": 1.1102230246251565e-16,
+      "distortionMean": 1.5410917631375828e-16,
+      "distortionP95": 2.785877992621605e-16,
+      "distortionMax": 2.785877992621605e-16,
+      "faceDistortion": [
+        {
+          "faceId": "50343335-bf2a-4e2b-a552-b31a8c080c6d",
+          "areaError": 4.440892098500626e-16,
+          "edgeError": 1.1102230246251565e-16,
+          "angleError": 2.8271597168564594e-16,
+          "distortion": 2.785877992621605e-16
+        },
+        {
+          "faceId": "3b1ee952-e786-4a13-8e74-7979ae68c602",
+          "areaError": 1.1102230246251565e-16,
+          "edgeError": 1.1102230246251565e-16,
+          "angleError": 1.4135798584282297e-16,
+          "distortion": 1.1708943913857713e-16
+        },
+        {
+          "faceId": "44d54dd8-173c-4f37-b229-17b33510c151",
+          "areaError": 2.220446049250313e-16,
+          "edgeError": 0,
+          "angleError": 0,
+          "distortion": 8.881784197001253e-17
+        },
+        {
+          "faceId": "860607fd-3f52-4c6e-b6ef-206ff5785da0",
+          "areaError": 4.440892098500626e-16,
+          "edgeError": 0,
+          "angleError": 0,
+          "distortion": 1.7763568394002506e-16
+        }
+      ],
+      "arap": {
+        "iterations": 1,
+        "energyBefore": 3.390638377164649e-25,
+        "energyAfter": 1.363384486570965e-27,
+        "converged": true,
+        "reverted": false
+      },
+      "status": "acceptable",
+      "boundaryToleranceMm": 0.000099
+    }
+  ]
+}

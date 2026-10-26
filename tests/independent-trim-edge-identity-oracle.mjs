@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {cancelExactTrimInterior} from './fixtures/independent-trim-edge-identity.mjs';
+const forward={pieceId:'p',trimA:'a',trimB:'b',a:[0,0,0],b:[100,0,0],uvA:[1000,2000],uvB:[1100,2000]};
+const reverse={pieceId:'p',trimA:'b',trimB:'a',a:[100,0,0],b:[0,0,0],uvA:[1100,2000],uvB:[1000,2000]};
+const limits=1e-5;
+assert.deepEqual(cancelExactTrimInterior([forward,reverse],limits),{remaining:[],internalLengthMm:100});
+assert.equal(cancelExactTrimInterior([forward,{...reverse,pieceId:'q'}],limits).remaining.length,2,'A real seam between pieces is preserved');
+assert.equal(cancelExactTrimInterior([forward,{...reverse,trimA:'c',trimB:'d'}],limits).remaining.length,2,'Coincident geometry with distinct trim topology is not silently cancelled');
+assert.equal(cancelExactTrimInterior([forward,forward],limits).remaining.length,2,'Duplicate same-direction triangles remain an error');
+assert.equal(cancelExactTrimInterior([forward,reverse,reverse],limits).remaining.length,3,'Nonmanifold three-way incidence remains an error');
+assert.equal(cancelExactTrimInterior([forward,{...reverse,a:[100,0,1]}],limits).remaining.length,2,'Disconnected world sheets never cancel by shared UV identity');
+assert.equal(cancelExactTrimInterior([forward,{...reverse,uvA:[1100,2000.000001]}],limits).remaining.length,2,'Even a near UV mismatch remains visible');
+console.log(JSON.stringify({passed:true,checks:7,geometryMm:limits}));

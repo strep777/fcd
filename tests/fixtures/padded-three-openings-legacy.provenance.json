@@ -1,0 +1,12 @@
+{
+  "originalCapture": "test-results/wearer-symmetry-fix-run2/padded-default-assembled.json",
+  "originalSurfaceSha256": "f70d246071563bd4104576640cff3bca596d071389fb937d4f409e6c2d4ab2dc",
+  "originalSurfaceBytes": 2456462,
+  "capturedProductionSourceHash": "6242e0bc3dc28f8cedea2c8082b55cee172710d60f34111d8cf68f0d81a4c384",
+  "originalAssemblySourceHash": "3d25cc0599540796cfe4781475a662e272b9311dba6f9cbe287536d5c490d996",
+  "sourceTemplateVersion": "1.1.0",
+  "garmentOpenings": 3,
+  "vertices": 4864,
+  "faces": 9634,
+  "policy": "Exact gzip of the complete historical three-opening assembled source. No vertex, face, parameter, metadata or mode changed. It validates archive compatibility, not the new five-opening body-only design."
+}

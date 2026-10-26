@@ -3,7 +3,7 @@ export type PatternTab='pieces'|'materials'|'seams'|'nesting'|'workflow';
 /** Independent workflow stages compose shared tools. */
 export const workflowTabs=[
  {id:'guide',zh:'使用指南',en:'Guide',model:false,zhHint:'操作流程、参数含义和选区工具'},
- {id:'references',zh:'花纹提取',en:'Pattern extraction',model:false,zhHint:'上传、标定和拆分正背视图，分类保存花纹'},
+ {id:'references',zh:'花纹提取',en:'Pattern extraction',model:false,zhHint:'上传完整设定图，标定、提取和分类保存花纹'},
  {id:'marking-edit',zh:'花纹修改',en:'Edit markings',model:false,zhHint:'在独立画布检查选区，用画笔补全和擦除花纹'},
  {id:'model',zh:'模型管理',en:'Model management',model:true,zhHint:'选择或上传模型，编辑尺寸与形状，自动保存模型'},
  {id:'mapping',zh:'花纹映射',en:'Pattern mapping',model:true,zhHint:'从花纹抽屉贴附、修正路径或 UV，补画缺失花纹'},

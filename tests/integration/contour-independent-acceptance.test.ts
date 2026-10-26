@@ -1,4 +1,4 @@
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import sharp from 'sharp';
@@ -44,14 +44,24 @@ const hardStraightMatrix:Fixture[]=[2,5,85,-5].flatMap(degrees=>[.17,.73].map(ph
 // shared boundary recovery and calibrated output as the default application.
 // Expected geometry is specified before rasterization. No production distance,
 // flattening, topology check, mask or fitted proposal supplies the oracle.
-async function extract(f:Fixture,scale=1,rotation=0){
+async function extract(f:Fixture,scale=1,rotation=0,jpegQuality?:number){
  const colors=f.faint?[[217,217,217],[247,207,207]]:f.weak?[[210,210,210],[250,190,190]]:[[237,231,234],[249,227,60]],rgba=new Uint8Array(f.width*f.height*4);
  let state=0x5eed1234;const noise=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return (state/2**32*2-1)*(f.noise??0);};
  for(let y=0;y<f.height;y++)for(let x=0;x<f.width;x++){
   let coverage=0;for(let j=0;j<f.aa;j++)for(let i=0;i<f.aa;i++)coverage+=+(f.fill??(p=>material(p,f.rings)))({x:x+(i+.5)/f.aa,y:y+(j+.5)/f.aa})/(f.aa*f.aa);
   rgba.set([...colors[0].map((v,c)=>Math.round(v+(colors[1][c]-v)*coverage+noise())),255],(y*f.width+x)*4);
  }
- const png=await sharp(rgba,{raw:{width:f.width,height:f.height,channels:4}}).png().toBuffer();
+ const raster=sharp(rgba,{raw:{width:f.width,height:f.height,channels:4}}),encoded=jpegQuality?await raster.jpeg({quality:jpegQuality,chromaSubsampling:'4:2:0'}).toBuffer():await raster.png().toBuffer();
+ const decoded=await sharp(encoded).metadata();expect(decoded.format).toBe(jpegQuality?'jpeg':'png');
+ // Imported JPEGs enter reference extraction as decoded PNG resources. Keep
+ // the lossy JPEG round trip, then use that same normalized decoder boundary.
+ const png=jpegQuality?await sharp(encoded).png().toBuffer():encoded;
+ let jpeg:undefined|{quality:number;chromaSubsampling:string;sha256:string;bytes:number;jpegPath:string;decodedPngPath:string;seedRgb:number[];backgroundRgb:number[]};
+ if(jpegQuality){
+  const directory=resolve('test-results/2026-10-25-pattern-quality/jpeg-analytic-inputs');mkdirSync(directory,{recursive:true});const basename=`quality-${jpegQuality}-`+f.name.replace(/[^a-z0-9]+/gi,'-').toLowerCase(),jpegPath=resolve(directory,basename+'.jpg'),decodedPngPath=resolve(directory,basename+'-decoded.png');writeFileSync(jpegPath,encoded);writeFileSync(decodedPngPath,png);
+  const raw=await sharp(png).removeAlpha().raw().toBuffer(),at=(x:number,y:number)=>[...raw.subarray((Math.floor(y)*f.width+Math.floor(x))*3,(Math.floor(y)*f.width+Math.floor(x))*3+3)];
+  jpeg={quality:jpegQuality,chromaSubsampling:'4:2:0',sha256:createHash('sha256').update(encoded).digest('hex'),bytes:encoded.length,jpegPath,decodedPngPath,seedRgb:at(f.seed.x,f.seed.y),backgroundRgb:at(f.width-10,f.height/2)};
+ }
  const c:Calibration={a:{x:11,y:f.height-7},b:{x:11+f.height*Math.sin(rotation),y:f.height-7-f.height*Math.cos(rotation)},distanceMm:f.height*scale};
  const references:Reference[]=(['front','back']as const).map(view=>({id:randomUUID(),name:view,view,width:f.width,height:f.height,png:'data:image/png;base64,'+png.toString('base64'),calibration:c,calibrationMode:'manual',resources:{} as Reference['resources']}));
  const reports:ReturnType<typeof shared.recoverSharedContours>['report'][]=[];
@@ -65,20 +75,20 @@ async function extract(f:Fixture,scale=1,rotation=0){
  });}
  const pieces=output.regions.filter(r=>r.view==='front').map(r=>r.piece),rings=pieces.map(p=>[p.nodes,...p.holes??[]].map(r=>sample(p,r))),selected=pieces.map((piece,i)=>({piece,rings:rings[i]})).filter(p=>material(f.seed,p.rings));
  expect(selected,'exactly one saved material must contain the independently chosen pigment seed').toHaveLength(1);
- return{...selected[0],all:rings,pixel,sample,reports};
+ return{...selected[0],all:rings,pixel,sample,reports,jpeg};
 }
 function tangentTurns(piece:Piece,pixel:(p:Point)=>XY){return piece.nodes.map((n,i)=>{
  const p=pixel(n),a=pixel(piece.curves?.find(c=>c.endNodeId===n.id)?.c2??piece.nodes[(i+piece.nodes.length-1)%piece.nodes.length]),b=pixel(piece.curves?.find(c=>c.startNodeId===n.id)?.c1??piece.nodes[(i+1)%piece.nodes.length]);
  return{...p,radians:Math.abs(Math.atan2((p.x-a.x)*(b.y-p.y)-(p.y-a.y)*(b.x-p.x),(p.x-a.x)*(b.x-p.x)+(p.y-a.y)*(b.y-p.y)))};
 });}
-it.each([...fixtures,...hardStraightMatrix])('$name survives the complete default import against analytic geometry',async f=>{
- const saved=await extract(f),truth=f.rings.map(r=>densify(r)),forward=Math.max(...saved.rings.flatMap(r=>r.map(p=>nearest(p,f.rings)))),reverse=Math.max(...truth.flatMap(r=>r.map(p=>nearest(p,saved.rings))));
+async function assertAnalytic(f:Fixture,jpegQuality?:number){
+ const saved=await extract(f,1,0,jpegQuality),truth=f.rings.map(r=>densify(r)),forward=Math.max(...saved.rings.flatMap(r=>r.map(p=>nearest(p,f.rings)))),reverse=Math.max(...truth.flatMap(r=>r.map(p=>nearest(p,saved.rings))));
  const turns=tangentTurns(saved.piece,saved.pixel),smoothTurns=f.smooth?turns.filter(f.smooth):[],relativeArea=Math.abs(netArea(saved.rings)-netArea(f.rings))/netArea(f.rings);
  let wrongInterior=0,gaps=0,overlaps=0;
  // Deliberately off-grid probes test the saved material partition; points
  // inside the 1.5px quantization envelope do not claim a unique raster owner.
  for(let y=.317;y<f.height;y+=2.7)for(let x=.731;x<f.width;x+=2.7){const p={x,y},owners=saved.all.filter(r=>material(p,r)).length;if(!owners)gaps++;if(owners>1)overlaps++;if(nearest(p,f.rings)>1.5&&material(p,saved.rings)!==material(p,f.rings))wrongInterior++;}
- const metrics={name:f.name,forward,reverse,relativeArea,wrongInterior,gaps,overlaps,holes:saved.piece.holes?.length??0,nodes:saved.piece.nodes.length,curves:saved.piece.curves?.length??0,smoothTurns:smoothTurns.slice().sort((a,b)=>b.radians-a.radians).slice(0,6),recovery:saved.reports};records.push(metrics);
+ const metrics={name:f.name,jpeg:saved.jpeg,forward,reverse,relativeArea,wrongInterior,gaps,overlaps,holes:saved.piece.holes?.length??0,nodes:saved.piece.nodes.length,curves:saved.piece.curves?.length??0,smoothTurns:smoothTurns.slice().sort((a,b)=>b.radians-a.radians).slice(0,6),recovery:saved.reports};records.push(metrics);
  expect.soft(forward,JSON.stringify(metrics)).toBeLessThanOrEqual(1.5);expect.soft(reverse,JSON.stringify(metrics)).toBeLessThanOrEqual(1.5);
  expect.soft(relativeArea,JSON.stringify(metrics)).toBeLessThanOrEqual(.04);
  expect.soft({wrongInterior,gaps,overlaps},JSON.stringify(metrics)).toEqual({wrongInterior:0,gaps:0,overlaps:0});
@@ -93,7 +103,9 @@ it.each([...fixtures,...hardStraightMatrix])('$name survives the complete defaul
  }
  if(f.smooth)expect.soft(Math.max(0,...smoothTurns.map(p=>p.radians)),JSON.stringify(metrics)).toBeLessThanOrEqual(Math.PI/9);
  for(const corner of f.corners??[]){const local=turns.filter(p=>Math.hypot(p.x-corner.x,p.y-corner.y)<=3);expect.soft(nearest(corner,saved.rings),'the measured corner stays present').toBeLessThanOrEqual(1.5);expect.soft(Math.max(0,...local.map(p=>p.radians)),`the measured corner ${JSON.stringify(corner)} stays sharp`).toBeGreaterThanOrEqual(.35);}
-},60000);
+}
+it.each([...fixtures,...hardStraightMatrix])('$name survives the complete default import against analytic geometry',async f=>{await assertAnalytic(f);},60000);
+it.each([90,75].flatMap(quality=>[fixtures[1],fixtures[2]].map(f=>({quality,f,name:f.name}))))('JPEG quality $quality $name retains the unchanged 1.5px and 20-degree analytic gates',async({quality,f})=>{await assertAnalytic(f,quality);},60000);
 it.each([{scale:.05,rotation:.37},{scale:8,rotation:1.07}])('weak curved import preserves source evidence at scale $scale rotation $rotation',async({scale,rotation})=>{
  const f=fixtures[2],saved=await extract(f,scale,rotation),turns=tangentTurns(saved.piece,saved.pixel).filter(f.smooth!),maxError=Math.max(...saved.rings[0].map(p=>nearest(p,f.rings))),maxTurn=Math.max(0,...turns.map(p=>p.radians));records.push({name:f.name,scale,rotation,maxError,maxTurn,nodes:saved.piece.nodes.length});
  expect.soft(maxError).toBeLessThanOrEqual(1.5);expect.soft(maxTurn).toBeLessThanOrEqual(Math.PI/9);expect.soft(saved.piece.holes??[]).toHaveLength(0);

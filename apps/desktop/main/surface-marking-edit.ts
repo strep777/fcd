@@ -24,7 +24,7 @@ export async function editSurfaceMarking(worker:string,project:Project,id:string
  if(regions)shape={...shape,regions:[...regions]};
  if(!shape.anchorFaceId&&old.surfaceShape?.anchorFaceId)shape={...shape,anchorFaceId:old.surfaceShape.anchorFaceId};
  const projected=await surfaceMarking(worker,project,shape,old.color,old.name);
- const next=markingSchema.parse({...projected,id:old.id,locked:old.locked,
+ const next=markingSchema.parse({...projected,id:old.id,locked:old.locked,...(old.fabrication?{fabrication:old.fabrication}:{}),
   ...(old.inference?{inference:{...old.inference,reviewed:false}}:{})});
  return mappedMarking(worker,project,next);
 }

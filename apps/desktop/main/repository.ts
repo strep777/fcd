@@ -19,6 +19,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID, createHash } from 'node:crypto';
 import { projectSchema,surfaceSchema,parseProject, type Project, type Command } from '../../../packages/schema/index';
 export class DomainError extends Error {constructor(public code:string){super(code);}}
+const storedGeometryFields=['pieces','bindings','markings','previewMarkings','surfaceRun','patternLibrary','maskSources'] as const;
 export const hash=(data:string|Uint8Array)=>createHash('sha256').update(data).digest('hex');
 export class Repository {
   db:DatabaseSync;
@@ -46,8 +47,8 @@ export class Repository {
   row(){const id=this.sessionId;return id?this.db.prepare('SELECT * FROM sessions WHERE id=?').get(id):undefined;}
   projectMetadata(){const id=this.sessionId,row=id?this.db.prepare("SELECT json_extract(state,'$.name') AS name,destination FROM sessions WHERE id=?").get(id):undefined;return row?{name:String(row.name),destination:row.destination as string|null}:null;}
   snapshot():Project|null{const row=this.row();return row?this.readState(row.state as string):null;}
-  private storeResource(value:unknown){
-    const json=JSON.stringify(value),digest=hash(json),reference='sqlite-resource:'+digest;
+  private storeResource(value:unknown,json=JSON.stringify(value)){
+    const digest=hash(json),reference='sqlite-resource:'+digest;
     // Existing assets still require an exact content check on every call.
     // Avoid binding their large JSON into an INSERT that can only be ignored.
     if(!this.db.prepare('SELECT 1 FROM resources WHERE digest=?').get(digest)){
@@ -63,10 +64,24 @@ export class Repository {
     // Every later serialization must check the database resources again.
     const stored=new Map<unknown,string>();
     const resource=(value:unknown)=>{const previous=stored.get(value);if(previous!==undefined)return previous;const reference=this.storeResource(value);stored.set(value,reference);return reference;};
+    // A rename or undo must not write the same large mesh bindings and paint
+    // arrays into every history row again. Use the existing verified resource
+    // store; small values and legacy inline snapshots keep their old format.
+    const geometry=(value:object)=>{
+      const result={...value} as Record<string,unknown>;
+      for(const key of storedGeometryFields)if(result[key]!==undefined){
+        const field=result[key],previous=stored.get(field);
+        if(previous!==undefined){result[key]=previous;continue;}
+        const json=JSON.stringify(field);
+        if(json.length<64*1024)continue;
+        const reference=this.storeResource(field,json);stored.set(field,reference);result[key]=reference;
+      }
+      return result;
+    };
     const image=(r:NonNullable<Project['references']>[number])=>({...r,...(r.sheet?.png?{sheet:{...r.sheet,png:resource(r.sheet.png)}}:{}),png:resource(r.png),...(r.resources?{resources:{...r.resources,source:{...r.resources.source,data:resource(r.resources.source.data)},proxy:{...r.resources.proxy,png:resource(r.resources.proxy.png)},thumbnail:{...r.resources.thumbnail,png:resource(r.resources.thumbnail.png)}}}:{})});
-    return JSON.stringify({...project,...(project.surface?{surface:resource(project.surface)}:{}),...(project.cuttingLibrary?{cuttingLibrary:project.cuttingLibrary.map(e=>({...e,surface:resource(e.surface),run:resource(e.run),markings:resource(e.markings)}))}:{}),...(project.modelLibrary?{modelLibrary:project.modelLibrary.map(m=>({...m,surface:resource(m.surface)}))}:{}),...(project.references?{references:project.references.map(image)}:{})});
+    return JSON.stringify({...geometry(project),...(project.surface?{surface:resource(project.surface)}:{}),...(project.cuttingLibrary?{cuttingLibrary:project.cuttingLibrary.map(e=>({...e,surface:resource(e.surface),run:resource(e.run),markings:resource(e.markings)}))}:{}),...(project.modelLibrary?{modelLibrary:project.modelLibrary.map(m=>({...geometry(m),surface:resource(m.surface)}))}:{}),...(project.references?{references:project.references.map(image)}:{})});
   }
-  private readState(state:string):Project{const resources=new Map<string,unknown>(),resource=(value:unknown)=>{if(typeof value==='string'&&value.startsWith('sqlite-resource:')){if(resources.has(value))return resources.get(value);const r=this.readResource(value);resources.set(value,r);return r;}return this.readResource(value);};const p=JSON.parse(state);p.surface=resource(p.surface);if(p.cuttingLibrary)p.cuttingLibrary=p.cuttingLibrary.map((e:Record<string,unknown>)=>({...e,surface:resource(e.surface),run:resource(e.run),markings:resource(e.markings)}));if(p.modelLibrary)p.modelLibrary=p.modelLibrary.map((m:Record<string,unknown>)=>({...m,surface:resource(m.surface)}));if(p.references)p.references=p.references.map((r:NonNullable<Project['references']>[number])=>({...r,...(r.sheet?.png?{sheet:{...r.sheet,png:resource(r.sheet.png)}}:{}),png:resource(r.png),...(r.resources?{resources:{...r.resources,source:{...r.resources.source,data:resource(r.resources.source.data)},proxy:{...r.resources.proxy,png:resource(r.resources.proxy.png)},thumbnail:{...r.resources.thumbnail,png:resource(r.resources.thumbnail.png)}}}:{})}));return parseProject(p);}
+  private readState(state:string):Project{const resources=new Map<string,unknown>(),resource=(value:unknown)=>{if(typeof value==='string'&&value.startsWith('sqlite-resource:')){if(resources.has(value))return resources.get(value);const r=this.readResource(value);resources.set(value,r);return r;}return this.readResource(value);};const p=JSON.parse(state);for(const key of storedGeometryFields)if(key in p)p[key]=resource(p[key]);p.surface=resource(p.surface);if(p.cuttingLibrary)p.cuttingLibrary=p.cuttingLibrary.map((e:Record<string,unknown>)=>({...e,surface:resource(e.surface),run:resource(e.run),markings:resource(e.markings)}));if(p.modelLibrary)p.modelLibrary=p.modelLibrary.map((m:Record<string,unknown>)=>({...m,...Object.fromEntries(storedGeometryFields.filter(key=>key in m).map(key=>[key,resource(m[key])])),surface:resource(m.surface)}));if(p.references)p.references=p.references.map((r:NonNullable<Project['references']>[number])=>({...r,...(r.sheet?.png?{sheet:{...r.sheet,png:resource(r.sheet.png)}}:{}),png:resource(r.png),...(r.resources?{resources:{...r.resources,source:{...r.resources.source,data:resource(r.resources.source.data)},proxy:{...r.resources.proxy,png:resource(r.resources.proxy.png)},thumbnail:{...r.resources.thumbnail,png:resource(r.resources.thumbnail.png)}}}:{})}));return parseProject(p);}
   activate(id:string){const target=this.db.prepare('SELECT state FROM sessions WHERE id=?').get(id);if(!target)throw new DomainError('PROJECT_MISSING');try{this.readState(String(target.state));}catch{throw new DomainError('PROJECT_INVALID');}this.db.prepare("INSERT OR REPLACE INTO settings VALUES('active',?)").run(id);this.startupNotice=undefined;}
   recent(){return this.db.prepare("SELECT id,json_extract(state,'$.name') AS name,json_extract(state,'$.revision') AS revision FROM sessions WHERE json_valid(state) ORDER BY rowid DESC LIMIT 100").all().map(r=>({sessionId:String(r.id),name:String(r.name),revision:Number(r.revision)}));}
   /** Delete local state atomically; externally saved project files are never touched. */
@@ -216,7 +231,7 @@ export class Repository {
         after.surfaceRun=undefined;after.previewMarkings=undefined;
       }
       else if(command.type==='marking.delete')deleteMarking(after,command.markingId);
-      else if(command.type==='reference.put'){const list=after.references??[];const i=list.findIndex(r=>r.view===command.reference.view);if(i<0)list.push(command.reference);else list[i]=command.reference;after.references=list;}
+      else if(command.type==='reference.put'){const list=command.reference.view==='sheet'?[]:after.references??[];const i=list.findIndex(r=>r.view===command.reference.view);if(i<0)list.push(command.reference);else list[i]=command.reference;after.references=list;}
       else if(command.type==='reference.calibrate'){const ref=after.references?.find(r=>r.id===command.referenceId);if(!ref)throw new DomainError('ENTITY_MISSING');const c=command.calibration;if([c.a,c.b].some(p=>p.x>ref.width||p.y>ref.height))throw new DomainError('INVALID_CALIBRATION');const old=ref.calibration;
         if(old&&JSON.stringify(old)!==JSON.stringify(c)){
           const ids=(after.patternLibrary??[]).filter(r=>r.referenceId===ref.id).map(r=>r.piece.id);pruneSources(ids);

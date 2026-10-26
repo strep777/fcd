@@ -35,7 +35,7 @@ export async function unwrapMarkings(worker:string,project:Project,run:SurfaceRu
  for(const m of result)if(m.inference){const parent=result.find(p=>p.id===m.inference!.sourceMarkingId);if(parent)m.inference={...m.inference,sourceFingerprint:markingFingerprint(parent)};}
  for(const piece of run.pieces){
   if(run.bindings.find(b=>b.pieceId===piece.id)?.trim)continue;
-  const coverage=result.flatMap(m=>m.paths.filter(p=>p.pieceId===piece.id).map(p=>({color:m.color,size:Math.abs(p.rings.reduce((sum,r)=>sum+area(r.map(v=>[v.xMm,v.yMm])),0))})));
+  const coverage=result.filter(m=>m.fabrication!=='detail').flatMap(m=>m.paths.filter(p=>p.pieceId===piece.id).map(p=>({color:m.color,size:Math.abs(p.rings.reduce((sum,r)=>sum+area(r.map(v=>[v.xMm,v.yMm])),0))})));
   piece.color=coverage.sort((a,b)=>b.size-a.size)[0]?.color??'#d4d4d4';
   const binding=run.bindings.find(b=>b.pieceId===piece.id)!;binding.geometryHash=pieceGeometryHash(piece);
  }

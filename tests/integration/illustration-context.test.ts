@@ -56,12 +56,10 @@ it('keeps continuous trunk pigment intact and records placement candidates witho
  const all=result.regions.flatMap(r=>r.indices);expect(new Set(all).size).toBe(all.length);expect(all.length).toBe(result.foregroundPixels-result.discardedPixels);
 });
 
-it('full torso registration excludes raised-hand head-band outliers and the arm-to-leg band gap',async()=>{
- for(const [file,left,width,height,maxWidth] of [['character-front-back.jpg',609,666,750,250],['character-front-back.jpg',0,609,750,250],['character-blue-white-front-back.png',0,803,1024,250]] as const){
+it.each([['character-front-back.jpg',609,666,750,250],['character-front-back.jpg',0,609,750,250],['character-blue-white-front-back.png',0,803,1024,250]] as const)('full torso registration excludes raised-hand head-band outliers and the arm-to-leg band gap in %s crop %s',async(file,left,width,height,maxWidth)=>{
   const rgba=new Uint8Array(await sharp('tests/fixtures/'+file).extract({left,top:0,width,height}).ensureAlpha().raw().toBuffer()),result=illustrationRegions(width,height,rgba),body=result.partBounds.find(b=>b.part==='body')!,head=result.partBounds.find(b=>b.part==='head')!;
   expect(body,`${file}:${left} must retain a torso frame`).toBeDefined();expect(body.maxX-body.minX,`${file}:${left} no thin lateral strip may enlarge the torso frame`).toBeLessThan(maxWidth);
   if(left===0&&file==='character-front-back.jpg'){expect(head.maxX-head.minX).toBeLessThan(230);expect(head.maxX).toBeLessThan(530);}
- }
 });
 
 it('uses a true oriented full-silhouette limb frame instead of rotating an inflated axis-aligned box',async()=>{
@@ -70,17 +68,15 @@ it('uses a true oriented full-silhouette limb frame instead of rotating an infla
   expect(thickness).toBeGreaterThan(1);expect(thickness).toBeLessThanOrEqual(inflated+1e-8);return thickness/inflated;
  });expect(Math.min(...ratios)).toBeLessThan(.8);
 });
-it('real arm registration excludes detached tail and low hip while preserving both differently posed original and replacement arms',async()=>{
- for(const [file,left,width,height,probes,excluded] of [
+it.each([
   ['character-front-back.jpg',609,666,750,[[120,320],[390,335]],[[150,500],[520,396],[400,500]]],
   ['character-front-back.jpg',0,609,750,[[250,320],[530,310]],[[100,396],[240,500],[500,500]]],
   ['character-blue-white-front-back.png',0,803,1024,[[280,450],[580,450]],[[310,620],[560,640]]],
- ] as const){
+ ] as const)('real arm registration excludes detached tail and low hip while preserving both arms in %s crop %s',async(file,left,width,height,probes,excluded)=>{
   const rgba=new Uint8Array(await sharp('tests/fixtures/'+file).extract({left,top:0,width,height}).ensureAlpha().raw().toBuffer()),result=illustrationRegions(width,height,rgba),arms=result.partBounds.filter(b=>b.part==='arm'&&b.side);
   expect(arms,`${file}:${left} must retain both arms`).toHaveLength(2);
   const contains=(x:number,y:number)=>arms.some(b=>x>=b.minX&&x<b.maxX&&y>=b.minY&&y<b.maxY);
   for(const [x,y] of probes)expect(contains(x,y),`${file}:${left} visible arm ${x},${y}`).toBe(true);
   for(const [x,y] of excluded)expect(contains(x,y),`${file}:${left} tail/hip ${x},${y}`).toBe(false);
   if(file==='character-front-back.jpg'&&left===609)continuousTrunk(result,width);
- }
 });

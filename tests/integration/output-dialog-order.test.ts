@@ -63,11 +63,13 @@ it.each(['template.export','surface.export','project.save'])('opens %s destinati
 
 it.each([
  ['project.open',{},false],['workflow.file',{action:'import'},true],['patterns.bundle',{action:'import'},true],['reference.import',{view:'front'},true],['pattern.import',{scale:1},true],['surface.import',{scale:1},true],['template.import',{},true],
- ['reference.auto',{layout:'front-right',heightMm:1800,clusters:6,excludeBackground:true},true],['reference.auto',{layout:'separate',heightMm:1800,clusters:6,excludeBackground:true},true],
+ ['reference.auto',{layout:'sheet',heightMm:1800,clusters:6,excludeBackground:true},true],['reference.auto',{layout:'front-right',heightMm:1800,clusters:6,excludeBackground:true},true],['reference.auto',{layout:'separate',heightMm:1800,clusters:6,excludeBackground:true},true],
 ] as const)('opens %s file choices and cancels without loading or changing the project',async(method,payload,scoped)=>{
  const result=await request(method,payload,scoped);expect(result).toMatchObject({ok:true,cancelled:true,data:published});expect(host.open).toHaveBeenCalledOnce();untouched();
 });
 
-it('chooses both reference paths before reading the current project or the selected image files',async()=>{
- host.open.mockImplementationOnce(choice({canceled:false,filePaths:[join(directory,'not-read-front.png')]})).mockImplementationOnce(choice({canceled:true,filePaths:[]}));const result=await request('reference.auto',{layout:'separate',heightMm:1800,clusters:6,excludeBackground:true});expect(result).toMatchObject({ok:true,cancelled:true,data:published});expect(host.open).toHaveBeenCalledTimes(2);untouched();
+it.each(['sheet','front-right','separate'])('selects one complete reference sheet for %s and preserves the project when its file cannot be read',async layout=>{
+ host.open.mockImplementationOnce(choice({canceled:false,filePaths:[join(directory,'missing-reference-sheet.png')]}));
+ const result=await request('reference.auto',{layout,heightMm:1800,clusters:6,excludeBackground:true});
+ expect(result).toMatchObject({ok:false,error:{code:'IO_ERROR'}});expect(host.open).toHaveBeenCalledOnce();untouched();
 });

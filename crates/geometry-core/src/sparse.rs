@@ -1,5 +1,5 @@
-//! Sparse LDLᵀ for the constant FEM system. Reverse breadth-first ordering
-//! limits the bandwidth; numeric row elimination uses a dense work vector
+//! Sparse LDLᵀ for the FEM system. Nested separators limit fill, with reverse
+//! breadth-first ordering as a fallback. Numeric row elimination uses a dense work vector
 //! instead of allocating tree entries for every Schur-complement update.
 //! Failure falls back to CG on the original equations, without regularization.
 use std::collections::VecDeque;
@@ -7,9 +7,42 @@ use std::collections::VecDeque;
 type FactorColumn = (usize, f64, Vec<(usize, f64)>);
 pub(crate) struct Factor {
     columns: Vec<FactorColumn>,
+    scale: Option<Vec<f64>>,
 }
 impl Factor {
     pub(crate) fn new(matrix: &[Vec<(usize, f64)>]) -> Option<Self> {
+        // Symmetric equilibration keeps the physical equations unchanged while
+        // avoiding tiny pivots caused only by disparate local triangle scales.
+        // Callers still check residuals against the original matrix.
+        let scale: Option<Vec<f64>> = matrix.iter().enumerate().map(|(i, row)| {
+            row.iter().find(|&&(j, _)| j == i).and_then(|&(_, a)| {
+                if a > 0. && a.is_finite() { Some(a.sqrt()) } else { None }
+            })
+        }).collect();
+        if let Some(scale) = scale {
+            if matrix.len() <= 20_000 && matrix.iter().flatten().all(|&(j, a)| j < scale.len() && a.is_finite()) {
+                let normalized: Vec<Vec<(usize, f64)>> = matrix.iter().enumerate().map(|(i, row)| {
+                    row.iter().map(|&(j, a)| (j, a / scale[i] / scale[j])).collect()
+                }).collect();
+                if let Some(mut factor) = Self::unscaled(&normalized) {
+                    factor.scale = Some(scale);
+                    return Some(factor);
+                }
+            }
+        }
+        Self::unscaled(matrix)
+    }
+    fn unscaled(matrix: &[Vec<(usize, f64)>]) -> Option<Self> {
+        if matrix.len() >= 128 {
+            if let Some(order) = nested_order(matrix) {
+                if let Some(factor) = Self::ordered(matrix, &order) {
+                    return Some(factor);
+                }
+            }
+        }
+        Self::reverse_breadth_first(matrix)
+    }
+    pub(crate) fn reverse_breadth_first(matrix: &[Vec<(usize, f64)>]) -> Option<Self> {
         let n = matrix.len();
         if n > 20_000
             || matrix
@@ -51,8 +84,27 @@ impl Factor {
             }
         }
         order.reverse();
-        let mut position = vec![0; n];
+        Self::ordered(matrix, &order)
+    }
+    /// Reuse a symbolic ordering for matrices with the same structural edges.
+    /// Values are still refactored exactly; no diagonal regularization or
+    /// approximate inverse is introduced into the physical equations.
+    pub(crate) fn ordered(matrix: &[Vec<(usize, f64)>], order: &[usize]) -> Option<Self> {
+        let n = matrix.len();
+        if n > 20_000
+            || order.len() != n
+            || matrix
+                .iter()
+                .flatten()
+                .any(|&(j, a)| j >= n || !a.is_finite())
+        {
+            return None;
+        }
+        let mut position = vec![usize::MAX; n];
         for (k, &i) in order.iter().enumerate() {
+            if i >= n || position[i] != usize::MAX {
+                return None;
+            }
             position[i] = k;
         }
         let mut columns: Vec<Vec<(usize, f64)>> = vec![vec![]; n];
@@ -101,6 +153,7 @@ impl Factor {
             diagonal[k] = d;
         }
         Some(Self {
+            scale: None,
             columns: columns
                 .into_iter()
                 .enumerate()
@@ -115,7 +168,7 @@ impl Factor {
         })
     }
     pub(crate) fn solve(&self, rhs: &[f64]) -> Vec<f64> {
-        let mut out = rhs.to_vec();
+        let mut out = self.scale.as_ref().map_or_else(||rhs.to_vec(), |scale| rhs.iter().zip(scale).map(|(b,d)| b/d).collect::<Vec<_>>());
         for &(pivot, _, ref column) in &self.columns {
             let y = out[pivot];
             for &(i, l) in column {
@@ -128,8 +181,118 @@ impl Factor {
         for &(pivot, _, ref column) in self.columns.iter().rev() {
             out[pivot] -= column.iter().map(|&(i, l)| l * out[i]).sum::<f64>();
         }
+        if let Some(scale) = &self.scale { for (x,d) in out.iter_mut().zip(scale) { *x /= d; } }
         out
     }
+}
+
+/// Eliminate sparse interiors before separators. A balanced breadth-first
+/// layer separates the two induced subgraphs without assuming a mesh's vertex
+/// order or moving any physical station. Analyze once for a sequence of
+/// boundary-length linearizations whose numeric coefficients change.
+pub(crate) fn nested_order(matrix: &[Vec<(usize, f64)>]) -> Option<Vec<usize>> {
+    let n = matrix.len();
+    if n > 20_000
+        || matrix
+            .iter()
+            .flatten()
+            .any(|&(j, a)| j >= n || !a.is_finite())
+    {
+        return None;
+    }
+    let mut graph = vec![Vec::new(); n];
+    for (i, row) in matrix.iter().enumerate() {
+        for &(j, _) in row {
+            if i != j {
+                graph[i].push(j);
+                graph[j].push(i);
+            }
+        }
+    }
+    for row in &mut graph {
+        row.sort_unstable();
+        row.dedup();
+    }
+    fn visit(nodes: Vec<usize>, graph: &[Vec<usize>], out: &mut Vec<usize>) {
+        if nodes.len() <= 32 {
+            out.extend(nodes);
+            return;
+        }
+        let mut member = vec![false; graph.len()];
+        for &i in &nodes {
+            member[i] = true;
+        }
+        let distances = |seed: usize| {
+            let mut d = vec![usize::MAX; graph.len()];
+            let mut q = VecDeque::from([seed]);
+            d[seed] = 0;
+            while let Some(i) = q.pop_front() {
+                for &j in &graph[i] {
+                    if member[j] && d[j] == usize::MAX {
+                        d[j] = d[i] + 1;
+                        q.push_back(j);
+                    }
+                }
+            }
+            d
+        };
+        let seed = *nodes
+            .iter()
+            .min_by_key(|&&i| (graph[i].iter().filter(|&&j| member[j]).count(), i))
+            .unwrap();
+        let first = distances(seed);
+        let far = *nodes
+            .iter()
+            .filter(|&&i| first[i] != usize::MAX)
+            .max_by_key(|&&i| (first[i], std::cmp::Reverse(i)))
+            .unwrap();
+        let d = distances(far);
+        let disconnected: Vec<_> = nodes
+            .iter()
+            .copied()
+            .filter(|&i| d[i] == usize::MAX)
+            .collect();
+        if !disconnected.is_empty() {
+            let component = nodes.into_iter().filter(|&i| d[i] != usize::MAX).collect();
+            visit(component, graph, out);
+            visit(disconnected, graph, out);
+            return;
+        }
+        let last = nodes.iter().map(|&i| d[i]).max().unwrap();
+        if last < 2 {
+            out.extend(nodes);
+            return;
+        }
+        let mut levels = vec![0usize; last + 1];
+        for &i in &nodes {
+            levels[d[i]] += 1;
+        }
+        let mut left = 0usize;
+        let mut chosen = None;
+        for (level, &width) in levels.iter().enumerate() {
+            let right = nodes.len() - left - width;
+            if left > 0 && right > 0 && left.max(right) * 4 <= nodes.len() * 3 {
+                let score = (width, left.abs_diff(right), level);
+                if chosen.is_none_or(|old| score < old) {
+                    chosen = Some(score);
+                }
+            }
+            left += width;
+        }
+        let Some((_, _, level)) = chosen else {
+            out.extend(nodes);
+            return;
+        };
+        let before = nodes.iter().copied().filter(|&i| d[i] < level).collect();
+        let after = nodes.iter().copied().filter(|&i| d[i] > level).collect();
+        let separator = nodes.into_iter().filter(|&i| d[i] == level).collect();
+        visit(before, graph, out);
+        visit(after, graph, out);
+        visit(separator, graph, out);
+    }
+    let mut order = Vec::with_capacity(n);
+    visit((0..n).collect(), &graph, &mut order);
+    Some(order)
 }
 
 #[cfg(test)]

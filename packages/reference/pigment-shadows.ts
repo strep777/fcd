@@ -23,7 +23,12 @@ export function hasMeasuredMaterialStep(width:number,height:number,rgba:Uint8Arr
  for(const i of group)for(const j of neighbors(i)){
   if(j<0||!foreground[j]||labels[j]===label)continue;
   borders++;const step=j-i,owner=labels[j];let far=j,previous=j;
-  for(let k=2;k<=3;k++){const next=i+step*k;if(next<0||next>=labels.length||Math.abs(step)===1&&Math.floor(next/width)!==Math.floor(i/width)||!foreground[next]||labels[next]!==owner)break;previous=far;far=next;}
+  // JPEG chroma subsampling spreads a sharp material step across several
+  // pixels. Measure the quiet exterior beyond that transition, rather than
+  // mistaking its second/third mixed pixels for an illumination gradient.
+  // Stop at another owner or the silhouette; the plateau variance, contrast
+  // and required proportion of supported edges remain unchanged.
+  for(let k=2;k<=5;k++){const next=i+step*k;if(next<0||next>=labels.length||Math.abs(step)===1&&Math.floor(next/width)!==Math.floor(i/width)||!foreground[next]||labels[next]!==owner)break;previous=far;far=next;}
   const a=rgb(far),b=rgb(previous),contrast=deviation(a),variation=Math.hypot(...a.map((v,k)=>v-b[k]));
   const chromaticStep=contrast>=Math.max(.025,Math.sqrt(variance)*4)&&variation<=.008&&contrast>variation*4;
   // Normalized chroma cannot distinguish white paint from black material.

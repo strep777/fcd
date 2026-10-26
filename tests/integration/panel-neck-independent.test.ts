@@ -1,5 +1,6 @@
 import {expect,it} from 'vitest';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import type {Surface} from '../../packages/schema/index';
 import {unwrapSurface} from '../../apps/desktop/main/surface';
@@ -82,4 +83,60 @@ it('keeps a small boundary ear attached instead of manufacturing a tiny extra pi
  const {mesh}=cloth(1,4),before=structuredClone(mesh),p=project();p.pieces=[];p.defaultAllowanceMm=0;p.surface=structuredClone(mesh);
  const run=await unwrapSurface(resolve('target/release/fpcad-worker.exe'),mesh,p,{method:'arap',partitionStrategy:'design',automaticCuts:true,iterations:30,maxPieces:10});
  expect(run.pieces).toHaveLength(1);exactFaces(before,run.bindings.map(b=>b.report));expect(ringArea(run.pieces[0].nodes)).toBeCloseTo(meshArea(before),7);expect(mesh.vertices).toEqual(before.vertices);
+},30000);
+
+it.each([{lobeArea:99,pieces:1},{lobeArea:101,pieces:2}])('real final flattening keeps $lobeArea mm2 lobes in $pieces panels across the 100 mm2 neck limit',async({lobeArea,pieces})=>{
+ const original=cloth(1),originalLobeArea=meshArea({...original.mesh,faces:original.lobes[0]});
+ const scale=Math.sqrt(lobeArea/originalLobeArea),mesh=structuredClone(original.mesh);
+ mesh.vertices=mesh.vertices.map(v=>({...v,xMm:v.xMm*scale,yMm:v.yMm*scale,zMm:v.zMm*scale}));
+ const before=structuredClone(mesh),report=planarReports(mesh).reports[0];
+ expect(meshArea({...mesh,faces:original.lobes[0]})).toBeCloseTo(lobeArea,12);
+ expect(meshArea({...mesh,faces:original.lobes[1]})).toBeCloseTo(lobeArea,12);
+ // Both examples have the same shape, a sub-2 mm physical/UV bridge, and
+ // equal-sized lobes. Only the independent absolute cloth area crosses 100.
+ expect(scale).toBeLessThan(2);
+ const split=narrowPanelSplit(mesh,report);if(pieces===1)expect(split).toBeUndefined();else expect(split).toHaveLength(2);
+ const p=project();p.pieces=[];p.defaultAllowanceMm=0;p.surface=structuredClone(mesh);
+ const run=await unwrapSurface(resolve('target/release/fpcad-worker.exe'),mesh,p,{method:'arap',partitionStrategy:'design',automaticCuts:true,iterations:30,maxPieces:10});
+ expect(run.pieces).toHaveLength(pieces);exactFaces(before,run.bindings.map(b=>b.report));
+ expect(run.pieces.reduce((sum,p)=>sum+ringArea(p.nodes),0)).toBeCloseTo(lobeArea*2,8);
+ for(const b of run.bindings){expect(b.report.areaErrorMax).toBeLessThanOrEqual(.15);expect(b.report.edgeErrorMax).toBeLessThanOrEqual(.1);expect(b.report.distortionMax).toBeLessThanOrEqual(.15);expect(b.report.seamLengthErrorMm).toBeLessThanOrEqual(.25);}
+ expect(mesh).toEqual(before);
+},30000);
+
+it('preserves the captured 40.72 mm2 three-panel material detail as one native-unfolded piece with every original source face',async()=>{
+ const bytes=readFileSync(new URL('../fixtures/real-small-leg-material-union.json',import.meta.url));
+ expect(createHash('sha256').update(bytes).digest('hex')).toBe('b44f3d608745037915fec48642884cf305b48133ea56867d397d35f67badbbd8');
+ const fixture=JSON.parse(bytes.toString('utf8')) as {mesh:Surface;provenance:{physicalAreaMm2:number}};
+ const mesh=fixture.mesh,before=structuredClone(mesh),p=project();p.pieces=[];p.defaultAllowanceMm=0;p.surface=structuredClone(mesh);
+ expect(mesh.faces).toHaveLength(10);expect(mesh.vertices).toHaveLength(12);
+ const world=new Map(mesh.vertices.map(v=>[v.id,[v.xMm,v.yMm,v.zMm]]));
+ const sub=(a:number[],b:number[])=>a.map((n,i)=>n-b[i]),cross=(a:number[],b:number[])=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+ const sourceArea=mesh.faces.reduce((sum,f)=>{const [a,b,c]=f.vertices.map(id=>world.get(id)!);return sum+Math.hypot(...cross(sub(b,a),sub(c,a)))/2;},0);
+ expect(sourceArea).toBeCloseTo(40.72150656269028,10);expect(sourceArea).toBeCloseTo(fixture.provenance.physicalAreaMm2,10);
+ const run=await unwrapSurface(resolve('target/release/fpcad-worker.exe'),mesh,p,{method:'arap',partitionStrategy:'design',automaticCuts:true,iterations:30,maxPieces:10});
+ expect(run.pieces).toHaveLength(1);expect(run.bindings).toHaveLength(1);exactFaces(before,run.bindings.map(b=>b.report));
+ // Full production flattening may use its measured planar approximation;
+ // physical source coverage is exact, while UV area retains a 1e-6 relative
+ // measurement gate, much stricter than the normal 15% distortion ceiling.
+ expect(Math.abs(ringArea(run.pieces[0].nodes)/sourceArea-1)).toBeLessThanOrEqual(1e-6);
+ const binding=run.bindings[0],flat=new Map(binding.report.uv.map(v=>[v.vertexId,[v.xMm,v.yMm]]));
+ const sourceFaces=new Map(before.faces.map(f=>[f.id,f]));
+ let coveredArea=0;
+ if(binding.trim)for(const t of binding.trim.triangles){
+   const source=sourceFaces.get(t.faceId)!.vertices.map(id=>world.get(id)!);
+   const points=t.barycentric.map(w=>[0,1,2].map(axis=>w.reduce((sum,n,i)=>sum+n*source[i][axis],0)));
+   coveredArea+=Math.hypot(...cross(sub(points[1],points[0]),sub(points[2],points[0])))/2;
+  }
+ else for(const id of binding.report.faceIds){const [a,b,c]=sourceFaces.get(id)!.vertices.map(id=>world.get(id)!);coveredArea+=Math.hypot(...cross(sub(b,a),sub(c,a)))/2;}
+ expect(Math.abs(coveredArea/sourceArea-1)).toBeLessThanOrEqual(1e-8);
+ for(const face of before.faces){
+  const q=face.vertices.map(id=>flat.get(id)!),w=face.vertices.map(id=>world.get(id)!);
+  const area=((q[1][0]-q[0][0])*(q[2][1]-q[0][1])-(q[1][1]-q[0][1])*(q[2][0]-q[0][0]))/2;
+  const physical=Math.hypot(...cross(sub(w[1],w[0]),sub(w[2],w[0])))/2;
+  expect(area).toBeGreaterThan(0);expect(Math.abs(area/physical-1)).toBeLessThanOrEqual(1e-6);
+  for(let i=0;i<3;i++)expect(Math.abs(Math.hypot(...sub(q[i],q[(i+1)%3]))/Math.hypot(...sub(w[i],w[(i+1)%3]))-1)).toBeLessThanOrEqual(1e-6);
+ }
+ expect(binding.report.areaErrorMax).toBeLessThanOrEqual(.15);expect(binding.report.edgeErrorMax).toBeLessThanOrEqual(.1);expect(binding.report.distortionMax).toBeLessThanOrEqual(.15);expect(binding.report.seamLengthErrorMm).toBeLessThanOrEqual(.25);
+ expect(mesh).toEqual(before);
 },30000);

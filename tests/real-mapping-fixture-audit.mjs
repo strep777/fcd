@@ -14,12 +14,14 @@ export async function testedArtifacts(executable,appDirectory){
 }
 export async function auditRuntime(directory){
  const runtime=resolve(directory,'real-input-audit.mjs');
- await build({stdin:{contents:"export {placementMatchesModel} from './packages/reference/placement-review';export {speciesDefaults} from './packages/body/defaults';export {illustrationRegions} from './packages/reference/illustration';export {traceMask} from './apps/desktop/main/reference-segmentation';export {contourBoundaryError,safeContour} from './packages/reference/contour-topology';",resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',packages:'external',outfile:runtime});
+ await build({stdin:{contents:"export {placementMatchesModel} from './packages/reference/placement-review';export {speciesDefaults} from './packages/body/defaults';export {illustrationRegions} from './packages/reference/illustration';export {illustrationSheet} from './packages/reference/sheet-figures';export {pairedJpegColors} from './tests/fixtures/paired-palette-contract';export {traceMask} from './apps/desktop/main/reference-segmentation';export {contourBoundaryError,safeContour} from './packages/reference/contour-topology';",resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',packages:'external',outfile:runtime});
  return import(pathToFileURL(runtime));
 }
 export async function auditMappedProject(project,{worker,helpers,imagePath,crops,diamond}){
  assert(project.surface?.faces.length>0&&project.surface.vertices.length>0,'A real model must exist');
- assert.equal(project.references.length,2);assert.equal(new Set(project.references.map(r=>r.view)).size,2);
+ const sheet=project.references.length===1&&project.references[0].view==='sheet';
+ if(sheet){const ref=project.references[0];assert.equal(ref.illustration.figures.length,2);assert.deepEqual(ref.illustration.figures.map(f=>f.normalZ).sort(),[-1,1]);assert.equal(new Set(ref.illustration.figures.map(f=>f.sourceGroup)).size,2);}
+ else{assert.equal(project.references.length,2);assert.equal(new Set(project.references.map(r=>r.view)).size,2);}
  const pieces=project.patternLibrary.map(r=>r.piece),sourceIds=new Set(pieces.map(p=>p.id)),faceIds=new Set(project.surface.faces.map(f=>f.id));
  assert.equal(sourceIds.size,pieces.length);
  const geometry=[];
@@ -30,16 +32,18 @@ export async function auditMappedProject(project,{worker,helpers,imagePath,crops
  assert.equal(geometry.length,pieces.length);assert.deepEqual(geometry.flatMap(g=>g.issues.filter(i=>i.severity==='error')),[],'Every saved source must remain native-valid');
  const references=[],detail=[];let rawPixels=0,maxAreaRelativeError=0,diamondCheck;
  for(const ref of project.references){
-  const png=Buffer.from(ref.png.split(',')[1],'base64');assert.equal(sha256(png),ref.resources.source.sha256);
-  assert.equal(ref.resources.source.data,ref.png);
+  const png=Buffer.from(ref.png.split(',')[1],'base64');assert.equal(sha256(png),sheet?ref.resources.original.sha256:ref.resources.source.sha256);
+  if(sheet){const input=await readFile(imagePath);assert(Buffer.from(ref.resources.source.data.split(',')[1],'base64').equals(input),'Whole-sheet input bytes must match the original file exactly');assert.equal(ref.resources.source.sha256,sha256(input));}
+  else assert.equal(ref.resources.source.data,ref.png);
   const {data,info}=await sharp(png).ensureAlpha().raw().toBuffer({resolveWithObject:true});
-  const source=await sharp(imagePath).extract(crops[ref.view]).ensureAlpha().raw().toBuffer();assert(data.equals(source),'Stored cropped pixels must match the original input exactly');
+  const source=await (sheet?sharp(imagePath):sharp(imagePath).extract(crops[ref.view])).ensureAlpha().raw().toBuffer();assert(data.equals(source),'Stored original pixels must match the input exactly');
   assert.equal(info.width,ref.width);assert.equal(info.height,ref.height);
-  const detected=helpers.illustrationRegions(ref.width,ref.height,new Uint8Array(data)),library=project.patternLibrary.filter(s=>s.referenceId===ref.id);
+  const detected=sheet?helpers.illustrationSheet(ref.width,ref.height,new Uint8Array(data),true,'character'):helpers.illustrationRegions(ref.width,ref.height,new Uint8Array(data)),library=project.patternLibrary.filter(s=>s.referenceId===ref.id);
+  if(sheet)assert.deepEqual(ref.illustration.figures,detected.figures,'Saved figure ownership and physical facing must match the original sheet');
   assert.equal(detected.regions.length,library.length,'Saved sources must retain every detected original connected component');
   const c=ref.calibration,pixelMm=c.distanceMm/Math.hypot(c.b.x-c.a.x,c.b.y-c.a.y);
   for(const [i,r]of detected.regions.entries()){
-   const saved=library[i];assert.equal(saved.view,ref.view);assert.equal(saved.piece.color,r.color);const native=geometry.find(g=>g.id===saved.piece.id);
+   const saved=library[i];assert.equal(saved.view,ref.view);assert.equal(saved.piece.color,sheet?helpers.pairedJpegColors[r.color]??r.color:r.color);if(sheet)assert.equal(saved.sourceGroup,r.sourceGroup);const native=geometry.find(g=>g.id===saved.piece.id);
    const expected=r.indices.length*pixelMm**2,error=Math.abs(native.areaMm2-expected),relative=error/expected;assert(error<=Math.max(pixelMm**2*1.5,expected*.031),'Actual material area must follow original pixels: '+saved.piece.name);maxAreaRelativeError=Math.max(maxAreaRelativeError,relative);rawPixels+=r.indices.length;
    let minX=ref.width,minY=ref.height,maxX=0,maxY=0;for(const j of r.indices){minX=Math.min(minX,j%ref.width);maxX=Math.max(maxX,j%ref.width);minY=Math.min(minY,Math.floor(j/ref.width));maxY=Math.max(maxY,Math.floor(j/ref.width));}
    const w=maxX-minX+1,h=maxY-minY+1,mask=new Uint8Array(w*h);for(const j of r.indices)mask[(Math.floor(j/ref.width)-minY)*w+j%ref.width-minX]=1;

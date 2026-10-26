@@ -40,7 +40,24 @@ export function terminalPawSupport({width,span,top,head,regions,saturation,value
   }
   // Two competing neutral terminal materials are not sufficient evidence of
   // a unique palm. Keep the existing editable classification in that case.
-  if(candidates.length===1)selected.push(candidates[0]);
+  if(candidates.length===1){
+   const hand=candidates[0],palm=regions[hand.regionIndices[0]],contact=new Set<number>();
+   // Two independent distal tips already establish this palm. A third small
+   // dark claw near its outer end can fall into a coarse torso/tail box;
+   // that positional box must not send the touching claw to a leg. A dark
+   // wrist-side accent still has insufficient evidence to become a claw.
+   // Require direct pixel neighbourhood of the confirmed palm, not merely a
+   // bounding-box overlap with the whole hand or a nearby sleeve/tail.
+   for(const i of palm.indices){const x=i%width,y=Math.floor(i/width);for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++)if(x+dx>=0&&x+dx<width&&y+dy>=0)contact.add((y+dy)*width+x+dx);}
+   for(const [j,tip]of regions.entries()){
+    if(hand.regionIndices.includes(j)||tip.indices.length<6||tip.indices.length>span*span*.0025||mean(tip,value)>.3)continue;
+    if(!['arm','paw','tail','unknown'].includes(tip.part)||['arm','paw'].includes(tip.part)&&tip.side!==side||tip.contexts?.some(c=>!['arm','paw','tail','leg'].includes(c.part)))continue;
+    if(u(centers[j])<=u(centers[hand.regionIndices[0]])+span*.005)continue;
+    const b=boxes[j];if(Math.max(b.maxX-b.minX,b.maxY-b.minY)>span*.065)continue;
+    if(tip.indices.filter(i=>contact.has(i)).length>=Math.max(3,tip.indices.length*.05))hand.regionIndices.push(j);
+   }
+   selected.push(hand);
+  }
  }
  return selected;
 }

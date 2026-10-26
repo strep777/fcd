@@ -83,7 +83,7 @@ try{
  });
  await check('reference-calibration-undo',async()=>{
   await seed();const png=await app.evaluate(({rasterImage})=>rasterImage.createFromBitmap(Buffer.alloc(20*20*4,255),{width:20,height:20}).toPNG().toString('base64')),path=resolve(directory,'calibration.png');await writeFile(path,Buffer.from(png,'base64'));
-  await app.evaluate(({dialog},path)=>dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]}),path);await workflow(page,'references');await page.getByRole('button',{name:'导入单张原图',exact:true}).click();await page.locator('.image-tools').getByRole('button',{name:'两点标定',exact:true}).click();
+  await app.evaluate(({dialog},path)=>dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]}),path);await workflow(page,'references');await page.getByRole('button',{name:'仅导入设定图',exact:true}).click();await page.locator('.image-tools').getByRole('button',{name:'两点标定',exact:true}).click();
   const field=page.getByLabel('标定真实距离',{exact:true}),before=(await read()).project,referenceId=before.references[0].id;
   const publishedRevision=revision=>page.waitForFunction(revision=>new RegExp(`\\bR${revision}\\b`).test(document.querySelector('.app-shell>footer')?.textContent??''),revision,{timeout:5000});
   await field.fill('2000');await page.getByRole('button',{name:'保存标定',exact:true}).click();

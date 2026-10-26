@@ -2,10 +2,10 @@ import type {Piece,Project} from '../schema/index';
 import {mapPiece} from '../pattern/edit';
 type Region=NonNullable<Project['patternLibrary']>[number];
 const rgb=(color:string)=>[1,3,5].map(i=>parseInt(color.slice(i,i+2),16));
-/** Rank only opposite-view pigment candidates. Labels are a hint, not a geometric cut. */
+/** Rank companion pigment candidates anywhere in the reference sheet. Labels are a hint, not a geometric cut. */
 export function companionRegions(base:Region,regions:Region[]){
  const a=rgb(base.piece.color);
- return regions.filter(r=>r.referenceId!==base.referenceId&&r.view!==base.view).map(region=>({region,distance:Math.hypot(...rgb(region.piece.color).map((v,i)=>v-a[i]))+(region.anatomy?.part===base.anatomy?.part?0:35)})).filter(r=>r.distance<110).sort((a,b)=>a.distance-b.distance).map(r=>r.region);
+ return regions.filter(r=>r.piece.id!==base.piece.id).map(region=>({region,distance:Math.hypot(...rgb(region.piece.color).map((v,i)=>v-a[i]))+(region.anatomy?.part===base.anatomy?.part?0:35)})).filter(r=>r.distance<110).sort((a,b)=>a.distance-b.distance).map(r=>r.region);
 }
 function frame(piece:Piece){
  const n=piece.nodes;if(n.length<3)throw Error('INVALID_GEOMETRY');

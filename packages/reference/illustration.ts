@@ -16,6 +16,7 @@ import {refineSourceMaterialOwnership} from './source-material-ownership';
 import {refineSmallBrightDetails} from './image-small-details';
 import {splitStrongPinkInstances} from './pink-instance-separators';
 import {splitFlatPigments} from './flat-pigments';
+import {tailOwnership} from './tail-ownership';
 export type PixelBox={minX:number;minY:number;maxX:number;maxY:number};
 export type IllustrationContext={part:BodyPart;side:BodySide;confidence:number};
 export type IllustrationRegion={part:BodyPart;side:BodySide;color:string;indices:number[];confidence:number;contexts?:IllustrationContext[]};
@@ -25,9 +26,9 @@ const pastelPink=(h:number,s:number)=>s>=.12&&(h<20||h>=330);
 export function pigmentFamily(color:string){const f=hsv(...([1,3,5].map(i=>parseInt(color.slice(i,i+2),16)) as [number,number,number]));return f.v<.28?6:f.s<.23&&!pastelPink(f.h,f.s)?0:f.h<35||f.h>=315?1:f.h<90?2:f.h<165?3:f.h<255?4:5;}
 const box=(indices:number[],w:number):PixelBox=>{let minX=w,minY=Infinity,maxX=0,maxY=0;for(const i of indices){minX=Math.min(minX,i%w);maxX=Math.max(maxX,i%w+1);minY=Math.min(minY,Math.floor(i/w));maxY=Math.max(maxY,Math.floor(i/w)+1);}return {minX,minY,maxX,maxY};};
 /** Illustration colors represent pigment rather than illumination. Thin dark strokes borrow adjacent pigment. */
-export function illustrationRegions(width:number,height:number,rgba:Uint8Array,excludeBackground=true,subject:'character'|'head'|'paw'|'foot'='character'){
+export function illustrationRegions(width:number,height:number,rgba:Uint8Array,excludeBackground=true,subject:'character'|'head'|'paw'|'foot'='character',includeConnectedBodyContexts=false,backgroundEstimator:'mean'|'median'='mean'){
  const size=width*height;if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||size>4096*4096||rgba.length!==size*4)throw Error('IMAGE_LIMIT');
- const foreground=new Uint8Array(size),background=excludeBackground?borderBackground(width,height,rgba):new Uint8Array(size),hue=new Float32Array(size),saturation=new Float32Array(size),value=new Float32Array(size);for(let i=0;i<size;i++){const f=hsv(rgba[i*4],rgba[i*4+1],rgba[i*4+2]);hue[i]=f.h;saturation[i]=f.s;value[i]=f.v;}
+ const foreground=new Uint8Array(size),background=excludeBackground?borderBackground(width,height,rgba,backgroundEstimator):new Uint8Array(size),hue=new Float32Array(size),saturation=new Float32Array(size),value=new Float32Array(size);for(let i=0;i<size;i++){const f=hsv(rgba[i*4],rgba[i*4+1],rgba[i*4+2]);hue[i]=f.h;saturation[i]=f.s;value[i]=f.v;}
  for(let i=0;i<size;i++)foreground[i]=rgba[i*4+3]>=128?1:0;
  // Only flood near-white/transparent border background, retaining enclosed white fur.
  for(let i=0;i<size;i++)if(background[i])foreground[i]=0;
@@ -140,7 +141,7 @@ export function illustrationRegions(width:number,height:number,rgba:Uint8Array,e
  const standing=anatomical?standingLimbSupport(width,height,foreground,saturation,value,bounds.minY,span,headBox,paws):undefined;
  const supportedFeetCenter=supportedFootPair&&!footPair?supportedFootPair.reduce((sum,b)=>sum+(b.minX+b.maxX)/2,0)/2:feetCenter;
  const inferredPawPixels=new Map<number,'left'|'right'>();
- const classify=(i:number):{part:BodyPart;side:BodySide;confidence:number}=>{if(subject!=='character')return {part:subject,side:subject==='head'?'center':'unknown',confidence:1};if(!anatomical)return {part:'unknown',side:'unknown',confidence:0};const inferred=inferredPawPixels.get(i);if(inferred)return {part:'paw',side:inferred,confidence:.78};const x=i%width,y=Math.floor(i/width),t=(y-bounds.minY)/span,center=headCenter+(supportedFeetCenter-headCenter)*Math.max(0,Math.min(1,(t-.2)/.7)),delta=x-center,side:BodySide=Math.abs(delta)<headWidth*.12?'center':delta<0?'left':'right';if(t<.16&&Math.abs(delta)>headWidth*.22)return {part:'ear',side,confidence:.7};if(t<.3)return x<headBox.minX||x>=headBox.maxX?{part:'unknown',side:'unknown',confidence:0}:{part:'head',side:'center',confidence:.85};if(t>.85&&Math.abs(delta)<headWidth*1.1&&supportedFoot(x,y))return {part:'foot',side,confidence:.8};if(paws.some(b=>x>=b.minX-span*.025&&x<=b.maxX+span*.025&&y>=b.minY-span*.03&&y<=b.maxY+span*.035))return {part:'paw',side,confidence:.78};if(standing&&y>=standing.hipY&&Math.abs(delta)<=standing.legHalfWidth)return {part:'leg',side,confidence:.7};if(standing&&y>=standing.hipY&&Math.abs(delta)>standing.legHalfWidth)return {part:'tail',side:'center',confidence:.6};if(standing&&y>=standing.shoulderTop&&y<=standing.shoulderBottom){const seam=standing.shoulderAt(y);if(x<seam.left||x>seam.right)return {part:'arm',side,confidence:.6};}if(t>.53&&Math.abs(delta)>headWidth*.70)return {part:'tail',side:'center',confidence:.6};if(Math.abs(delta)>headWidth*.43&&t<=.70)return {part:'arm',side,confidence:.6};if(t>.70)return {part:'leg',side,confidence:.7};return {part:'body',side:'center',confidence:.82};};
+ const classify=(i:number):{part:BodyPart;side:BodySide;confidence:number}=>{if(subject!=='character')return {part:subject,side:subject==='head'?'center':'unknown',confidence:1};if(!anatomical)return {part:'unknown',side:'unknown',confidence:0};const inferred=inferredPawPixels.get(i);if(inferred)return {part:'paw',side:inferred,confidence:.78};const x=i%width,y=Math.floor(i/width),t=(y-bounds.minY)/span,center=headCenter+(supportedFeetCenter-headCenter)*Math.max(0,Math.min(1,(t-.2)/.7)),delta=x-center,side:BodySide=Math.abs(delta)<headWidth*.12?'center':delta<0?'left':'right',legSide:BodySide=Math.abs(delta)<=.5?'center':delta<0?'left':'right';if(t<.16&&Math.abs(delta)>headWidth*.22)return {part:'ear',side,confidence:.7};if(t<.3)return x<headBox.minX||x>=headBox.maxX?{part:'unknown',side:'unknown',confidence:0}:{part:'head',side:'center',confidence:.85};if(t>.85&&Math.abs(delta)<headWidth*1.1&&supportedFoot(x,y))return {part:'foot',side,confidence:.8};if(paws.some(b=>x>=b.minX-span*.025&&x<=b.maxX+span*.025&&y>=b.minY-span*.03&&y<=b.maxY+span*.035))return {part:'paw',side,confidence:.78};if(standing&&y>=standing.hipY&&Math.abs(delta)<=standing.legHalfWidth)return {part:'leg',side:legSide,confidence:.7};if(standing&&y>=standing.hipY&&Math.abs(delta)>standing.legHalfWidth)return {part:'tail',side:'center',confidence:.6};if(standing&&y>=standing.shoulderTop&&y<=standing.shoulderBottom){const seam=standing.shoulderAt(y);if(x<seam.left||x>seam.right)return {part:'arm',side,confidence:.6};}if(t>.53&&Math.abs(delta)>headWidth*.70)return {part:'tail',side:'center',confidence:.6};if(Math.abs(delta)>headWidth*.43&&t<=.70)return {part:'arm',side,confidence:.6};if(t>.70)return {part:'leg',side:legSide,confidence:.7};return {part:'body',side:'center',confidence:.82};};
  // Candidate support is measured against its anatomical context as well as
  // the whole connected pigment. A white torso can contain most of an arm
  // while that arm is only a few percent of the continuous white source.
@@ -152,6 +153,18 @@ export function illustrationRegions(width:number,height:number,rgba:Uint8Array,e
   .map(ids=>({ids,b:box(ids,width)})).filter(({b})=>b.minY<bounds.minY+span*.06&&b.maxY-b.minY>span*.12&&b.maxX-b.minX>span*.06&&(b.maxX-b.minX)/(b.maxY-b.minY)>.35);
  const darkEarPair=upperDark.flatMap(a=>upperDark.filter(b=>{const ax=(a.b.minX+a.b.maxX)/2,bx=(b.b.minX+b.b.maxX)/2;return ax<headCenter-headWidth*.2&&bx>headCenter+headWidth*.2&&Math.abs((ax+bx)/2-headCenter)<headWidth*.15&&Math.abs((a.b.minY+a.b.maxY-b.b.minY-b.b.maxY)/2)<span*.05;}).map(b=>[a,b] as const))[0];
  const darkEarSupport=new Set(darkEarPair?.flatMap(v=>v.ids)??[]);
+ const tail=subject==='character'&&anatomical?tailOwnership(width,height,foreground,labels,bounds.minY,span,feet):undefined;
+ // The upper thigh overlaps the torso's registration range. Keep it as a
+ // second placement context instead of stealing those pixels from the trunk
+ // or sleeve classifier; a continuous material can belong to both surfaces.
+ const upperLegSide=(i:number):'left'|'right'|undefined=>{
+  if(subject!=='character'||!anatomical||tail?.[i])return;
+  const y=Math.floor(i/width),t=(y-bounds.minY)/span;
+  if(t<=.54||t>=.85||classify(i).part==='paw')return;
+  const center=headCenter+(supportedFeetCenter-headCenter)*Math.max(0,Math.min(1,(t-.2)/.7)),delta=i%width-center;
+  if(Math.abs(delta)<headWidth*.12||Math.abs(delta)>headWidth*.86)return;
+  return delta<0?'left':'right';
+ };
  const regions:IllustrationRegion[]=[],minimum=4;let discardedPixels=0;const fragments:number[]=[];
  for(let label=0;label<8;label++){
   const mask=new Uint8Array(size);for(const i of occupied)if(labels[i]===label)mask[i]=1;
@@ -159,11 +172,16 @@ export function illustrationRegions(width:number,height:number,rgba:Uint8Array,e
   // ink. Preserve independent interiors across those strokes, after removing
   // illumination changes; pink pads retain their own validated soft-ink path.
   let instances=label===2?structureInstances(width,height,mask,ink,rgba,value):pigmentInstances(width,height,mask,ink,label===1?inkBand:undefined,value);
+  if(tail)instances=instances.flatMap(group=>{
+   const tailCount=group.reduce((n,i)=>n+tail[i],0);
+   if(tailCount<64||group.length-tailCount<64)return [group];
+   return [0,1].flatMap(owner=>{const subset=new Uint8Array(size);for(const i of group)if(tail[i]===owner)subset[i]=1;return rasterComponents(width,height,subset);});
+  });
   if(label===1&&subject!=='head')instances=splitStrongPinkInstances(width,height,instances,ink,strongBand,value);
   for(const group of instances){
    if(group.length<minimum){discardedPixels+=group.length;fragments.push(...group);continue;}
    const votes=new Map<string,{part:BodyPart;side:BodySide;confidence:number;count:number}>();
-   for(const i of group){const c=classify(i),key=c.part+':'+c.side,v=votes.get(key)??{...c,count:0};v.count++;votes.set(key,v);}
+   for(const i of group){const c=tail?.[i]?{part:'tail' as const,side:'center' as const,confidence:.65}:classify(i),key=c.part+':'+c.side,v=votes.get(key)??{...c,count:0};v.count++;votes.set(key,v);}
    const winner=[...votes.values()].sort((a,b)=>b.count-a.count)[0];
    // Anatomical transitions are placement candidates, never fabric boundaries.
    // Keep the connected pigment intact; projecting it onto several target
@@ -193,16 +211,40 @@ export function illustrationRegions(width:number,height:number,rgba:Uint8Array,e
     &&groupBox.minX>headCenter-headWidth*.4&&groupBox.maxX<headCenter+headWidth*.4;
    // A compact cap crossing a measured shoulder joint supports both target
    // surfaces. A forearm patch below the joint cannot gain a torso candidate.
+   // A continuous neutral coat can connect the muzzle, chest and both legs.
+   // Measured trunk and bilateral limb support justify separate placement
+   // contexts; keep the original pigment and all its pixels as one source.
+   const contextualWholeBody=includeConnectedBodyContexts&&subject==='character'&&anatomical&&label===0&&supportedTrunk
+    &&['left','right'].every(side=>(votes.get('leg:'+side)?.count??0)>=Math.max(64,(contextPixels.get('leg:'+side)??Infinity)*.2))
+    &&groupBox.minY<bounds.minY+span*.45&&groupBox.maxY>bounds.minY+span*.85;
    const contextualShoulder=subject==='character'&&!!standing&&winner.part==='arm'&&(winner.side==='left'||winner.side==='right')
     &&winner.count/group.length>.65&&group.length>=span*span*.0006&&headPartVotes/group.length<.35
     &&groupBox.minY>=standing.shoulderTop-span*.035&&groupBox.minY<=standing.shoulderTop+span*.035
     &&groupBox.maxY>standing.shoulderTop+span*.025&&groupBox.maxY<=standing.shoulderBottom&&groupBox.maxX-groupBox.minX<headWidth*.3;
-   let contexts=contextualTrunk||collar||contextualHip||contextualChest?[...votes.values()].filter(v=>v.part!=='unknown'&&(!(collar||contextualChest)||v.part==='head'||v.part==='body')
+   let contexts=contextualTrunk||collar||contextualHip||contextualChest||contextualWholeBody?[...votes.values()].filter(v=>v.part!=='unknown'&&(!(collar||contextualChest)||v.part==='head'||v.part==='body')
     &&!( ['arm','leg','paw','foot'].includes(v.part)&&v.side==='center')
     &&v.count>=64&&(v.count>=group.length*.08
-     ||contextualTrunk&&['arm','leg','paw','foot'].includes(v.part)&&v.count>=(contextPixels.get(v.part+':'+v.side)??Infinity)*.2))
+     ||(contextualTrunk||contextualWholeBody)&&['arm','leg','paw','foot'].includes(v.part)&&v.count>=(contextPixels.get(v.part+':'+v.side)??Infinity)*.2))
     .map(v=>({part:v.part,side:v.side,confidence:v.confidence*v.count/group.length})):undefined;
    if(contextualShoulder)contexts=[{part:'arm',side:winner.side,confidence:winner.confidence*winner.count/group.length},{part:'body',side:'center',confidence:.55}];
+   // A flank stripe may cross the hip or continue from the sleeve into a leg.
+   // Preserve independently supported leg contexts even when no single part
+   // owns 65% of the whole colour source. These remain unreviewed placements.
+   if(subject==='character'&&anatomical&&headPartVotes<group.length*.01&&!(winner.part==='arm'&&winner.count/group.length>=.65)){
+    const counts={left:0,right:0};for(const i of group){const c=classify(i),side=upperLegSide(i)??(!tail?.[i]&&c.part==='leg'&&(c.side==='left'||c.side==='right')?c.side:undefined);if(side)counts[side]++;}
+    let legs=(['left','right'] as const).map(side=>({part:'leg' as const,side,confidence:.65,count:counts[side]})).filter(v=>v.count>=Math.max(64,group.length*.15));
+    // A single coloured thigh patch can cross the estimated hip centreline.
+    // That small positional overlap does not support copying it to the other
+    // leg. Retain bilateral candidates for trunk-spanning and neutral coats.
+    if(includeConnectedBodyContexts&&label!==0&&!supportedTrunk&&legs.length===2){
+     const ranked=[...legs].sort((a,b)=>b.count-a.count);
+     if(ranked[0].count>=ranked[1].count*2){
+      legs=[ranked[0]];
+      contexts=contexts?.filter(c=>c.part!=='leg'||c.side===ranked[0].side);
+     }
+    }
+    if(legs.length){contexts??=[];for(const v of legs)if(!contexts.some(c=>c.part===v.part&&c.side===v.side))contexts.push({part:v.part,side:v.side,confidence:v.confidence*v.count/group.length});}
+   }
 
    // A positional majority is not evidence that a connected protrusion is an
    // ear. In particular, colored horns next to ears must not auto-place there.
@@ -248,7 +290,12 @@ export function illustrationRegions(width:number,height:number,rgba:Uint8Array,e
  // independently of whether a particular pigment component gets a safe label.
  // Raised paws do not expand the head frame; ears/horns do not set skull height.
  const contextual=new Map<BodyPart,number[]>(),sided=new Map<string,number[]>();for(const i of occupied){const {part,side}=classify(i);if(part==='head'&&subject==='character'&&(Math.floor(i/width)-bounds.minY)/span<.08)continue;const list=contextual.get(part)??[];list.push(i);contextual.set(part,list);if((side==='left'||side==='right')&&['arm','leg','paw','foot','ear','horn'].includes(part)){const key=part+':'+side,ids=sided.get(key)??[];ids.push(i);sided.set(key,ids);}}
+ // A measured standing hip already provides the limb frame. The overlapping
+ // fallback candidate must not enlarge it with torso or crossed-arm pixels.
+ if(!standing)for(const side of ['left','right'] as const){const key='leg:'+side,extra=occupied.filter(i=>upperLegSide(i)===side);if(extra.length)sided.set(key,[...new Set([...(sided.get(key)??[]),...extra])]);}
+ if(subject==='character'&&anatomical)contextual.set('leg',[...(sided.get('leg:left')??[]),...(sided.get('leg:right')??[])]);
  if(subject==='character'&&anatomical){for(const side of ['left','right'] as const){const key='arm:'+side,ids=sided.get(key);if(ids)sided.set(key,armFrameSupport(width,height,ids,bounds.minY,span,paws));}contextual.set('arm',[...(sided.get('arm:left')??[]),...(sided.get('arm:right')??[])]);}
+ if(tail?.some(Boolean))contextual.set('tail',occupied.filter(i=>tail[i]));
  const partBounds:{part:BodyPart;side?:BodySide;orientationRad?:number;frameCorners?:{x:number;y:number}[];minX:number;minY:number;maxX:number;maxY:number}[]=bodyParts.flatMap(part=>{const ids=contextual.get(part);return ids?.length?[{part,...box(ids,width)}]:[];});
  for(const part of bodyParts)for(const side of ['left','right'] as const){const ids=sided.get(part+':'+side);if(!ids?.length)continue;const mx=ids.reduce((s,i)=>s+i%width,0)/ids.length,my=ids.reduce((s,i)=>s+Math.floor(i/width),0)/ids.length;let xx=0,xy=0,yy=0;for(const i of ids){const x=i%width-mx,y=Math.floor(i/width)-my;xx+=x*x;xy+=x*y;yy+=y*y;}const spread=Math.hypot(xx-yy,2*xy)/(xx+yy||1),orientationRad=.5*Math.atan2(2*xy,xx-yy);let frameCorners:{x:number;y:number}[]|undefined;
   if(spread>.2&&(part==='arm'||part==='leg')){const c=Math.cos(orientationRad),s=Math.sin(orientationRad),pad=.5*(Math.abs(c)+Math.abs(s));let minU=Infinity,maxU=-Infinity,minV=Infinity,maxV=-Infinity;for(const i of ids){const x=i%width-mx,y=Math.floor(i/width)-my,u=c*x+s*y,v=-s*x+c*y;minU=Math.min(minU,u-pad);maxU=Math.max(maxU,u+pad);minV=Math.min(minV,v-pad);maxV=Math.max(maxV,v+pad);}frameCorners=[[minU,minV],[maxU,minV],[maxU,maxV],[minU,maxV]].map(([u,v])=>({x:mx+.5+c*u-s*v,y:my+.5+s*u+c*v}));}

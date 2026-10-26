@@ -1,0 +1,13 @@
+{
+  "description": "Independently prescribed C-shaped cloth with a 40 by 40 mm bay opening through a 10 mm mouth on the right. A 10 mm outward allowance closes the mouth without changing the source seam.",
+  "outer": [[0,0],[100,0],[100,45],[70,45],[70,30],[30,30],[30,70],[70,70],[70,55],[100,55],[100,100],[0,100]],
+  "sourceAreaMm2": 8100,
+  "mouthWidthMm": 10,
+  "allowanceMm": 10,
+  "bayPoint": [50,50],
+  "mouthPoint": [95,50],
+  "survivingHole": [[2.5,37.5],[2.5,62.5],[27.5,62.5],[27.5,37.5]],
+  "survivingHoleCenter": [15,50],
+  "collapsedHole": [[10,47.5],[10,52.5],[15,52.5],[15,47.5]],
+  "collapsedHoleCenter": [12.5,50]
+}

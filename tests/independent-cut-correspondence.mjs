@@ -7,6 +7,9 @@ import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {build} from 'esbuild';
 import {segments as polylineSegments,prepareDistance,distanceBounds,uncoveredLength} from './fixtures/polyline-correspondence-oracle.mjs';
+import {planarArea as area} from './fixtures/independent-planar-area.mjs';
+import {cancelExactTrimInterior} from './fixtures/independent-trim-edge-identity.mjs';
+import {triangleOrientation} from './fixtures/independent-triangle-orientation.mjs';
 
 const args=process.argv.slice(2),inputPath=resolve(args.shift()??''),candidatePath=resolve(args.shift()??'');
 if(!inputPath.endsWith('.json')||!candidatePath.endsWith('.json'))throw Error('Provide input.json and candidate.json paths');
@@ -24,7 +27,6 @@ const report={passed:false,strictSeams,inputPath,candidatePath,inputSha256:diges
 const issues=report.issues,issue=(kind,data)=>{issues.push({kind,...data});};
 const sub=(a,b)=>a.map((v,i)=>v-b[i]),add=(a,b)=>a.map((v,i)=>v+b[i]),mul=(a,n)=>a.map(v=>v*n),dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0),norm=a=>Math.hypot(...a),distance=(a,b)=>norm(sub(a,b)),mix=(a,b,t)=>add(a,mul(sub(b,a),t));
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],cross2=(a,b)=>a[0]*b[1]-a[1]*b[0];
-const area=points=>Math.abs(points.reduce((s,a,i)=>s+cross2(a,points[(i+1)%points.length]),0))/2;
 const uv=p=>[p.xMm,p.yMm],xyz=p=>[p.xMm,p.yMm,p.zMm];
 const vertices=new Map(surface.vertices.map(v=>[v.id,xyz(v)])),faces=new Map(surface.faces.map(f=>[f.id,f])),pieces=new Map(run.pieces.map(p=>[p.id,p]));
 assert.equal(pieces.size,run.pieces.length,'Duplicate piece IDs');
@@ -44,9 +46,13 @@ function addEdge(row,i){
  const j=(i+1)%3,a=row.world[i],b=row.world[j],length=distance(a,b);if(!(length>0)||!Number.isFinite(length)){issue('degenerate-triangle-edge',{pieceId:row.pieceId,faceId:row.faceId});return;}
  // Only the same original face or the same topological source edge may match.
  // Coincident but disconnected surfaces must never become sewing partners.
- const zero=[0,1,2].find(k=>Math.abs(row.bary[i][k])<=limits.barycentric&&Math.abs(row.bary[j][k])<=limits.barycentric),face=faces.get(row.faceId);
+ // Input validation tolerates a small excursion outside a source triangle.
+ // That tolerance cannot identify its topological edges: a short T-segment
+ // near a corner may be genuinely interior although both weights are <1e-8.
+ // Use only composition roundoff here, so its short and long supports agree.
+ const zero=[0,1,2].find(k=>Math.abs(row.bary[i][k])<=64*Number.EPSILON&&Math.abs(row.bary[j][k])<=64*Number.EPSILON),face=faces.get(row.faceId);
  const support=zero===undefined?'face:'+row.faceId:'edge:'+face.vertices.filter((_,k)=>k!==zero).sort().join(':');
- const list=supports.get(support)??[];list.push({pieceId:row.pieceId,faceId:row.faceId,a,b,uvA:row.uv[i],uvB:row.uv[j]});supports.set(support,list);
+ const list=supports.get(support)??[];list.push({pieceId:row.pieceId,faceId:row.faceId,trimA:row.trimIds[i],trimB:row.trimIds[j],a,b,uvA:row.uv[i],uvB:row.uv[j]});supports.set(support,list);
 }
 for(const binding of run.bindings){
  assert(pieces.has(binding.pieceId),'Binding references missing piece');assert(!byPiece.has(binding.pieceId),'Duplicate piece binding');
@@ -57,9 +63,9 @@ for(const binding of run.bindings){
   const face=faces.get(t.faceId);assert(face,'Trim references missing original face');const source=face.vertices.map(id=>vertices.get(id)),points=t.vertices.map(id=>positions.get(id));assert(points.every(Boolean),'Trim references missing UV vertex');
   assert(t.barycentric.every(w=>w.length===3&&w.every(Number.isFinite))&&points.flat().every(Number.isFinite),'Nonfinite trim coordinates');
   if(t.barycentric.some(w=>Math.min(...w)<-limits.barycentric||Math.max(...w)>1+limits.barycentric||Math.abs(w.reduce((a,b)=>a+b,0)-1)>limits.barycentric))issue('barycentric-outside-source',{pieceId:binding.pieceId,faceId:t.faceId,index});
-  const row={pieceId:binding.pieceId,faceId:t.faceId,index,uv:points,bary:t.barycentric,world:t.barycentric.map(w=>weighted(source,w))};
+  const row={pieceId:binding.pieceId,faceId:t.faceId,index,trimIds:t.vertices,uv:points,bary:t.barycentric,world:t.barycentric.map(w=>weighted(source,w))};
   row.coverageRatio=2*area(row.bary.map(w=>[w[1],w[2]]));
-  if(row.coverageRatio<=1e-14||area(points)<=1e-16)issue('degenerate-triangle',{pieceId:row.pieceId,faceId:row.faceId,index});
+  if(!(row.coverageRatio>0&&area(points)>0)||triangleOrientation(row.bary.map(w=>[w[1],w[2]]))<=0||triangleOrientation(points)<=0)issue('degenerate-triangle',{pieceId:row.pieceId,faceId:row.faceId,index});
   rows.push(row);const list=byFace.get(t.faceId)??[];list.push(row);byFace.set(t.faceId,list);for(let i=0;i<3;i++)addEdge(row,i);
  }
  byPiece.set(binding.pieceId,{binding,rows});
@@ -102,11 +108,16 @@ function expose(edge,lo,hi,group){
  const start=dot(sub(edge.a,group.base),group.axis),end=dot(sub(edge.b,group.base),group.axis),u=(lo-start)/(end-start),v=(hi-start)/(end-start);
  const row={pieceId:edge.pieceId,faceId:edge.faceId,uvA:mix(edge.uvA,edge.uvB,u),uvB:mix(edge.uvA,edge.uvB,v)};row.lengthMm=distance(row.uvA,row.uvB);return row;
 }
-for(const [support,edges] of supports){
+for(const [support,rawEdges] of supports){
+ const exact=cancelExactTrimInterior(rawEdges,limits.geometryMm),edges=exact.remaining;internalLengthMm+=exact.internalLengthMm;
  const groups=[];
- for(const edge of edges){let axis=mul(sub(edge.b,edge.a),1/distance(edge.a,edge.b));if((axis.find(v=>Math.abs(v)>1e-12)??1)<0)axis=mul(axis,-1);
+ // Original source-edge identity supplies an exact common line, even for
+ // nanometre spans whose independently normalized floating directions differ.
+ const sourceEdge=support.startsWith('edge:')?support.slice(5).split(':').map(id=>vertices.get(id)):null;
+ const sourceBase=sourceEdge?.[0],sourceAxis=sourceEdge?mul(sub(sourceEdge[1],sourceEdge[0]),1/distance(sourceEdge[0],sourceEdge[1])):null;
+ for(const edge of edges){let axis=sourceAxis??mul(sub(edge.b,edge.a),1/distance(edge.a,edge.b));if((axis.find(v=>Math.abs(v)>1e-12)??1)<0)axis=mul(axis,-1);
   let group=groups.find(g=>norm(cross(g.axis,axis))<1e-7&&norm(cross(sub(edge.a,g.base),g.axis))<=limits.geometryMm&&norm(cross(sub(edge.b,g.base),g.axis))<=limits.geometryMm);
-  if(!group){group={axis,base:edge.a,edges:[]};groups.push(group);}group.edges.push(edge);
+  if(!group){group={axis,base:sourceBase??edge.a,edges:[]};groups.push(group);}group.edges.push(edge);
  }
  for(const group of groups){
   const spans=group.edges.map(e=>{const a=dot(sub(e.a,group.base),group.axis),b=dot(sub(e.b,group.base),group.axis);return {edge:e,lo:Math.min(a,b),hi:Math.max(a,b)};}),raw=spans.flatMap(s=>[s.lo,s.hi]).sort((a,b)=>a-b),cuts=[];

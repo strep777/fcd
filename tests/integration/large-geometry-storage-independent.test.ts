@@ -1,0 +1,77 @@
+import {afterEach,expect,it} from 'vitest';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve,dirname,basename} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import UPNG from '@pdf-lib/upng';
+import {Repository,hash} from '../../apps/desktop/main/repository';
+import {referenceFromPng} from '../../apps/desktop/main/references';
+import {bindingIssues,cutColorHash,pieceGeometryHash} from '../../apps/desktop/main/surface';
+import {markingFingerprint,markingIssues,staleMarkingIds} from '../../apps/desktop/main/markings';
+import {pack,unpack} from '../../apps/desktop/main/archive';
+import {referenceKey} from '../../packages/reference/resources';
+import {projectSchema,surfaceSchema,pieceSchema,markingSchema,referenceSchema,type Binding,type Marking,type Project,type Surface} from '../../packages/schema/index';
+import {project,rectangle} from '../fixtures';
+
+// A genuine planar fan with exact identity UVs, source paint and a saved cut.
+// Its business arrays exceed the persistence threshold without local UI data.
+function largeProject():Project{
+ const p=project(),count=1500,sourceId=randomUUID(),referenceId=randomUUID(),surfaceId=randomUUID();
+ const nodes=Array.from({length:count},(_,i)=>({id:randomUUID(),xMm:200+100*Math.cos(i*2*Math.PI/count),yMm:200+100*Math.sin(i*2*Math.PI/count)}));
+ const paper=pieceSchema.parse({...rectangle(),name:'Dense circular planar cloth',allowanceMm:0,nodes,sourceMaskId:sourceId}),centre={id:randomUUID(),xMm:200,yMm:200,zMm:0},vertices=nodes.map(node=>({...node,zMm:0}));
+ const surface:Surface=surfaceSchema.parse({id:surfaceId,source:'obj',topologyVersion:1,vertices:[centre,...vertices],faces:vertices.map((v,i)=>({id:randomUUID(),region:'cloth',vertices:[centre.id,v.id,vertices[(i+1)%count].id]})),cutConstraints:[]});
+ const surfaceHash=hash(JSON.stringify(surface)),geometryHash=pieceGeometryHash(paper),binding:Binding={pieceId:paper.id,surfaceId,topologyVersion:1,geometryHash,surfaceHash,report:{faceIds:surface.faces.map(face=>face.id),uv:surface.vertices.map(({id,xMm,yMm})=>({vertexId:id,xMm,yMm})),boundary:vertices.map(v=>v.id),areaErrorMax:0,edgeErrorMax:0,distortionMean:0,distortionP95:0,distortionMax:0,status:'acceptable'},trim:{vertices:surface.vertices.map(({id,xMm,yMm})=>({id,xMm,yMm})),boundary:vertices.map(v=>v.id),holes:[],triangles:surface.faces.map(face=>({faceId:face.id,vertices:face.vertices,barycentric:[[1,0,0],[0,1,0],[0,0,1]]}))}};
+ const ring=nodes.map(({xMm,yMm})=>({xMm,yMm})),shape={nodes:ring,origin:[0,0,0] as [number,number,number],axes:[[1,0,0],[0,1,0],[0,0,1]] as [[number,number,number],[number,number,number],[number,number,number]]};
+ const paint:Marking=markingSchema.parse({id:randomUUID(),name:'Locked physical source',color:'#2086ba',source:'surface',sourceHash:hash(JSON.stringify(shape)),surfaceId,topologyVersion:1,surfaceHash,view:'front',offsetXmm:0,offsetYmm:0,locked:true,surfaceShape:shape,fragments:surface.faces.map(face=>({faceId:face.id,rings:[[[1,0,0],[0,1,0],[0,0,1]]]})),paths:[{pieceId:paper.id,geometryHash,rings:[ring]}]});
+ const infer=(name:string,reviewed:boolean,stale:boolean):Marking=>({...structuredClone(paint),id:randomUUID(),name,source:'inferred',locked:false,surfaceShape:undefined,sourceHash:markingFingerprint(paint),inference:{algorithm:'exact-symmetry-x-1',sourceMarkingId:paint.id,sourceFingerprint:stale?'0'.repeat(64):markingFingerprint(paint),distanceMm:400,planeXmm:200,reviewed}});
+ p.surface=surface;p.pieces=[paper];p.markings=[paint,infer('Stale reviewed dependency',true,true),infer('Valid unreviewed inference',false,false)];p.previewMarkings=structuredClone(p.markings);binding.colorHash=cutColorHash(p);p.bindings=[binding];p.seams=[];
+ p.surfaceRun={sourceHash:surfaceHash,algorithm:'lscm-cg-1',pieces:structuredClone(p.pieces),bindings:structuredClone(p.bindings),accepted:true};
+ p.patternLibrary=[{piece:structuredClone(paper),referenceId,view:'sheet',category:'body',fabrication:'sewn'}];
+ const codec=(UPNG as unknown as {default?:typeof UPNG}).default??UPNG,rgba=new Uint8Array(256*256*4);for(let i=0;i<rgba.length;i+=4)rgba.set([32,134,186,255],i);const reference=referenceSchema.parse({...referenceFromPng(Buffer.from(codec.encode([rgba.buffer],256,256,0)),'Synthetic cloth source','sheet'),id:referenceId});p.references=[reference];
+ p.maskSources=[{id:sourceId,referenceId,sourceHash:hash(referenceKey(reference)),mask:{width:256,height:256,pixels:'1'.repeat(256*256)},algorithm:'manual-mask-1',calibration:{a:{x:0,y:0},b:{x:0,y:256},distanceMm:256},originalWidth:256,originalHeight:256}];
+ p.modelLibrary=[{id:surfaceId,name:'Active stored planar model',surface:structuredClone(surface),pieces:structuredClone(p.pieces),bindings:structuredClone(p.bindings),markings:structuredClone(p.markings),seams:[]}];
+ p.cuttingLibrary=[{id:randomUUID(),name:'Immutable saved planar cut',createdAt:p.createdAt,sourceRevision:0,surface:structuredClone(surface),run:structuredClone(p.surfaceRun),markings:structuredClone(p.markings),seams:[]}];
+ return projectSchema.parse(p);
+}
+const fields=['pieces','bindings','markings','previewMarkings','surfaceRun','patternLibrary','maskSources'] as const;
+const geometry=(p:Project)=>({surface:p.surface,pieces:p.pieces,bindings:p.bindings,markings:p.markings,previewMarkings:p.previewMarkings,surfaceRun:p.surfaceRun,patternLibrary:p.patternLibrary,maskSources:p.maskSources,modelLibrary:p.modelLibrary,cuttingLibrary:p.cuttingLibrary,seams:p.seams});
+const dependencies=(p:Project)=>({binding:bindingIssues(p),marking:markingIssues(p),stale:[...staleMarkingIds(p)].sort(),approval:p.markings?.map(m=>({id:m.id,locked:m.locked,reviewed:m.inference?.reviewed,fingerprint:m.inference?.sourceFingerprint}))});
+const resourceRows=(repo:Repository)=>repo.db.prepare('SELECT digest,json FROM resources ORDER BY digest').all();
+const raw=(repo:Repository)=>JSON.parse(String(repo.row()!.state)) as Record<string,unknown>;
+const paths:string[]=[];
+afterEach(async()=>{for(const path of paths.splice(0)){const absolute=resolve(path);expect(dirname(absolute).toLowerCase()).toBe(resolve(tmpdir()).toLowerCase());expect(basename(absolute).startsWith('fpcad-large-storage-')).toBe(true);await rm(absolute,{recursive:true,force:true});}});
+async function database(){const dir=await mkdtemp(join(tmpdir(),'fpcad-large-storage-'));paths.push(dir);return join(dir,'workspace.sqlite');}
+function assertDependencies(p:Project){expect(staleMarkingIds(p)).toEqual(new Set([p.markings![1].id]));expect(markingIssues(p).map(issue=>issue.messageKey)).toEqual(['STALE_MARKING','INFERRED_MARKING_REVIEW']);expect(p.markings![0].locked).toBe(true);expect(p.markings![1].inference!.reviewed).toBe(true);expect(p.markings![2].inference!.reviewed).toBe(false);}
+
+it('all seven large business fields and the active model reopen with exact geometry, approval and archive data',async()=>{
+ const path=await database(),p=largeProject();for(const field of fields)expect(JSON.stringify(p[field]).length,field).toBeGreaterThanOrEqual(64*1024);for(const field of ['pieces','bindings','markings'] as const)expect(JSON.stringify(p.modelLibrary![0][field]).length).toBeGreaterThanOrEqual(64*1024);
+ let repo=new Repository(path);try{expect(repo.open(p,null)).toEqual(p);const stored=raw(repo);for(const field of fields)expect(stored[field],field).toMatch(/^sqlite-resource:[a-f0-9]{64}$/);const model=(stored.modelLibrary as Record<string,unknown>[])[0];for(const field of ['pieces','bindings','markings'])expect(model[field]).toMatch(/^sqlite-resource:[a-f0-9]{64}$/);expect(String(repo.row()!.state).length).toBeLessThan(JSON.stringify(p).length/10);repo.close();repo=new Repository(path);expect(repo.startupNotice).toBeUndefined();expect(repo.snapshot()).toEqual(p);expect(bindingIssues(repo.snapshot()!)).toEqual([]);assertDependencies(repo.snapshot()!);expect(unpack(pack(repo.snapshot()!).bytes)).toEqual(p);}finally{repo.close();}
+});
+
+it('rename, undo and redo return the committed state while preserving every geometry value and reusing large assets',()=>{
+ const repo=new Repository(':memory:'),p=largeProject();try{repo.open(p,null);const initial=repo.snapshot()!,assets=resourceRows(repo),expected=geometry(initial),checks=dependencies(initial);const renamed=repo.commit({type:'project.rename',name:'Renamed without geometric work'},randomUUID(),'rename');expect(renamed).toEqual(repo.snapshot());expect(renamed.name).toBe('Renamed without geometric work');expect(geometry(renamed)).toEqual(expected);expect(dependencies(renamed)).toEqual(checks);const undone=repo.historyMove(false);expect(undone).toEqual(repo.snapshot());expect(undone.name).toBe(p.name);expect(undone.revision).toBe(2);expect(geometry(undone)).toEqual(expected);const redone=repo.historyMove(true);expect(redone).toEqual(repo.snapshot());expect(redone.name).toBe(renamed.name);expect(redone.revision).toBe(3);expect(geometry(redone)).toEqual(expected);expect(dependencies(redone)).toEqual(checks);expect(resourceRows(repo)).toEqual(assets);expect(repo.status()).toMatchObject({canUndo:true,canRedo:false});}finally{repo.close();}
+});
+
+it('large legacy inline session, command, request and recovery records remain readable through migration and history',async()=>{
+ const path=await database(),p=largeProject();let repo=new Repository(path);try{repo.open(p,null);const requestId=randomUUID(),after=repo.commit({type:'project.rename',name:'Legacy renamed project'},requestId,'legacy'),beforeJson=JSON.stringify(p),afterJson=JSON.stringify(after);repo.db.prepare('UPDATE sessions SET state=?').run(afterJson);repo.db.prepare('UPDATE commands SET before_state=?,after_state=?').run(beforeJson,afterJson);repo.db.prepare('UPDATE requests SET response=?').run(afterJson);repo.db.prepare('UPDATE recovery SET state=?,checksum=?').run(beforeJson,hash(beforeJson));repo.db.exec('DELETE FROM resources');repo.close();repo=new Repository(path);expect(repo.snapshot()).toEqual(after);expect(repo.replay(requestId,'legacy')).toBe(true);expect(geometry(repo.historyMove(false))).toEqual(geometry(p));expect(repo.snapshot()!.name).toBe(p.name);expect(geometry(repo.historyMove(true))).toEqual(geometry(p));expect(repo.snapshot()!.name).toBe(after.name);repo.restore(0);expect(repo.snapshot()!.name).toBe(p.name);expect(geometry(repo.snapshot()!)).toEqual(geometry(p));assertDependencies(repo.snapshot()!);}finally{repo.close();}
+});
+
+it('recovery snapshots and recorded replay responses preserve both earlier and later large geometry',()=>{
+ const repo=new Repository(':memory:'),p=largeProject();try{repo.open(p,null);const before=repo.snapshot()!,changed=structuredClone(p.pieces[0]);changed.nodes[0].xMm+=.125;const requestId=randomUUID(),edited=repo.commit({type:'piece.put',piece:changed},requestId,'changed');repo.checkpoint();const renamed=repo.commit({type:'project.rename',name:'Latest'},randomUUID(),'latest');expect(repo.replay(requestId,'changed')).toBe(true);expect(repo.snapshot()).toEqual(renamed);repo.restore(0);expect(geometry(repo.snapshot()!)).toEqual(geometry(before));repo.restore(edited.revision);expect(geometry(repo.snapshot()!)).toEqual(geometry(edited));const replayState=repo.db.prepare('SELECT response FROM requests WHERE request_id=?').get(requestId)!.response;repo.open(project(),null);repo.db.prepare('UPDATE sessions SET state=? WHERE id=?').run(String(replayState),repo.sessionId!);expect(repo.snapshot()).toEqual(edited);expect(bindingIssues(repo.snapshot()!).map(issue=>issue.messageKey)).toEqual(['STALE_BINDING']);}finally{repo.close();}
+});
+
+it('deleting another session preserves shared large assets and earlier geometry owned only by surviving history/recovery/replay',()=>{
+ const repo=new Repository(':memory:'),p=largeProject();try{repo.open(p,null);const survivor=repo.sessionId!,original=repo.snapshot()!,changed=structuredClone(p.pieces[0]);changed.nodes[0].xMm+=.25;const requestId=randomUUID();repo.commit({type:'piece.put',piece:changed},requestId,'edit');repo.checkpoint();const edited=repo.snapshot()!;repo.open(p,null);const shared=repo.sessionId!;repo.open(project(),null);const unrelated=repo.sessionId!;repo.activate(survivor);expect(repo.deleteSession(unrelated)).toBe(true);expect(repo.snapshot()).toEqual(edited);expect(repo.deleteSession(shared)).toBe(true);expect(repo.snapshot()).toEqual(edited);expect(repo.replay(requestId,'edit')).toBe(true);expect(geometry(repo.historyMove(false))).toEqual(geometry(original));expect(geometry(repo.historyMove(true))).toEqual(geometry(edited));repo.restore(0);expect(geometry(repo.snapshot()!)).toEqual(geometry(original));expect(repo.maintenanceWarning).toBeUndefined();}finally{repo.close();}
+});
+
+it('a failed large edit rolls back resource rows, history, recovery and request identity before a successful retry',()=>{
+ const repo=new Repository(':memory:'),p=largeProject();try{repo.open(p,null);const before=repo.snapshot(),status=repo.status(),assets=resourceRows(repo),state=String(repo.row()!.state),requestId=randomUUID(),changed=structuredClone(p.pieces[0]);changed.nodes[0].yMm+=.5;expect(()=>repo.commit({type:'piece.put',piece:changed},requestId,'retry',checkpoint=>{checkpoint();throw new Error('injected post-checkpoint transaction failure');})).toThrow('injected post-checkpoint transaction failure');expect(repo.snapshot()).toEqual(before);expect(String(repo.row()!.state)).toBe(state);expect(repo.status()).toEqual(status);expect(resourceRows(repo)).toEqual(assets);expect(repo.replay(requestId,'retry')).toBe(false);const retry=repo.commit({type:'piece.put',piece:changed},requestId,'retry');expect(retry.revision).toBe(1);expect(retry.pieces[0]).toEqual(changed);expect(repo.replay(requestId,'retry')).toBe(true);expect(repo.status().history).toHaveLength(1);}finally{repo.close();}
+});
+
+it('storage and history never repair an invalid binding or approve valid-but-unreviewed inference',async()=>{
+ const path=await database(),p=largeProject();p.bindings![0].geometryHash='0'.repeat(64);p.bindings![0].colorHash='0'.repeat(64);p.modelLibrary![0].bindings=structuredClone(p.bindings);let repo=new Repository(path);try{repo.open(p,null);const checks=dependencies(p);expect(checks.binding.map(issue=>issue.messageKey)).toEqual(['STALE_BINDING']);assertDependencies(p);const renamed=repo.commit({type:'project.rename',name:'Invalid stays invalid'},randomUUID(),'stale');expect(dependencies(renamed)).toEqual(checks);expect(dependencies(repo.historyMove(false))).toEqual(checks);expect(dependencies(repo.historyMove(true))).toEqual(checks);repo.close();repo=new Repository(path);expect(dependencies(repo.snapshot()!)).toEqual(checks);expect(repo.snapshot()!.bindings![0].geometryHash).toBe('0'.repeat(64));assertDependencies(repo.snapshot()!);}finally{repo.close();}
+});
+
+it('ordinary small projects retain their inline data and failed locked-source deletion leaves the large project intact',()=>{
+ const repo=new Repository(':memory:');try{const small=project();repo.open(small,null);expect(Array.isArray(raw(repo).pieces)).toBe(true);expect(repo.snapshot()).toEqual(small);const large=largeProject();repo.open(large,null);const before=repo.snapshot(),status=repo.status(),assets=resourceRows(repo);expect(()=>repo.commit({type:'marking.delete',markingId:large.markings![0].id},randomUUID(),'locked')).toThrow('MARKING_LOCKED');expect(repo.snapshot()).toEqual(before);expect(repo.status()).toEqual(status);expect(resourceRows(repo)).toEqual(assets);}finally{repo.close();}
+});

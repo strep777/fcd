@@ -1,4 +1,5 @@
 import {insertTrimBoundary} from './trim-boundary';
+import {designMaterials} from './design-materials';
 import {weldClosedTrimDarts} from './trim-weld';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -22,8 +23,8 @@ const bary=(rings:[number,number][][])=>rings.map(r=>r.map(([u,v])=>{const raw=[
  * fragments independently before NonZero layer booleans; parity across multiple
  * fragments would incorrectly XOR overlapping painted layers. */
 async function resolveDesignTiles(worker:string,project:Project,includeBase=true){
- const layers=new Map<string,DesignRow[]>();
- for(const marking of project.markings??[])for(const fragment of marking.fragments){const rows=layers.get(fragment.faceId)??[];rows.push({marking,rings:fragment.rings.map(r=>r.map(w=>[w[1]*1000,w[2]*1000]))});layers.set(fragment.faceId,rows);}
+ const layers=new Map<string,DesignRow[]>(),materials=designMaterials(project);
+ for(const original of (project.markings??[]).filter(m=>m.fabrication!=='detail')){const marking={...original,color:materials.color(original)};for(const fragment of marking.fragments){const rows=layers.get(fragment.faceId)??[];rows.push({marking,rings:fragment.rings.map(r=>r.map(w=>[w[1]*1000,w[2]*1000]))});layers.set(fragment.faceId,rows);}}
  const vertices=new Map(project.surface!.vertices.map(v=>[v.id,v])),tiles=new Map<string,MaterialTile[]>();let pending=project.surface!.faces;
  // Retry only inconsistent faces, keeping one shared lattice for every Boolean
  // on that face. Grid displacement stays below the physical 1e-6 mm budget.
@@ -35,34 +36,48 @@ async function resolveDesignTiles(worker:string,project:Project,includeBase=true
   const entries=[...domains.values()],unions=await clip(worker,entries.map(d=>({origin:faceGridOrigin,subjects:d.rings,union:true})),digits),byFace=new Map<string,{color:string;rings:[number,number][][];expected:number}[]>();
   entries.forEach((d,i)=>{const list=byFace.get(d.faceId)??[];list.push({color:d.color,rings:unions[i],expected:area(d.rings)});byFace.set(d.faceId,list);});
   const occupied=await clip(worker,eligible.map(f=>({origin:faceGridOrigin,subjects:(byFace.get(f.id)??[]).flatMap(t=>t.rings),union:true})),digits),bases=await clip(worker,eligible.map((f,i)=>({origin:faceGridOrigin,subjects:triangle,subtract:occupied[i]})),digits),solved=new Set<string>();
+  // The reference white and the unpainted base are one fabric. Subtract only
+  // the other visible materials so their shared internal boundary never
+  // enters triangulation, while retaining every non-white material and hole.
+  const filledBase=includeBase?await clip(worker,eligible.map(f=>({origin:faceGridOrigin,subjects:triangle,subtract:(byFace.get(f.id)??[]).filter(t=>t.color!==materials.baseColor).flatMap(t=>t.rings)})),digits):bases;
   eligible.forEach((f,i)=>{const [a,b,c]=f.vertices.map(id=>vertices.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],v=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm],physicalArea=Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])/2,tolerance=Math.max(1e-6,physicalArea*1e-8)*500000/physicalArea,list=byFace.get(f.id)??[],coloredArea=list.reduce((sum,t)=>sum+area(t.rings),0);
    // The independent sum of mutually exclusive colors detects a corrupt union;
    // union + its own complement alone is a tautological coverage check.
    if(list.some(t=>Math.abs(area(t.rings)-t.expected)>tolerance)||Math.abs(area(occupied[i])-coloredArea)>tolerance||Math.abs(coloredArea+area(bases[i])-500000)>tolerance)return;
-   tiles.set(f.id,[...list.filter(t=>t.rings.length).map(t=>({faceId:f.id,color:t.color,rings:bary(t.rings)})),...(includeBase&&bases[i].length?[{faceId:f.id,color:'#eceae5',rings:bary(bases[i])}]:[])]);solved.add(f.id);
+   if(includeBase&&Math.abs(area(filledBase[i])-area(bases[i])-list.filter(t=>t.color===materials.baseColor).reduce((s,t)=>s+area(t.rings),0))>tolerance)return;
+   tiles.set(f.id,[...list.filter(t=>t.rings.length&&(!includeBase||t.color!==materials.baseColor)).map(t=>({faceId:f.id,color:t.color,rings:bary(t.rings)})),...(includeBase&&filledBase[i].length?[{faceId:f.id,color:materials.baseColor,rings:bary(filledBase[i])}]:[])]);solved.add(f.id);
   });
   pending=pending.filter(f=>!solved.has(f.id));if(!pending.length)return [...tiles.values()].flat();
  }
  throw new DomainError('COLOR_CUT_BOUNDARY');
 }
 export async function visibleDesignMarkings(worker:string,project:Project){
- const tiles=await resolveDesignTiles(worker,project,false),result=new Map<string,NonNullable<Project['markings']>[number]>();for(const t of tiles){const source=project.markings!.find(m=>m.color===t.color)!,marking=result.get(t.color)??{...source,id:randomUUID(),fragments:[],paths:[]};marking.fragments.push({faceId:t.faceId,rings:t.rings});result.set(t.color,marking);}return [...result.values()];
+ const tiles=await resolveDesignTiles(worker,project,false),materials=designMaterials(project),result=new Map<string,NonNullable<Project['markings']>[number]>();for(const t of tiles){const source=project.markings!.find(m=>materials.color(m)===t.color&&m.fabrication!=='detail')!,marking=result.get(t.color)??{...source,id:randomUUID(),color:t.color,fragments:[],paths:[]};marking.fragments.push({faceId:t.faceId,rings:t.rings});result.set(t.color,marking);}return [...result.values()];
 }
 let designTriangulator:Promise<Awaited<ReturnType<typeof Module>>>|undefined;
 export async function prepareDesignSurface(worker:string,project:Project,colorBoundaries:boolean,allowTopologyCuts=true,directory=resolve('dist/assets')){
- if(!colorBoundaries||!project.markings?.length)return materialCutMesh(project.surface!,[],randomUUID,allowTopologyCuts);
+ if(!colorBoundaries||!project.markings?.length)return materialCutMesh(project.surface!,[],randomUUID,allowTopologyCuts,colorBoundaries?designMaterials(project).baseColor:undefined);
  const tiles=await resolveDesignTiles(worker,project);
  const wasm=await (designTriangulator??=(async()=>{const load=(await import(pathToFileURL(resolve(directory,'manifold.mjs')).href)).default as typeof Module,wasm=await load({locateFile:()=>resolve(directory,'manifold.wasm')});wasm.setup();return wasm;})()),partition=triangulateMaterialTiles(project.surface!,tiles,rings=>wasm.triangulate(rings,1e-9,false),randomUUID);return {...openMaterialMesh(partition.surface,partition.provenance,randomUUID,allowTopologyCuts),canonicalization:partition.canonicalization};
 }
 
 export async function unwrapDesignSurface(worker:string,project:Project,working:Awaited<ReturnType<typeof prepareDesignSurface>>,options:UnwrapOptions){
+ // Coincident source edges can be an intentional imported seam. Only remove
+ // a trial cut when its two faces descend from the same source triangle or
+ // triangles that actually shared vertex identities across a source edge.
+ const sourceEdges=new Map<string,string[]>(),neighbours=new Map<string,Set<string>>();
+ const locked=new Set((project.surface!.cutConstraints??[]).filter(e=>e.locked).map(e=>[e.a,e.b].sort().join(':')));
+ for(const f of project.surface!.faces)for(let i=0;i<3;i++){const key=[f.vertices[i],f.vertices[(i+1)%3]].sort().join(':');const rows=sourceEdges.get(key)??[];rows.push(f.id);sourceEdges.set(key,rows);}
+ for(const [key,rows]of sourceEdges)if(rows.length===2&&!locked.has(key))for(const [a,b]of [[rows[0],rows[1]],[rows[1],rows[0]]]){const ids=neighbours.get(a)??new Set<string>();ids.add(b);neighbours.set(a,ids);}
+ const canRejoinSourceFaces=(a:string,b:string)=>{const x=working.provenance.get(a)?.faceId,y=working.provenance.get(b)?.faceId;return !!x&&!!y&&(x===y||neighbours.get(x)?.has(y)===true);};
  let run=await unwrapSurface(worker,working.surface,project,{...options,optimizeCuts:false},undefined,mesh=>{working.surface=mesh;},(mesh,children)=>{
   // Compose every new station with its original-model barycentric triangle.
   // Neighbouring charts refined only for conformity require the same update.
   const provenance=refineMaterialProvenance(working.provenance,children);if(!provenance)return false;
   working.provenance=provenance;
   working.surface=mesh;
- },project.surface),distortionSeams=0,manufacturingSeams=run.designCutReport?.manufacturingSeams??0;
+ },project.surface,canRejoinSourceFaces),distortionSeams=0,manufacturingSeams=run.designCutReport?.manufacturingSeams??0;
+ if(options.colorBoundaryCuts){const materials=designMaterials(project);run.materialPalette={algorithm:'reference-fabric-1',baseColor:materials.baseColor,markings:(project.markings??[]).filter(m=>m.fabrication!=='detail').map(m=>({markingId:m.id,color:materials.color(m)}))};}
  run.designCutReport={materialDomains:working.materialDomains,userSeams:project.surface!.cutLines?.filter(l=>l.enabled).length??0,topologySeams:working.topologySeams+(run.designCutReport?.topologySeams??0),distortionSeams:distortionSeams+(run.designCutReport?.distortionSeams??0),manufacturingSeams};return {run,distortionSeams};
 }
 /** Refined solver faces are temporary. Store an exact barycentric material mesh
@@ -71,14 +86,14 @@ export function restoreDesignBindings(project:Project,working:Awaited<ReturnType
  const source=project.surface!,faces=new Map(working.surface.faces.map(f=>[f.id,f])),originals=new Map(source.faces.map(f=>[f.id,f])),surfaceHash=hash(JSON.stringify(source)),vertices=new Map(source.vertices.map(v=>[v.id,v])),sourceAreas=new Map(source.faces.map(f=>{const [a,b,c]=f.vertices.map(id=>vertices.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],v=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm];return [f.id,Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])/2];}));
  for(const binding of run.bindings){const uv=new Map(binding.report.uv.map(v=>[v.vertexId,v])),used=new Set<string>(),triangles:NonNullable<Binding['trim']>['triangles']=[],originalFaces=new Set<string>(),metadata:MaterialFace[]=[];
   for(const id of binding.report.faceIds){const face=faces.get(id),material=working.provenance.get(id);if(!face||!material)throw new DomainError('STALE_BINDING');face.vertices.forEach(v=>used.add(v));originalFaces.add(material.faceId);metadata.push(material);triangles.push({faceId:material.faceId,vertices:face.vertices,barycentric:material.barycentric});}
-  binding.trim={vertices:[...used].map(id=>{const p=uv.get(id)!;return {id,xMm:p.xMm,yMm:p.yMm};}),triangles,boundary:binding.report.boundary,holes:[]};
+  binding.trim={vertices:[...used].map(id=>{const p=uv.get(id)!;return {id,xMm:p.xMm,yMm:p.yMm};}),triangles,boundary:binding.report.boundary,holes:binding.report.holes??[]};
   weldClosedTrimDarts(binding.trim,source);
   const originalUv=new Map<string,{vertexId:string;xMm:number;yMm:number}>();
   // UV corners are diagnostic support; the exact inverse uses trim triangles.
   for(let i=0;i<metadata.length;i++){const m=metadata[i],t=triangles[i],p=t.vertices.map(id=>uv.get(id)!),a=m.barycentric.map(b=>[b[1],b[2]]),den=(a[1][0]-a[0][0])*(a[2][1]-a[0][1])-(a[2][0]-a[0][0])*(a[1][1]-a[0][1]);if(Math.abs(den)<1e-14)continue;
    originals.get(m.faceId)!.vertices.forEach((id,k)=>{if(originalUv.has(id))return;const q=[[0,0],[1,0],[0,1]][k],v=((q[0]-a[0][0])*(a[2][1]-a[0][1])-(q[1]-a[0][1])*(a[2][0]-a[0][0]))/den,w=((a[1][0]-a[0][0])*(q[1]-a[0][1])-(a[1][1]-a[0][1])*(q[0]-a[0][0]))/den;originalUv.set(id,{vertexId:id,xMm:p[0].xMm*(1-v-w)+p[1].xMm*v+p[2].xMm*w,yMm:p[0].yMm*(1-v-w)+p[1].yMm*v+p[2].yMm*w});});
   }
-  const piece=run.pieces.find(p=>p.id===binding.pieceId)!,regions=new Map<string,number>();for(const m of metadata){const [a,b,c]=m.barycentric,area=Math.abs((b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1]))*sourceAreas.get(m.faceId)!,region=originals.get(m.faceId)!.region;regions.set(region,(regions.get(region)??0)+area);}const dominant=[...regions].sort((a,b)=>b[1]-a[1])[0]?.[0];piece.name=(dominant||'Combined panel')+' / '+(run.pieces.indexOf(piece)+1);binding.trim.boundary=piece.nodes.map(n=>insertTrimBoundary(binding.trim!,[n.xMm,n.yMm]));binding.trim.holes=(piece.holes??[]).map(r=>r.map(n=>insertTrimBoundary(binding.trim!,[n.xMm,n.yMm])));piece.color=metadata[0].color;if(metadata.some(m=>m.color!==piece.color))throw new DomainError('COLOR_CUT_BOUNDARY');binding.report={...binding.report,faceIds:[...originalFaces],uv:[...originalUv.values(),...binding.report.uv.filter(v=>binding.report.boundary.includes(v.vertexId)&&!originalUv.has(v.vertexId))],faceDistortion:binding.report.faceDistortion?.map(d=>({...d,faceId:working.provenance.get(d.faceId)!.faceId}))};binding.topologyVersion=source.topologyVersion;binding.surfaceHash=surfaceHash;binding.geometryHash=pieceGeometryHash(piece);if(project.markings?.length)binding.colorHash=cutColorHash(project);
+  const piece=run.pieces.find(p=>p.id===binding.pieceId)!,regions=new Map<string,number>();for(const m of metadata){const [a,b,c]=m.barycentric,area=Math.abs((b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1]))*sourceAreas.get(m.faceId)!,region=originals.get(m.faceId)!.region;regions.set(region,(regions.get(region)??0)+area);}const dominant=[...regions].sort((a,b)=>b[1]-a[1])[0]?.[0];piece.name=(dominant||'Combined panel')+' / '+(run.pieces.indexOf(piece)+1);binding.trim.boundary=piece.nodes.map(n=>insertTrimBoundary(binding.trim!,[n.xMm,n.yMm]));binding.trim.holes=(piece.holes??[]).map(r=>r.map(n=>insertTrimBoundary(binding.trim!,[n.xMm,n.yMm])));piece.color=metadata[0].color;if(metadata.some(m=>m.color!==piece.color))throw new DomainError('COLOR_CUT_BOUNDARY');binding.report={...binding.report,faceIds:[...originalFaces],uv:[...originalUv.values(),...binding.report.uv.filter(v=>(binding.report.boundary.includes(v.vertexId)||binding.report.holes?.some(r=>r.includes(v.vertexId)))&&!originalUv.has(v.vertexId))],faceDistortion:binding.report.faceDistortion?.map(d=>({...d,faceId:working.provenance.get(d.faceId)!.faceId}))};binding.topologyVersion=source.topologyVersion;binding.surfaceHash=surfaceHash;binding.geometryHash=pieceGeometryHash(piece);if(project.markings?.length)binding.colorHash=cutColorHash(project);
  }
  return {...run,sourceHash:surfaceHash,cutEdges:(source.cutConstraints??[]).filter(e=>e.locked).map(e=>[e.a,e.b] as [string,string])};
 }

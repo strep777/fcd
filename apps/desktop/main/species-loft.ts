@@ -2,8 +2,13 @@ export type Vector3 = [number, number, number];
 export type LoftSection = {center:Vector3;girth:number;ratio?:number};
 
 /** Interpolate the silhouette without the radius overshoot that can invert narrow cuffs. */
-export function smoothSections(sections:LoftSection[],steps=2):LoftSection[]{
+export function smoothSections(sections:LoftSection[],steps=2,continuous=false):LoftSection[]{
  const result:LoftSection[]=[];
+ const interpolate=(values:number[],i:number,t:number)=>{
+  const d=values[i+1]-values[i],slope=(index:number)=>{if(index===0)return values[1]-values[0];if(index===values.length-1)return values[index]-values[index-1];const a=values[index]-values[index-1],b=values[index+1]-values[index];return a*b>0?2*a*b/(a+b):0;};
+  const m0=slope(i),m1=slope(i+1),t2=t*t,t3=t2*t;
+  return values[i]+(t3-2*t2+t)*m0+(-2*t3+3*t2)*d+(t3-t2)*m1;
+ };
  for(let i=0;i<sections.length-1;i++){
   const a=sections[i],b=sections[i+1],before=sections[Math.max(0,i-1)],after=sections[Math.min(sections.length-1,i+2)];
   for(let j=0;j<steps;j++){
@@ -15,7 +20,7 @@ export function smoothSections(sections:LoftSection[],steps=2):LoftSection[]{
     const m0=tangent((b.center[axis]-before.center[axis])/2),m1=tangent((after.center[axis]-v)/2);
     return (2*t3-3*t2+1)*v+(t3-2*t2+t)*m0+(-2*t3+3*t2)*b.center[axis]+(t3-t2)*m1;
    }) as Vector3;
-   result.push({center,girth:a.girth+(b.girth-a.girth)*blend,ratio:(a.ratio??1)+((b.ratio??1)-(a.ratio??1))*blend});
+   result.push({center,girth:continuous?interpolate(sections.map(s=>s.girth),i,t):a.girth+(b.girth-a.girth)*blend,ratio:continuous?interpolate(sections.map(s=>s.ratio??1),i,t):(a.ratio??1)+((b.ratio??1)-(a.ratio??1))*blend});
   }
  }
  result.push(sections.at(-1)!);return result;

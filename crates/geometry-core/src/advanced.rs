@@ -1,6 +1,6 @@
 use crate::{
-    area, distance, intersects, issue, offset_sampled, validate, validate_sampled, Geometry, Piece,
-    Point, SAMPLED_CONTOUR_LIMIT,
+    area, distance, intersects, issue, validate, validate_sampled, Geometry, Piece, Point,
+    SAMPLED_CONTOUR_LIMIT,
 };
 use clipper2_rust::{
     difference_64, inflate_paths_64, intersect_64, union_64, xor_64, EndType, FillRule, JoinType,
@@ -45,6 +45,22 @@ fn normalized(mut ring: Vec<Point>, positive: bool) -> Vec<Point> {
         ring.reverse();
     }
     ring
+}
+/// Offsetting a concave outer boundary can close its mouth and create a new
+/// cut-out. That is a valid allowance envelope, not a collapsed source hole.
+/// Every actual source hole must still have exactly one surviving inset;
+/// extra holes outside those source holes do not introduce a sewing cut.
+pub(crate) fn preserves_source_holes(source: &[Vec<Point>], output: &[Vec<Point>]) -> bool {
+    source.iter().all(|original| {
+        output
+            .iter()
+            .filter(|hole| {
+                difference_64(&paths(hole, &[]), &paths(original, &[]), FillRule::NonZero)
+                    .is_empty()
+            })
+            .count()
+            == 1
+    })
 }
 pub(crate) fn paths(outer: &[Point], holes: &[Vec<Point>]) -> Paths64 {
     std::iter::once(normalized(outer.to_vec(), true))
@@ -410,8 +426,6 @@ fn analyze_local(piece: &Piece) -> Geometry {
             let shape = crate::allowance::cut(piece, &ring, &holes)?;
             result.cut = shape.nodes;
             result.cut_holes = shape.holes;
-        } else if holes.is_empty() && join == "miter" && limit == 20. {
-            result.cut = offset_sampled(&ring, piece.allowance_mm)?;
         } else if piece.allowance_mm == 0. {
             result.cut = normalized(ring.clone(), true);
             result.cut_holes = holes
@@ -436,7 +450,7 @@ fn analyze_local(piece: &Piece) -> Geometry {
                 return Err("multipleContours");
             }
             let shape = shapes.remove(0);
-            if shape.holes.len() != holes.len() {
+            if !preserves_source_holes(&holes, &shape.holes) {
                 return Err("holeCollapsed");
             }
             result.cut = shape.nodes;

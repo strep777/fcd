@@ -27,7 +27,7 @@ it('a locked sibling in either affected group blocks metadata changes before mut
 
 async function saveSecondModel(p:Project){
  const surface={...structuredClone(p.surface!),id:randomUUID()},inactive={...p,surface,markings:[]},markings:Marking[]=[];
- for(const region of p.patternLibrary!)for(const context of region.anatomy?.contexts??[region.anatomy!])markings.push(await projectMarking(worker,inactive,region.piece.id,region.view,0,0,false,true,context));
+ for(const region of p.patternLibrary!)for(const context of region.anatomy?.contexts??[region.anatomy!])markings.push(await projectMarking(worker,inactive,region.piece.id,region.view==='back'?'back':'front',0,0,false,true,context));
  p.modelLibrary=[{id:surface.id,name:'Saved model',surface,pieces:[],markings}];
 }
 function savedProject(p:Project){const model=p.modelLibrary!.find(m=>m.id!==p.surface!.id)!;return {...p,surface:model.surface,pieces:model.pieces??[],bindings:model.bindings,markings:model.markings};}

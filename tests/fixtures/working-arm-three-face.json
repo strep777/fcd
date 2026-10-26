@@ -1,0 +1,269 @@
+{
+  "provenance": {
+    "snapshot": "final-chart123-audit-input.json",
+    "indices": [
+      100,
+      101
+    ]
+  },
+  "mesh": {
+    "id": "ba9dffd2-accf-4f32-a814-3038d4f9c3c0",
+    "topologyVersion": 2,
+    "source": "species-template-1",
+    "vertices": [
+      {
+        "id": "6c2cdae3-4d36-46cf-93ec-b391cf122f83",
+        "xMm": -206.77456665039062,
+        "yMm": 1423.99560546875,
+        "zMm": -12.424671173095703
+      },
+      {
+        "id": "56d6bafb-b825-441b-a935-2aa44a71af73",
+        "xMm": -208.42117309570312,
+        "yMm": 1422.0594482421875,
+        "zMm": -0.17603275179862976
+      },
+      {
+        "id": "366508c0-69dd-4e67-90be-99af7f7cd79b",
+        "xMm": -198.6393542836388,
+        "yMm": 1423.8340049349417,
+        "zMm": -2.5135439325626594
+      },
+      {
+        "id": "2d3b546e-1e15-4a08-a22a-8d1ae1a7dea3",
+        "xMm": -197.3948140861529,
+        "yMm": 1423.8092829791772,
+        "zMm": 0.77483769703297
+      },
+      {
+        "id": "66b264f6-5286-44bb-8547-9b628daf50cb",
+        "xMm": -206.77456552404584,
+        "yMm": 1423.9956055374414,
+        "zMm": -12.424670460190384
+      }
+    ],
+    "faces": [
+      {
+        "id": "9b4123e6-ca25-4a17-80cc-21fe19d24c13",
+        "vertices": [
+          "66b264f6-5286-44bb-8547-9b628daf50cb",
+          "366508c0-69dd-4e67-90be-99af7f7cd79b",
+          "56d6bafb-b825-441b-a935-2aa44a71af73"
+        ],
+        "region": "design:#02a6f4"
+      },
+      {
+        "id": "7ddad1f2-4ba4-46da-8c60-2ca1cd30f26c",
+        "vertices": [
+          "66b264f6-5286-44bb-8547-9b628daf50cb",
+          "56d6bafb-b825-441b-a935-2aa44a71af73",
+          "6c2cdae3-4d36-46cf-93ec-b391cf122f83"
+        ],
+        "region": "design:#02a6f4"
+      },
+      {
+        "id": "feded849-069e-48b3-be84-889912e1b6cc",
+        "vertices": [
+          "366508c0-69dd-4e67-90be-99af7f7cd79b",
+          "2d3b546e-1e15-4a08-a22a-8d1ae1a7dea3",
+          "56d6bafb-b825-441b-a935-2aa44a71af73"
+        ],
+        "region": "design:#02a6f4"
+      }
+    ],
+    "template": {
+      "id": "wearer-padded",
+      "version": "1.1.0",
+      "license": "original-project-source",
+      "parameters": {
+        "bodyMode": "padded",
+        "hipPaddingMm": 55,
+        "thighPaddingMm": 115,
+        "calfPaddingMm": 30,
+        "species": "canine",
+        "legType": "digitigrade",
+        "heightMm": 1800,
+        "neckGirthMm": 380,
+        "chestGirthMm": 1000,
+        "waistGirthMm": 850,
+        "hipGirthMm": 1000,
+        "shoulderWidthMm": 480,
+        "armLengthMm": 600,
+        "legLengthMm": 900,
+        "headWidthMm": 260,
+        "headLengthMm": 280,
+        "snoutLengthMm": 130,
+        "snoutWidthMm": 150,
+        "earHeightMm": 160,
+        "earWidthMm": 100,
+        "earAngleRad": 0,
+        "tailLengthMm": 900,
+        "tailBaseGirthMm": 200,
+        "tailTipGirthMm": 40,
+        "tailCurvature": 0.15,
+        "upperArmGirthMm": 400,
+        "forearmGirthMm": 310,
+        "thighGirthMm": 580,
+        "shinGirthMm": 380,
+        "pawLengthMm": 180,
+        "pawWidthMm": 170,
+        "footLengthMm": 280,
+        "clawLengthMm": 25,
+        "paddingMm": 0,
+        "layerMm": 0
+      },
+      "parts": [
+        "torso",
+        "leg-left",
+        "foot-left",
+        "arm-left",
+        "leg-right",
+        "foot-right",
+        "arm-right"
+      ],
+      "measurements": [
+        {
+          "name": "hipGirth",
+          "targetMm": 1000,
+          "actualMm": 1258.6946596623932,
+          "residualMm": 258.6946596623932
+        },
+        {
+          "name": "waistGirth",
+          "targetMm": 850,
+          "actualMm": 864.0393032773596,
+          "residualMm": 14.039303277359636
+        },
+        {
+          "name": "chestGirth",
+          "targetMm": 1000,
+          "actualMm": 999.9999999999999,
+          "residualMm": -1.1368683772161603e-13
+        },
+        {
+          "name": "neckGirth",
+          "targetMm": 380,
+          "actualMm": 379.9999999999999,
+          "residualMm": -1.1368683772161603e-13
+        },
+        {
+          "name": "height",
+          "targetMm": 1573,
+          "actualMm": 1573,
+          "residualMm": 0
+        }
+      ],
+      "warnings": [
+        "ASSEMBLED_DIMENSIONS_REQUIRE_REVIEW",
+        "MANUFACTURING_TRIAL_REQUIRED"
+      ]
+    },
+    "cutConstraints": []
+  },
+  "charts": [
+    {
+      "planarExact": true,
+      "faceIds": [
+        "9b4123e6-ca25-4a17-80cc-21fe19d24c13",
+        "7ddad1f2-4ba4-46da-8c60-2ca1cd30f26c"
+      ],
+      "uv": [
+        {
+          "vertexId": "66b264f6-5286-44bb-8547-9b628daf50cb",
+          "xMm": 0,
+          "yMm": 0
+        },
+        {
+          "vertexId": "366508c0-69dd-4e67-90be-99af7f7cd79b",
+          "xMm": 12.823346120549793,
+          "yMm": 8.881784197001252e-16
+        },
+        {
+          "vertexId": "56d6bafb-b825-441b-a935-2aa44a71af73",
+          "xMm": 8.446717483927692,
+          "yMm": 9.227248291075226
+        },
+        {
+          "vertexId": "6c2cdae3-4d36-46cf-93ec-b391cf122f83",
+          "xMm": -0.0000012646969709296142,
+          "yMm": 4.267864199535014e-7
+        }
+      ],
+      "boundary": [
+        "66b264f6-5286-44bb-8547-9b628daf50cb",
+        "366508c0-69dd-4e67-90be-99af7f7cd79b",
+        "56d6bafb-b825-441b-a935-2aa44a71af73"
+      ],
+      "areaErrorMax": 0,
+      "edgeErrorMax": 0,
+      "distortionMean": 0,
+      "distortionP95": 0,
+      "distortionMax": 0,
+      "faceDistortion": [
+        {
+          "faceId": "9b4123e6-ca25-4a17-80cc-21fe19d24c13",
+          "areaError": 0,
+          "edgeError": 0,
+          "angleError": 0,
+          "distortion": 0
+        },
+        {
+          "faceId": "7ddad1f2-4ba4-46da-8c60-2ca1cd30f26c",
+          "areaError": 0,
+          "edgeError": 0,
+          "angleError": 0,
+          "distortion": 0
+        }
+      ],
+      "status": "acceptable",
+      "boundaryToleranceMm": 0.000099,
+      "seamErrorMax": 5.7113278673064716e-15,
+      "seamLengthErrorMm": 3.552721302097026e-15
+    },
+    {
+      "planarExact": true,
+      "faceIds": [
+        "feded849-069e-48b3-be84-889912e1b6cc"
+      ],
+      "uv": [
+        {
+          "vertexId": "366508c0-69dd-4e67-90be-99af7f7cd79b",
+          "xMm": 0,
+          "yMm": 0
+        },
+        {
+          "vertexId": "2d3b546e-1e15-4a08-a22a-8d1ae1a7dea3",
+          "xMm": 3.516098010595986,
+          "yMm": 0
+        },
+        {
+          "vertexId": "56d6bafb-b825-441b-a935-2aa44a71af73",
+          "xMm": -1.2637211377181634,
+          "yMm": 10.134100756067882
+        }
+      ],
+      "boundary": [
+        "366508c0-69dd-4e67-90be-99af7f7cd79b",
+        "2d3b546e-1e15-4a08-a22a-8d1ae1a7dea3",
+        "56d6bafb-b825-441b-a935-2aa44a71af73"
+      ],
+      "areaErrorMax": 0,
+      "edgeErrorMax": 0,
+      "distortionMean": 0,
+      "distortionP95": 0,
+      "distortionMax": 0,
+      "faceDistortion": [
+        {
+          "faceId": "feded849-069e-48b3-be84-889912e1b6cc",
+          "areaError": 0,
+          "edgeError": 0,
+          "angleError": 0,
+          "distortion": 0
+        }
+      ],
+      "status": "acceptable",
+      "seamErrorMax": 1.585358972213039e-16,
+      "seamLengthErrorMm": 2.220446049250313e-15
+    }
+  ]
+}

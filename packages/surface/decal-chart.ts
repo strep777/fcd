@@ -10,7 +10,7 @@ const sub=(a:V,b:V)=>a.map((x,i)=>x-b[i]) as V;
 /** Intrinsic local coordinates. Integrate edge lengths in parallel-transported
  * tangent frames, so a decal can cross the silhouette of its original plane.
  * Vertices have one shared coordinate: neighbouring fragments cannot crack. */
-export function decalChart(surface:Surface,shape:Shape):Map<string,Point>|undefined{
+export function decalChart(surface:Surface,shape:Shape):Map<string,Point&{distanceMm:number}>|undefined{
  if(!shape.wrap||!shape.anchorFaceId)return;
  const anchor=surface.faces.find(f=>f.id===shape.anchorFaceId);if(!anchor)return new Map();
  const positions=new Map(surface.vertices.map(v=>[v.id,[v.xMm,v.yMm,v.zMm] as V]));
@@ -43,5 +43,8 @@ export function decalChart(surface:Surface,shape:Shape):Map<string,Point>|undefi
    costs.set(id,cost);frames.set(id,xb);coords.set(id,{xMm:q.xMm+dx*length/projected,yMm:q.yMm+dy*length/projected});push({id,cost});
   }
  }
- return coords;
+ // An exponential map can meet itself beyond a curved part's cut locus.
+ // Retain geodesic distance so projection selects the sheet reached from the
+ // picked face first, rather than declaring every chart face coplanar.
+ return new Map([...coords].map(([id,p])=>[id,{...p,distanceMm:costs.get(id)!}]));
 }

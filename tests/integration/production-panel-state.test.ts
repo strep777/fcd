@@ -53,7 +53,7 @@ it('keeps manual placement edits through unrelated refreshes and reloads authori
 it('translates every production subtab in Japanese and follows subsequent locale changes',async()=>{
  const pinia=createPinia();setActivePinia(pinia);const store=useSession();store.data.project=project();
  const editor=usePatternEditor(ref('en'),ref('pattern'),()=>{});
- async function tabs(){const app=createSSRApp(defineComponent({setup(){provide(patternEditorKey,editor);provide('advancedMode',ref(false));return ()=>h(PatternPage,{language:'en',panel:'pieces'});}}));app.use(pinia);const html=await renderToString(app);return [...html.matchAll(/role="tab"[^>]*>([^<]*)<\/button>/g)].map(m=>m[1]);}
+ async function tabs(){const app=createSSRApp(defineComponent({setup(){provide(patternEditorKey,editor);provide('advancedMode',ref(true));return ()=>h(PatternPage,{language:'en',panel:'pieces'});}}));app.use(pinia);const html=await renderToString(app);return [...html.matchAll(/role="tab"[^>]*>([^<]*)<\/button>/g)].map(m=>m[1]);}
  setLocale('ja');expect(locale.value).toBe('ja');expect(await tabs()).toEqual(['型紙','素材','接ぎ目','配置','製作フロー']);
  setLocale('en');expect(await tabs()).toEqual(['Patterns','Materials','Seams','Nesting','Workflow']);
 });
