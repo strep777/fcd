@@ -12,7 +12,7 @@
 | 项目结构 | `schemaVersion: 2`，`projectSchema` | 规范化后的项目对象 |
 | 请求协议 | `protocolVersion: 1`，`requestSchema` | 桌面与助手 CAD 请求 |
 | 工程包格式 | `format: fpcad`、`formatVersion: 1` | ZIP 容器和清单格式 |
-| 制作流格式 | `format: fpcad-workflow`、`version: 1` | 含完整项目的 JSON 交换 |
+| 制作流格式 | `format: fpcad-workflow`、`version: 1 / 2` | 内嵌完整项目，或以共享几何保存完整项目的 JSON 交换 |
 | 裁片包格式 | `format: fpcad-cuts`、`version: 1` | 完整工程加可选逐片 SVG 的 ZIP |
 
 `projectSchema` 只接受版本 2。[parseProject](../../packages/schema/index.ts) 可读取版本 1 或 2，将版本号提升到 2，再按当前模式验证；它不改写原文件或旧历史行，也没有任意版本的迁移链。只有后续明确保存或命令提交才写出新状态。兼容旧项目不能仅修改版本号，还须检查可选字段、默认语义、资源与历史依赖。
@@ -112,12 +112,15 @@
 - `patterns.json`：当前二维纸样；`body.json`、`uv.json`、`markings.json`、`materials.json`、`seams.json`、`nesting.json`：对应领域数据。
 - `character.json`、`simulation.json`：当前为空模块封套；文件名不代表已有角色系统或布料模拟。
 - `images/`：具有资源结构的 reference 使用原始/来源/代理/缩略图资产引用，读取后还原 data URL；并非所有历史内嵌图像都必然拆成文件。
+- 可选 `geometry.json`：清单以 `geometryEncoding: shared-json-1` 标记，64 KiB 以上的声明几何字段按精确内容哈希共享存储。当前状态、模型库、候选及裁切历史保留独立引用，读取后还原完整领域值；不舍弃历史、变更坐标或重新批准花纹。旧无共享表工程仍可读取，带此标记的新工程要求支持该编码的客户端。
 
-当前工程包压缩及展开后的总资源受 200 MiB 限制，最多 32 个条目，并检查目录结构、路径、重复名称、清单、长度、展开比例和哈希。该容器限制与 Zod 的实体数量限制、桌面请求的 64 MiB 限制各自生效；不能把其中一个写成应用统一容量。
+当前工程包压缩及展开后的总资源受 200 MiB 限制，最多 32 个条目，并检查目录结构、路径、重复名称、清单、长度、展开比例和哈希。共享几何按实际存储内容计量，解引用后的完整项目 JSON 可能更大。该容器限制与 Zod 的实体数量限制、桌面请求的 64 MiB 限制各自生效；不能把其中一个写成应用统一容量。
 
 保存先构建工程包并回读校验，再写同目录唯一临时文件、同步、重命名替换；失败清理临时文件，成功后更新 `savedRevision`。本地提交与恢复点不会自动覆写外部工程。
 
-[workflow-exchange.ts](../../apps/desktop/main/workflow-exchange.ts) 的 `workflowBytes/readWorkflow` 交换完整项目 JSON；当前制作流读取按版本 1 容器和项目版本 2 验证，没有沿用 `parseProject` 的旧工程升级入口。`cutBundle/readCutBundle` 交换内嵌 `project.fpcad`、`catalog.json` 及可选逐片 SVG，导入核对清单和内容哈希。制造门禁不满足时，包仍可保留可编辑草稿，但不带逐片制造预览。
+[workflow-exchange.ts](../../apps/desktop/main/workflow-exchange.ts) 的 `workflowBytes/readWorkflow` 交换完整项目 JSON；小项目保留版本 1，大块几何使用版本 2 的 `shared-json-1`，读写均保留 200 MiB 上限。版本 2 还原共享字段后继续按完整项目版本 2 契约验证，没有沿用 `parseProject` 的旧工程升级入口。`cutBundle/readCutBundle` 交换内嵌 `project.fpcad`、`catalog.json` 及可选逐片 SVG，导入核对清单和内容哈希。制造门禁不满足时，包仍可保留可编辑草稿，但不带逐片制造预览。
+
+带 SVG 预览的裁片包共享一份 `assets/FurryPatternSansSC-Regular.ttf`，逐片 SVG 使用相对路径引用；旧无字体资源裁片包继续支持。最多 500 个 SVG、503 个总条目，整体内容仍受 200 MiB 限制。
 
 ## 契约变更时的核对范围
 

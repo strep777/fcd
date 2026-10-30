@@ -63,6 +63,9 @@ struct Backend {
     pending: Mutex<HashMap<u64, oneshot::Sender<Reply>>>,
     next: AtomicU64,
     closing: AtomicBool,
+    renderer_dirty: AtomicBool,
+    renderer_close_guard: AtomicBool,
+    renderer_close_allowed: AtomicBool,
 }
 impl Backend {
     fn write(&self, value: Value) -> Result<(), String> {
@@ -88,6 +91,74 @@ impl Drop for Backend {
     fn drop(&mut self) {
         let _ = self.child.lock().unwrap().kill();
     }
+}
+
+#[tauri::command]
+fn set_renderer_draft_dirty(
+    window: tauri::WebviewWindow,
+    backend: tauri::State<'_, Arc<Backend>>,
+    dirty: bool,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("FORBIDDEN".into());
+    }
+    if backend.closing.load(Ordering::SeqCst) {
+        return Err("BACKEND_CLOSING".into());
+    }
+    backend.renderer_dirty.store(dirty, Ordering::SeqCst);
+    if dirty {
+        backend
+            .renderer_close_allowed
+            .store(false, Ordering::SeqCst);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_renderer_close_guard(
+    window: tauri::WebviewWindow,
+    backend: tauri::State<'_, Arc<Backend>>,
+    enabled: bool,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("FORBIDDEN".into());
+    }
+    if backend.closing.load(Ordering::SeqCst) {
+        return Err("BACKEND_CLOSING".into());
+    }
+    backend
+        .renderer_close_allowed
+        .store(false, Ordering::SeqCst);
+    backend
+        .renderer_close_guard
+        .store(enabled, Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+fn confirm_renderer_close(
+    window: tauri::WebviewWindow,
+    backend: tauri::State<'_, Arc<Backend>>,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("FORBIDDEN".into());
+    }
+    if backend.closing.load(Ordering::SeqCst) {
+        return Err("BACKEND_CLOSING".into());
+    }
+    if backend.renderer_dirty.load(Ordering::SeqCst) {
+        return Err("RENDERER_DRAFT_DIRTY".into());
+    }
+    // Permission and the ordinary close request share one native command; no
+    // unused permission is left behind while waiting for a second renderer IPC.
+    backend.renderer_close_allowed.store(true, Ordering::SeqCst);
+    if let Err(error) = window.close() {
+        backend
+            .renderer_close_allowed
+            .store(false, Ordering::SeqCst);
+        return Err(error.to_string());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -208,9 +279,20 @@ fn native(app: tauri::AppHandle, backend: Arc<Backend>, message: Value) {
 fn main() {
     let builder = tauri::Builder::default();
     #[cfg(debug_assertions)]
-    let builder = builder.invoke_handler(tauri::generate_handler![desktop_request, test_control]);
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        desktop_request,
+        set_renderer_draft_dirty,
+        set_renderer_close_guard,
+        confirm_renderer_close,
+        test_control
+    ]);
     #[cfg(not(debug_assertions))]
-    let builder = builder.invoke_handler(tauri::generate_handler![desktop_request]);
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        desktop_request,
+        set_renderer_draft_dirty,
+        set_renderer_close_guard,
+        confirm_renderer_close
+    ]);
     // Isolated background tests must neither activate an existing window nor
     // reuse its project/backend when another test or the user's app is open.
     let background_test =
@@ -282,9 +364,27 @@ fn main() {
                 pending: Mutex::new(HashMap::new()),
                 next: AtomicU64::new(1),
                 closing: AtomicBool::new(false),
+                renderer_dirty: AtomicBool::new(false),
+                renderer_close_guard: AtomicBool::new(false),
+                renderer_close_allowed: AtomicBool::new(false),
             });
             app.manage(backend.clone());
             tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
+                .on_page_load(|window, payload| {
+                    if payload.event() == tauri::webview::PageLoadEvent::Started {
+                        let backend = window.state::<Arc<Backend>>();
+                        // A new document has no registered renderer listener.
+                        // Failed startup/reload must retain the old close path;
+                        // an already-started shutdown remains untouched.
+                        if !backend.closing.load(Ordering::SeqCst) {
+                            backend.renderer_close_guard.store(false, Ordering::SeqCst);
+                            backend.renderer_dirty.store(false, Ordering::SeqCst);
+                            backend
+                                .renderer_close_allowed
+                                .store(false, Ordering::SeqCst);
+                        }
+                    }
+                })
                 .on_navigation(|url| {
                     url.scheme() == "tauri"
                         || (matches!(url.scheme(), "http" | "https")
@@ -360,6 +460,19 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let backend = window.state::<Arc<Backend>>().inner().clone();
+                if backend.closing.load(Ordering::SeqCst) {
+                    return;
+                }
+                // An armed renderer checks every request, even while its new
+                // dirty bit is still in flight. Startup without a listener
+                // keeps the original shutdown path available.
+                let allowed = backend.renderer_close_allowed.swap(false, Ordering::SeqCst);
+                if backend.renderer_close_guard.load(Ordering::SeqCst)
+                    && (!allowed || backend.renderer_dirty.load(Ordering::SeqCst))
+                {
+                    let _ = window.emit("fpcad:close-with-draft", ());
+                    return;
+                }
                 if backend.closing.swap(true, Ordering::SeqCst) {
                     return;
                 }

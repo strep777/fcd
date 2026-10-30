@@ -4,7 +4,7 @@ import {generateSpecies,speciesDefaults} from '../../apps/desktop/main/species';
 import {assembleSpecies} from '../../apps/desktop/main/species-assembly';
 import {openMaterialMesh,type MaterialFace} from '../../packages/surface/design-cuts';
 
-it('visible sleeve materials avoid premature template sections while a single-material body keeps its structural starting layout',async()=>{
+it('visible sleeve materials avoid premature template sections while single-material cloth keeps only a continuous longitudinal front/back opening',async()=>{
  const source=await assembleSpecies(generateSpecies(speciesDefaults('canine','padded'))),before=structuredClone(source);
  const provenance=(colored:boolean)=>new Map(source.faces.map(face=>[face.id,{faceId:face.id,color:colored&&face.region.startsWith('arm-')?'#202020':'#eeeeee',barycentric:[[1,0,0],[0,1,0],[0,0,1]]} as MaterialFace]));
  const material=provenance(true);expect(new Set([...material.values()].map(row=>row.color)).size).toBe(2);
@@ -16,22 +16,25 @@ it('visible sleeve materials avoid premature template sections while a single-ma
  expect(multi.provenance.size).toBe(source.faces.length);
  for(const face of source.faces)expect(multi.provenance.get(face.id)).toEqual(material.get(face.id));
  expect(multi.materialDomains).toBe(3);
- // The 1.2 body-only garment has upper/lower front/back and two sides of
- // each sleeve. Ankle hems stay attached to the lower body, with no foot
- // panels. Audit those physical components rather than updating a count alone.
+ // A single-cloth padded garment keeps its collar, sleeve and ankle
+ // openings; only the continuous front/back side opening is introduced.
  const points=new Map(single.surface.vertices.map(v=>[v.id,v]));
  const incident=new Map<string,number[]>();
  single.surface.faces.forEach((f,i)=>f.vertices.forEach(id=>incident.set(id,[...(incident.get(id)??[]),i])));
  const unseen=new Set(single.surface.faces.map((_,i)=>i)),components:number[][]=[];
  while(unseen.size){const first=unseen.values().next().value!,pending=[first],part:number[]=[];unseen.delete(first);while(pending.length){const i=pending.pop()!;part.push(i);for(const id of single.surface.faces[i].vertices)for(const neighbour of incident.get(id)??[])if(unseen.delete(neighbour))pending.push(neighbour);}components.push(part);}
- const params=source.template!.parameters,shoulder=params.shoulderWidthMm/2+params.upperArmGirthMm*.025;
- const hip=params.legLengthMm+(params.heightMm*.86-70-params.legLengthMm)*.08,hem=params.legLengthMm*.1;
- const kinds=components.map(part=>{const ps=part.flatMap(i=>single.surface.faces[i].vertices.map(id=>points.get(id)!));const minX=Math.min(...ps.map(p=>p.xMm)),maxX=Math.max(...ps.map(p=>p.xMm)),minY=Math.min(...ps.map(p=>p.yMm)),maxY=Math.max(...ps.map(p=>p.yMm));
-  if(minX>=shoulder-1e-7)return 'right-sleeve';if(maxX<=-shoulder+1e-7)return 'left-sleeve';
-  if(minY>=hip-1e-7)return 'upper-body';
-  expect(maxY).toBeCloseTo(hip,7);expect(minY).toBeCloseTo(hem,7);expect(maxY,'ankle hem stays attached through the calf').toBeGreaterThanOrEqual(params.legLengthMm*.3);return 'lower-body';
- });
- expect(kinds.sort()).toEqual(['left-sleeve','left-sleeve','lower-body','lower-body','right-sleeve','right-sleeve','upper-body','upper-body']);
+ const sourceMinY=Math.min(...source.vertices.map(v=>v.yMm)),sourceMaxY=Math.max(...source.vertices.map(v=>v.yMm));
+ expect(components.length).toBeGreaterThanOrEqual(1);expect(components.length).toBeLessThanOrEqual(2);
+ for(const part of components){
+  const ps=part.flatMap(i=>single.surface.faces[i].vertices.map(id=>points.get(id)!));
+  expect(Math.min(...ps.map(p=>p.yMm)),'the ankle hem remains connected to the whole cloth domain').toBeCloseTo(sourceMinY,7);
+  expect(Math.max(...ps.map(p=>p.yMm)),'the cloth remains continuous from the ankle to the collar').toBeCloseTo(sourceMaxY,7);
+  const minZ=Math.min(...ps.map(p=>p.zMm)),maxZ=Math.max(...ps.map(p=>p.zMm));
+  expect(minZ < -1e-7 && maxZ > 1e-7,'a front/back cloth layer must not cross its longitudinal opening').toBe(false);
+ }
+ const originalIds=new Set(source.vertices.map(v=>v.id)),newPoints=single.surface.vertices.filter(v=>!originalIds.has(v.id));
+ expect(newPoints.length).toBeGreaterThan(0);
+ for(const point of newPoints)expect(Math.abs(point.zMm),'new side-opening stations must lie on the longitudinal plane, without shoulder/hip/ankle rings').toBeLessThan(1e-7);
  expect(single.materialDomains).toBe(components.length);
  const parents=new Map(source.faces.map(f=>[f.id,f])),originalPoints=new Map(source.vertices.map(v=>[v.id,v])),coverage=new Map<string,number>();
  for(const f of single.surface.faces){const row=single.provenance.get(f.id)!,parent=parents.get(row.faceId)!;expect(parent).toBeDefined();const [a,b,c]=row.barycentric,ratio=(b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1]);expect(ratio).toBeGreaterThan(0);coverage.set(parent.id,(coverage.get(parent.id)??0)+ratio);

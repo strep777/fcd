@@ -4,7 +4,7 @@ import {designQualityFailure} from './design-partition';
 import {narrowPanelSplit} from './panel-neck';
 import {joinedChartSeed} from './joined-chart-seed';
 import {iteratePartialChartJoins} from './partial-chart-join';
-import {seamContinuityGuard} from './seam-continuity';
+import {createSeamContinuityGuard} from './seam-continuity';
 
 export type ManufacturingMerge = {
  materialRegion:(region:string)=>string;
@@ -29,9 +29,12 @@ export async function mergeDesignCharts(mesh:Surface,input:SurfaceReport[],solve
  const areas=new Map(mesh.faces.map(f=>{const [a,b,c]=f.vertices.map(id=>vertices.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],v=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm];return[f.id,Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])/2];}));
  const charts=new Map(input.map((r,i)=>[i,r])),rejected=new Set<string>();let next=input.length,attempts=0;
  const areaCache=new Map<number,number>(),boundsCache=new Map<number,number[]>();
+ // Trial joins only change bank identities and ownership, never the physical
+ // face stations/material. Reuse that adjacency through all coalescing passes.
+ const continuity=createSeamContinuityGuard(mesh,material,canRejoinSourceFaces);
  while(charts.size>1&&attempts<maxAttempts&&continueMerging()){
   const owners=new Map([...charts].flatMap(([i,r])=>r.faceIds.map(id=>[id,i] as const))),links=new Map<string,{a:number;b:number;length:number}>();
-  const continuous=seamContinuityGuard(mesh,owners,material,canRejoinSourceFaces);
+  const continuous=continuity(owners);
   for(const e of edges.values()){
    if(e.faces.length!==2)continue;
    const a=owners.get(e.faces[0]),b=owners.get(e.faces[1]);if(a===undefined||b===undefined||a===b)continue;

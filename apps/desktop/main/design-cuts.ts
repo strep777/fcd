@@ -87,6 +87,7 @@ export function restoreDesignBindings(project:Project,working:Awaited<ReturnType
  for(const binding of run.bindings){const uv=new Map(binding.report.uv.map(v=>[v.vertexId,v])),used=new Set<string>(),triangles:NonNullable<Binding['trim']>['triangles']=[],originalFaces=new Set<string>(),metadata:MaterialFace[]=[];
   for(const id of binding.report.faceIds){const face=faces.get(id),material=working.provenance.get(id);if(!face||!material)throw new DomainError('STALE_BINDING');face.vertices.forEach(v=>used.add(v));originalFaces.add(material.faceId);metadata.push(material);triangles.push({faceId:material.faceId,vertices:face.vertices,barycentric:material.barycentric});}
   binding.trim={vertices:[...used].map(id=>{const p=uv.get(id)!;return {id,xMm:p.xMm,yMm:p.yMm};}),triangles,boundary:binding.report.boundary,holes:binding.report.holes??[]};
+  binding.materialResolved=!!run.materialPalette;
   weldClosedTrimDarts(binding.trim,source);
   const originalUv=new Map<string,{vertexId:string;xMm:number;yMm:number}>();
   // UV corners are diagnostic support; the exact inverse uses trim triangles.

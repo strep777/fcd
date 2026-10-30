@@ -5,8 +5,15 @@ import type {Surface} from '../schema/index';
  * the direction of the triangulation. Material corners and authored cuts are
  * intentional boundaries and remain outside this automatic seam preference. */
 export function seamContinuityGuard(mesh:Surface,owners:ReadonlyMap<string,number>,material:(region:string)=>string,canJoin?:(a:string,b:string)=>boolean){
+ return createSeamContinuityGuard(mesh,material,canJoin)(owners);
+}
+
+/** Reuse physical adjacency while only chart ownership or duplicate bank IDs
+ * change. Rebuild this index if face geometry or physical materials change. */
+export function createSeamContinuityGuard(mesh:Surface,material:(region:string)=>string,canJoin?:(a:string,b:string)=>boolean){
  const vertices=new Map(mesh.vertices.map(v=>[v.id,v]));
- const station=(id:string)=>{const p=vertices.get(id)!;return [p.xMm,p.yMm,p.zMm].map(n=>Math.round(n*1e7)).join(',');};
+ const stations=new Map(mesh.vertices.map(p=>[p.id,[p.xMm,p.yMm,p.zMm].map(n=>Math.round(n*1e7)).join(',')]));
+ const station=(id:string)=>stations.get(id)!;
  type Edge={a:string;b:string;faces:Surface['faces'];points:number[][]};
  const edges=new Map<string,Edge>(),normals=new Map<string,number[]>();
  for(const f of mesh.faces){
@@ -14,6 +21,7 @@ export function seamContinuityGuard(mesh:Surface,owners:ReadonlyMap<string,numbe
   normals.set(f.id,cross.map(n=>n/length));
   for(let i=0;i<3;i++){const a=station(f.vertices[i]),b=station(f.vertices[(i+1)%3]),key=[a,b].sort().join('|'),edge=edges.get(key)??{a,b,faces:[],points:[p[i],p[(i+1)%3]]};edge.faces.push(f);edges.set(key,edge);}
  }
+ return (owners:ReadonlyMap<string,number>)=>{
  const boundary=[...edges.values()].filter(e=>e.faces.length!==2||owners.get(e.faces[0].id)!==owners.get(e.faces[1].id)),incident=new Map<string,Edge[]>(),shared=new Map<string,Edge[]>();
  for(const e of boundary){for(const id of [e.a,e.b]){const list=incident.get(id)??[];list.push(e);incident.set(id,list);}if(e.faces.length===2){const a=owners.get(e.faces[0].id),b=owners.get(e.faces[1].id);if(a!==undefined&&b!==undefined){const key=[a,b].sort((x,y)=>x-y).join(':'),list=shared.get(key)??[];list.push(e);shared.set(key,list);}}}
  const structural=(e:Edge)=>e.faces.length===2&&material(e.faces[0].region)===material(e.faces[1].region)&&(!canJoin||canJoin(e.faces[0].id,e.faces[1].id));
@@ -29,5 +37,6 @@ export function seamContinuityGuard(mesh:Surface,owners:ReadonlyMap<string,numbe
    if(ns.every(n=>ns.every(m=>n.reduce((s,v,i)=>s+v*m[i],0)>=Math.cos(Math.PI/6))))return false;
   }
   return true;
+ };
  };
 }

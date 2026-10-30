@@ -5,6 +5,7 @@ import {decalChart} from './decal-chart';
 import {sampleShapeContour} from './shape-contour';
 import {triangleWeights} from './triangles';
 import {boxIndex,boxesOverlap,type Box} from './spatial';
+import {createPlacementClips} from './garment-anatomy';
 
 const area=(r:Point[])=>r.reduce((s,p,i)=>{const q=r[(i+1)%r.length];return s+p.xMm*q.yMm-q.xMm*p.yMm;},0)/2;
 function halfPlane(ring:Point[],value:(p:Point)=>number):Point[]{
@@ -24,19 +25,19 @@ function subtractConvex(ring:Point[],clip:Point[]):Point[][]{
 }
 /** Live and saved projection both subtract the triangle portion actually in
  * front, including partial occlusion and triangles crossing in depth. */
-export function previewFragments(surface:Surface,shape:Shape,budget=2000000):Marking['fragments']|undefined{
- const outer=sampleShapeContour(shape),rings=[outer,...shape.holes??[]],scope=projectionFaces(surface,shape);
+export function previewFragments(surface:Surface,shape:Shape,budget=2000000,prepared?:{chart:ReturnType<typeof decalChart>;scope:ReturnType<typeof projectionFaces>}):Marking['fragments']|undefined{
+ const outer=sampleShapeContour(shape),rings=[outer,...shape.holes??[]],chart=prepared?prepared.chart:decalChart(surface,shape),scope=prepared?prepared.scope:projectionFaces(surface,shape,true,chart);
  const box=(points:Point[]):Box=>[Math.min(...points.map(p=>p.xMm)),Math.min(...points.map(p=>p.yMm)),Math.max(...points.map(p=>p.xMm)),Math.max(...points.map(p=>p.yMm))];
- const chart=decalChart(surface,shape);
  const bounds=box(outer),vertices=new Map(surface.vertices.map(v=>[v.id,{point:chart?.get(v.id)??shapePoint(shape,v),depth:chart?.has(v.id)?-chart.get(v.id)!.distanceMm:shape.axes[2].reduce((s,n,i)=>s+n*([v.xMm,v.yMm,v.zMm][i]-shape.origin[i]),0)}]));
  const faces=surface.faces.filter(f=>!chart||f.vertices.every(id=>chart.has(id))).map(face=>{
   const v=face.vertices.map(id=>vertices.get(id)!),triangle=v.map(v=>v.point),depth=v.map(v=>v.depth);
   return {face,triangle,depth,box:box(triangle),det:area(triangle)};
  }).filter(f=>Math.abs(f.det)>1e-8&&boxesOverlap(f.box,bounds));
- const index=boxIndex(faces.map(f=>f.box)),result:Marking['fragments']=[];let work=0;
+ const index=boxIndex(faces.map(f=>f.box)),result:Marking['fragments']=[],regionClips=shape.regions?createPlacementClips(surface,shape.regions):undefined;let work=0;
  for(const f of faces){
   if(f.det<=0||scope&&!scope.has(f.face.id))continue;
-  let clipped=rings.map(r=>{let p=r;for(let i=0;i<3&&p.length;i++)p=halfPlane(p,side(f.triangle[i],f.triangle[(i+1)%3]));return p;}).filter(r=>r.length>=3&&Math.abs(area(r))>1e-8);
+  const domains=regionClips?regionClips(f.face).map(r=>r.map(w=>({xMm:w.reduce((s,n,i)=>s+n*f.triangle[i].xMm,0),yMm:w.reduce((s,n,i)=>s+n*f.triangle[i].yMm,0)}))):[f.triangle];
+  let clipped=domains.flatMap(domain=>rings.map(r=>{let p=r;for(let i=0;i<domain.length&&p.length;i++)p=halfPlane(p,side(domain[i],domain[(i+1)%domain.length]));return p;})).filter(r=>r.length>=3&&Math.abs(area(r))>1e-8);
   const depth=(p:Point,t:typeof f)=>triangleWeights([p.xMm,p.yMm],t.triangle.map(v=>[v.xMm,v.yMm])).reduce((s,w,i)=>s+w*t.depth[i],0);
   for(const n of index.query(f.box)){
    const other=faces[n];if(other===f||Math.max(...other.depth)<Math.min(...f.depth)-1e-6)continue;

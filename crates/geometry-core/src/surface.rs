@@ -181,7 +181,7 @@ pub fn unwrap_mesh_cached(
     if mesh.vertices.len() < 3
         || mesh.vertices.len() > 200_000
         || mesh.faces.is_empty()
-        || mesh.faces.len() > 50_000
+        || mesh.faces.len() > 200_000
     {
         return Err("MESH_LIMIT");
     }
@@ -498,7 +498,7 @@ fn parameterize(
     group: &[usize],
     cache: &mut UnwrapCache,
 ) -> Result<Patch, &'static str> {
-    if group.len() > 50_000 {
+    if group.len() > 200_000 {
         return Err("PATCH_LIMIT");
     }
     let used: BTreeSet<_> = group.iter().flat_map(|&i| faces[i]).collect();
@@ -586,7 +586,20 @@ fn parameterize(
         }
         Some(uv)
     } else {
-        None
+        // A planar chart has an exact physical embedding regardless of its
+        // tessellation density. Do not solve a large, poorly conditioned
+        // conformal system merely to rediscover that rigid projection.
+        let f = local_faces[0];
+        let origin=&mesh.vertices[globals[f[0]]];
+        let u=sub(&mesh.vertices[globals[f[1]]],origin);
+        let v=sub(&mesh.vertices[globals[f[2]]],origin);
+        let normal=cross(u,v);let nl=length(normal);let ul=length(u);
+        if nl>0. && ul>0. {
+            let normal=normal.map(|n| n/nl);let x=u.map(|n| n/ul);let y=cross(normal,x);
+            if globals.iter().all(|&i| dot(sub(&mesh.vertices[i],origin),normal).abs()<=1e-8) {
+                Some(globals.iter().map(|&i| {let p=sub(&mesh.vertices[i],origin);[dot(p,x),dot(p,y)]}).collect())
+            } else {None}
+        } else {None}
     };
     // A supplied physical chart is already the requested initial iterate.
     // Solving an unrelated conformal chart only to overwrite it wastes work
@@ -691,9 +704,12 @@ fn parameterize(
                 .collect::<Vec<f64>>()
         };
         let inner = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a, b)| a * b).sum::<f64>();
-        let mut solution = crate::sparse::Factor::new(&stiffness)
+        let qr = crate::sparse::solve_least_squares(&rows, count);
+        let qr_solved = qr.is_some();
+        let mut solution = qr.or_else(|| crate::sparse::Factor::new(&stiffness)
             .map(|f| f.solve(&rhs))
-            .filter(|x| x.iter().all(|v| v.is_finite()))
+            .filter(|x| x.iter().all(|v| v.is_finite())))
+            .or_else(|| (count > 20_000).then(|| crate::sparse::solve_iterative(&stiffness, &rhs)).flatten())
             .unwrap_or_else(|| vec![0.; count]);
         let mut r: Vec<f64> = rhs
             .iter()
@@ -704,7 +720,7 @@ fn parameterize(
         let mut direction = z.clone();
         let mut rz = inner(&r, &z);
         let initial = inner(&rhs, &rhs).sqrt();
-        let mut converged = inner(&r, &r).sqrt() <= 1e-9 * initial.max(1.);
+        let mut converged = qr_solved || inner(&r, &r).sqrt() <= 1e-9 * initial.max(1.);
         for _ in 0..3000 {
             if converged {
                 break;

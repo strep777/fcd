@@ -6,11 +6,10 @@ import {clip,weights,area,positive,type XY} from './markings';
 import {segmentPixels} from './reference-segmentation';
 import {bindingIssues,pieceGeometryHash} from './surface';
 import {DomainError,hash} from './repository';
-import {UNWRAP_FACES} from '../../../packages/surface/limits';
 const codec=(UPNG as unknown as {default?:typeof UPNG}).default??UPNG;
 /** UV coordinates belong to face corners, so welds and UV islands cannot lose texture seams. */
 export async function textureMarking(worker:string,project:Project,textureId:string,seed:{x:number;y:number},tolerance:number):Promise<Marking>{
- const mesh=project.surface,texture=mesh?.textures?.find(t=>t.id===textureId);if(!mesh||!texture||!project.bindings?.length)throw new DomainError('SURFACE_MISSING');if(mesh.faces.length>UNWRAP_FACES)throw new DomainError('PROJECTION_LIMIT');if(bindingIssues(project).some(i=>i.severity==='error'))throw new DomainError('STALE_BINDING');
+ const mesh=project.surface,texture=mesh?.textures?.find(t=>t.id===textureId);if(!mesh||!texture||!project.bindings?.length)throw new DomainError('SURFACE_MISSING');if(bindingIssues(project).some(i=>i.severity==='error'))throw new DomainError('STALE_BINDING');
  const image=codec.decode(Uint8Array.from(Buffer.from(texture.proxy.png.split(',')[1],'base64')).buffer),rgba=new Uint8Array(codec.toRGBA8(image)[0]);
  if(image.width!==texture.proxy.width||image.height!==texture.proxy.height)throw new DomainError('IMAGE_RESOURCE_MISMATCH');
  const region=segmentPixels(image.width,image.height,rgba,{x:seed.x/texture.width,y:seed.y/texture.height},tolerance,{a:{x:0,y:0},b:{x:0,y:-1},distanceMm:1},1,1).piece,rings=[region.nodes,...region.holes??[]].map(r=>r.map(p=>[p.xMm,-p.yMm] as XY));

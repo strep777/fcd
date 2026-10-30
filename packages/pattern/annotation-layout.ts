@@ -1,5 +1,6 @@
 import type {Piece} from '../schema/index';
 import {edgeArcPoints} from './edit';
+import {patternTextWidth,wrapPatternText} from './annotation-text';
 type Point={xMm:number;yMm:number};
 
 /** Fit an axis-aligned rectangle to the cloth, including all holes. Scaled
@@ -38,19 +39,19 @@ export function interiorRectangle(outer:Point[],holes:Point[][],width:number,hei
 export function patternAnnotationLayout(piece:Piece,outer?:Point[],holes:Point[][]=piece.holes??[]){
  if(!piece.closed||piece.nodes.length<3)return{caption:[],arrows:[],box:{xMm:0,yMm:0,widthMm:0,heightMm:0},fontSizeMm:0};
  outer??=piece.curves?.length?piece.nodes.flatMap(n=>edgeArcPoints(piece,n.id).slice(0,-1)):piece.nodes;
- const chars=Array.from(piece.name||'—'),same=piece.grainRad!==undefined&&Math.abs(Math.atan2(Math.sin(piece.grainRad-piece.furRad),Math.cos(piece.grainRad-piece.furRad)))<1e-6;
+ const name=piece.name||'—',same=piece.grainRad!==undefined&&Math.abs(Math.atan2(Math.sin(piece.grainRad-piece.furRad),Math.cos(piece.grainRad-piece.furRad)))<1e-6;
  const directions=[{kind:'fur' as const,angle:piece.furRad,text:same?'毛向 / 布向':'毛向'},...(piece.grainRad!==undefined&&!same?[{kind:'grain' as const,angle:piece.grainRad,text:'布向'}]:[])];
  let best:{box:ReturnType<typeof interiorRectangle>;lines:string[];font:number;width:number;height:number}|undefined;
- for(const columns of new Set([Math.min(chars.length,8),Math.min(chars.length,16),chars.length])){
-  const lines=Array.from({length:Math.ceil(chars.length/columns)},(_,i)=>chars.slice(i*columns,(i+1)*columns).join('')),width=Math.max(6,...lines.map(s=>Array.from(s).length)),height=lines.length*1.3+directions.length*4.5+.4;
+ for(const columns of new Set([Math.min(patternTextWidth(name),8),Math.min(patternTextWidth(name),16),patternTextWidth(name)])){
+  const lines=wrapPatternText(name,columns),width=Math.max(6,...lines.map(s=>patternTextWidth(s)+.3)),height=lines.length*1.3+directions.length*4.5+.4;
   const box=interiorRectangle(outer,holes,width,height),font=box.widthMm/width*.8;
   if(!best||font>best.font)best={box,lines,font,width,height};
  }
- const {box,lines,font,width,height}=best!,top=box.yMm+height*font/2,caption=lines.map((text,i)=>({text,xMm:box.xMm,yMm:top-(i+1)*1.3*font,fontSizeMm:font,widthMm:Array.from(text).length*font}));
+ const {box,lines,font,width,height}=best!,top=box.yMm+height*font/2,caption=lines.map((text,i)=>({text,xMm:box.xMm,yMm:top-(i+1)*1.3*font,fontSizeMm:font,widthMm:patternTextWidth(text)*font}));
  const arrows=directions.map((d,i)=>{
   const center={xMm:box.xMm,yMm:top-(lines.length*1.3+.4+i*4.5+2)*font},c=Math.cos(d.angle),s=Math.sin(d.angle),length=Math.min((width-.4)/(Math.abs(c)+.3*Math.abs(s)),2.5/(Math.abs(s)+.3*Math.abs(c)))*font;
   const at=(u:number,v:number)=>({xMm:center.xMm+(u*c-v*s)*length,yMm:center.yMm+(u*s+v*c)*length});
-  return{...d,points:[at(-.5,0),at(.5,0),at(.25,.15),at(.5,0),at(.25,-.15)],label:{text:d.text,xMm:center.xMm,yMm:top-(lines.length*1.3+.4+i*4.5+4.15)*font,fontSizeMm:font*.7,widthMm:d.text.length*font*.7}};
+  return{...d,points:[at(-.5,0),at(.5,0),at(.25,.15),at(.5,0),at(.25,-.15)],label:{text:d.text,xMm:center.xMm,yMm:top-(lines.length*1.3+.4+i*4.5+4.15)*font,fontSizeMm:font*.7,widthMm:patternTextWidth(d.text)*font*.7}};
  });
  return{caption,arrows,box:{xMm:box.xMm,yMm:box.yMm,widthMm:width*font,heightMm:height*font},fontSizeMm:font};
 }

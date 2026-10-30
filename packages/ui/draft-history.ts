@@ -16,6 +16,12 @@ export class DraftHistory<T> {
  get undoStamp(){return this.past.at(-1)?.stamp??0;}
  get redoStamp(){return this.future.at(-1)?.stamp??Infinity;}
  clearRedo(){this.future=[];}
+ /** Remove discarded/invalid fields from every undo state without losing
+  * independent edits. Drop entries that become no-ops after that removal. */
+ rebase(map:(state:T)=>T,current:T){
+  const prune=(entries:{state:T;stamp:number}[])=>{let next=JSON.stringify(current);for(let i=entries.length-1;i>=0;i--){entries[i].state=map(entries[i].state);const value=JSON.stringify(entries[i].state);if(value===next)entries.splice(i,1);else next=value;}};
+  prune(this.past);prune(this.future);this.before=undefined;
+ }
  get grouping(){return this.before!==undefined;}
  clear(){this.past=[];this.future=[];this.before=undefined;}
  move(current:T,redo=false):T|undefined{const from=redo?this.future:this.past,to=redo?this.past:this.future;if(!from.length)return;const entry=from.pop()!;to.push({state:structuredClone(current),stamp:entry.stamp});return structuredClone(entry.state);}

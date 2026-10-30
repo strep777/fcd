@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
-import {mount,fixtureProject,capture,flush,id,walk,draftHistory} from './surface-viewport-host.mjs';
+import {mount,fixtureProject,capture,flush,id,walk,draftHistory,prepareSurfaceTransforms} from './surface-viewport-host.mjs';
 
 const clone=value=>JSON.parse(JSON.stringify(value));
 function project(){
@@ -9,7 +9,8 @@ function project(){
  p.patternLibrary=[{piece:{id:id('selection-source'),name:'Source pattern',color:'#2288cc',nodes:[[0,0],[15,0],[15,15],[0,15]].map(([xMm,yMm],i)=>({id:id('source-node-'+i),xMm,yMm})),closed:true,allowanceMm:0,cutQty:1,mirror:false,material:'Fur',furRad:0},referenceId:id('selection-reference'),view:'front',category:'body'}];
  return p;
 }
-async function fixture(options={}){let f;const edited=[],attached=[];f=await mount(project(),{...options,mode:'mapping',controls:false,api:{editSurfaceMarking:async(...args)=>{edited.push(clone(args));const next=clone(f.store.data.project);next.revision++;next.markings.find(m=>m.id===args[2]).surfaceShape=clone(args[3]);return{ok:true,data:{...f.store.data,project:next}};},surfaceMarking:async(...args)=>{attached.push(clone(args));const next=clone(f.store.data.project);next.revision++;next.markings=[{...clone(project().markings[0]),id:id('reattached-marking'),surfaceShape:clone(args[2])}];return{ok:true,data:{...f.store.data,project:next}};}}});await f.click(f.button('Front'));f.byLabel('Select attached marking').attrs['onUpdate:modelValue'](id('selection-marking'));await flush();return{f,edited,attached};}
+async function fixture(options={}){let f;const edited=[],attached=[];const save=async(args,batch)=>{const next=clone(f.store.data.project);assert.deepEqual(args.slice(0,2),[next.id,next.revision]);const edits=batch?args[2]:[{markingId:args[2],shape:args[3]}];assert(edits.length);for(const edit of edits)assert(next.markings.some(m=>m.id===edit.markingId),'every batch member must exist before any publication');for(const edit of edits)next.markings.find(m=>m.id===edit.markingId).surfaceShape=clone(edit.shape);next.revision++;edited.push(clone(args));return{ok:true,data:{...f.store.data,project:next}};};f=await mount(project(),{...options,mode:'mapping',controls:false,api:{editSurfaceMarkings:async(...args)=>save(args,true),editSurfaceMarking:async(...args)=>save(args,false),surfaceMarking:async(...args)=>{attached.push(clone(args));const next=clone(f.store.data.project);next.revision++;next.markings=[{...clone(project().markings[0]),id:id('reattached-marking'),surfaceShape:clone(args[2])}];return{ok:true,data:{...f.store.data,project:next}};}}});await f.click(f.button('Front'));f.byLabel('Select attached marking').attrs['onUpdate:modelValue'](id('selection-marking'));await flush();return{f,edited,attached};}
+const editShape=call=>Array.isArray(call[2])?call[2][0].shape:call[3];
 const resizeHandles=f=>walk(f.root).filter(n=>n.tag==='rect'&&n.attrs['data-handle']);
 const checks=[];
 async function check(name,run){try{await run();checks.push({case:name,passed:true});}catch(error){checks.push({case:name,passed:false,error:error.stack});}}
@@ -20,11 +21,11 @@ await check('ordinary selection exposes resize handles; direct drag stays a draf
   const original=clone(f.store.data.project),before=Number(f.byLabel('Attached marking width').value),handle=resizeHandles(f).find(n=>n.attrs['data-handle']==='se');
   const start={x:Number(handle.attrs.x)+364,y:Number(handle.attrs.y)+274};
   await f.event('onPointerdown',start.x,start.y);await f.event('onPointermove',start.x+24,start.y+16);await f.event('onPointerup',start.x+24,start.y+16);
-  assert(Number(f.byLabel('Attached marking width').value)>before);assert.deepEqual(clone(f.store.data.project),original);assert.equal(edited.length,0);f.button('Confirm transform Enter');
+  assert(Number(f.byLabel('Attached marking width').value)>before);assert.deepEqual(clone(f.store.data.project),original);assert.equal(edited.length,0);f.byLabel('Save all marking adjustments');
   await f.key('Escape');assert.equal(Number(f.byLabel('Attached marking width').value),before);assert.equal(resizeHandles(f).length,8);assert.deepEqual(clone(f.store.data.project),original);
   const next=resizeHandles(f).find(n=>n.attrs['data-handle']==='se'),point={x:Number(next.attrs.x)+364,y:Number(next.attrs.y)+274};
-  await f.event('onPointerdown',point.x,point.y);await f.event('onPointermove',point.x+20,point.y+10);await f.event('onPointerup',point.x+20,point.y+10);await f.click(f.button('Confirm transform Enter'));
-  assert.equal(edited.length,1);assert.equal(edited[0][2],id('selection-marking'));assert.equal(f.store.data.project.revision,original.revision+1);
+  await f.event('onPointerdown',point.x,point.y);await f.event('onPointermove',point.x+20,point.y+10);await f.event('onPointerup',point.x+20,point.y+10);await f.click(f.byLabel('Save all marking adjustments'));
+  assert.equal(edited.length,1);assert.equal(edited[0][2].length,1);assert.equal(edited[0][2][0].markingId,id('selection-marking'));assert.equal(f.store.data.project.revision,original.revision+1);
  }finally{f.app.unmount();}
 });
 
@@ -48,7 +49,7 @@ for(const scale of[1,1.5])await check(`a numerically narrowed marking can move f
   assert(numbers().width>2&&numbers().height>4,'the actual narrow handle still resizes both dimensions');const resized=handles();
   assert(draftHistory(false));await flush();assert.deepEqual(numbers(),{width:2,height:4});assert.deepEqual(handles(),moved,'undo restores the moved narrow contour exactly');
   assert(draftHistory(true));await flush();assert.deepEqual(handles(),resized);assert(draftHistory(false));await flush();assert.deepEqual(handles(),moved);
-  await f.key('Enter');assert.equal(edited.length,1,'the narrowed move is submitted once');const shape=edited[0][3];
+  await f.key('Enter');assert.equal(edited.length,1,'the narrowed move is submitted once');const shape=editShape(edited[0]);
   assert.deepEqual(shape.axes,original.axes);assert.equal(shape.nodes.length,original.nodes.length);
   shape.nodes.forEach((p,i)=>{assert(Math.abs(p.xMm-(47.5+(original.nodes[i].xMm-47.5)*2/45))<1e-9);assert(Math.abs(p.yMm-(42.5+(original.nodes[i].yMm-42.5)*4/45))<1e-9);});
   assert(Math.abs(shape.origin[0]-12/camera.factor)<1e-9);assert(Math.abs(shape.origin[1]+5/camera.factor)<1e-9);assert.equal(shape.origin[2],0);
@@ -62,12 +63,12 @@ await check('deserialized same-revision refresh preserves resize/rotation drafts
   const initial=values(),before=clone(f.store.data.project),handle=resizeHandles(f).find(n=>n.attrs['data-handle']==='se'),start={x:Number(handle.attrs.x)+364,y:Number(handle.attrs.y)+274};
   await f.event('onPointerdown',start.x,start.y);await f.event('onPointermove',start.x+12,start.y+6);const during=values();assert(during.width>initial.width);
   const refreshed=clone(f.store.data);assert.notStrictEqual(refreshed.project,f.store.data.project);assert.equal(await f.store.refresh(async()=>({ok:true,data:refreshed})),true);await flush();
-  assert.deepEqual(values(),during,'a read-only notification cannot discard an active resize or its frozen pointer frame');f.button('Confirm transform Enter');
+  assert.deepEqual(values(),during,'a read-only notification cannot discard an active resize or its frozen pointer frame');f.byLabel('Save all marking adjustments');
   await f.event('onPointermove',start.x+24,start.y+12);await f.event('onPointerup',start.x+24,start.y+12);const resized=values();assert(resized.width>during.width);
   assert(draftHistory(false));await flush();assert.deepEqual(values(),initial);assert(draftHistory(true));await flush();assert.deepEqual(values(),resized);
   const rotate=walk(f.root).find(n=>n.tag==='circle'&&n.parentNode?.attrs.class==='free-transform-handles'),point={x:Number(rotate.attrs.cx)+360,y:Number(rotate.attrs.cy)+270};
   await f.event('onPointerdown',point.x,point.y);await f.event('onPointermove',point.x+30,point.y+12);await f.event('onPointerup',point.x+30,point.y+12);const rotated=values();assert(Math.abs(rotated.angle)>5);
-  assert.equal(await f.store.refresh(async()=>({ok:true,data:clone(f.store.data)})),true);await flush();assert.deepEqual(values(),rotated);f.button('Confirm transform Enter');
+  assert.equal(await f.store.refresh(async()=>({ok:true,data:clone(f.store.data)})),true);await flush();assert.deepEqual(values(),rotated);f.byLabel('Save all marking adjustments');
   assert(draftHistory(false));await flush();assert.deepEqual(values(),resized,'rotation undo survives the new deserialized object');assert(draftHistory(true));await flush();assert.deepEqual(values(),rotated);
   assert.deepEqual(clone(f.store.data.project),before);assert.equal(edited.length,0);await f.key('Escape');assert.deepEqual(values(),initial);assert.equal(draftHistory(false),false);
  }finally{f.app.unmount();}
@@ -76,7 +77,7 @@ await check('deserialized same-revision refresh preserves resize/rotation drafts
 for(const changed of ['source contour','surface fragments','lock','marking ID','topology','surface vertices'])await check(`a real ${changed} change invalidates a pending transform and its local undo`,async()=>{
  const {f,edited}=await fixture();try{
   const handle=resizeHandles(f).find(n=>n.attrs['data-handle']==='se'),start={x:Number(handle.attrs.x)+364,y:Number(handle.attrs.y)+274};
-  await f.event('onPointerdown',start.x,start.y);await f.event('onPointermove',start.x+24,start.y+12);await f.event('onPointerup',start.x+24,start.y+12);f.button('Confirm transform Enter');
+  await f.event('onPointerdown',start.x,start.y);await f.event('onPointermove',start.x+24,start.y+12);await f.event('onPointerup',start.x+24,start.y+12);f.byLabel('Save all marking adjustments');
   const next=clone(f.store.data),p=next.project,m=p.markings[0];
   if(changed==='source contour')m.surfaceShape.nodes[0].xMm+=1;
   if(changed==='surface fragments'){m.fragments[0].rings[0][0][0]-=.01;m.fragments[0].rings[0][0][1]+=.01;}
@@ -85,7 +86,7 @@ for(const changed of ['source contour','surface fragments','lock','marking ID','
   if(changed==='topology'){p.surface.topologyVersion++;m.topologyVersion++;}
   if(changed==='surface vertices')p.surface.vertices[0].zMm+=1;
   assert.equal(await f.store.refresh(async()=>({ok:true,data:next})),true);await flush();
-  assert(!walk(f.root).some(n=>n.tag==='button'&&n.textContent==='Confirm transform Enter'));assert.equal(draftHistory(false),false);await f.key('Enter');assert.equal(edited.length,0);
+  assert(!walk(f.root).some(n=>n.tag==='button'&&n.attrs['aria-label']==='Save all marking adjustments'));assert.equal(draftHistory(false),false);await f.key('Enter');assert.equal(edited.length,0);
  }finally{f.app.unmount();}
 });
 
@@ -94,7 +95,7 @@ await check('F cannot refocus the camera during a resize or rotation drag and be
   for(const kind of ['resize','rotate']){
    await f.click(f.byLabel('Zoom in 3D'));const before=clone(capture().camera),handle=kind==='resize'?resizeHandles(f).find(n=>n.attrs['data-handle']==='se'):walk(f.root).find(n=>n.tag==='circle'&&n.parentNode?.attrs.class==='free-transform-handles'),point=kind==='resize'?{x:Number(handle.attrs.x)+364,y:Number(handle.attrs.y)+274}:{x:Number(handle.attrs.cx)+360,y:Number(handle.attrs.cy)+270};
    await f.event('onPointerdown',point.x,point.y);await f.event('onPointermove',point.x+12,point.y+6);await f.key('f');assert.deepEqual(capture().camera,before,'F must retain the captured camera throughout '+kind);
-   await f.event('onPointermove',point.x+24,point.y+12);await f.event('onPointerup',point.x+24,point.y+12);await f.key('f');assert(capture().camera.factor<before.factor,'F must work again after '+kind+' release');f.button('Confirm transform Enter');
+   await f.event('onPointermove',point.x+24,point.y+12);await f.event('onPointerup',point.x+24,point.y+12);await f.key('f');assert(capture().camera.factor<before.factor,'F must work again after '+kind+' release');f.byLabel('Save all marking adjustments');
   }
   assert.equal(edited.length,0);
  }finally{f.app.unmount();}
@@ -147,11 +148,11 @@ await check('switching projects with the same surface and marking IDs discards t
  }finally{f.app.unmount();}
 });
 
-await check('a mapping move is submitted before immediate implicit capture loss can cancel the released pointer',async()=>{
+await check('mapping mouseup retains its draft through capture loss and only explicit batch save commits',async()=>{
  const {f,edited}=await fixture();try{
   const before=clone(f.store.data.project),start=f.client(65,30),target=walk(f.root).find(n=>n.tag==='canvas');await f.event('onPointerdown',start.x,start.y);await f.event('onPointermove',start.x+15,start.y+4);
   const event={type:'pointerup',button:0,pointerId:1,clientX:start.x+15,clientY:start.y+4,currentTarget:target,target,preventDefault(){}};
-  const released=capture().onPointerup(event);capture().onLostpointercapture({...event,type:'lostpointercapture'});await released;await flush();assert.equal(edited.length,1);assert.equal(f.store.data.project.revision,before.revision+1);assert.notDeepEqual(edited[0][3].origin,before.markings[0].surfaceShape.origin);
+  const released=capture().onPointerup(event);capture().onLostpointercapture({...event,type:'lostpointercapture'});await released;await flush();assert.equal(edited.length,0);assert.deepEqual(clone(f.store.data.project),before);await f.click(f.byLabel('Save all marking adjustments'));assert.equal(edited.length,1);assert.equal(f.store.data.project.revision,before.revision+1);assert.notDeepEqual(editShape(edited[0]).origin,before.markings[0].surfaceShape.origin);
  }finally{f.app.unmount();}
 });
 
@@ -162,6 +163,16 @@ await check('Shift-drag translates the original whole contour once and freezes z
   await f.event('onPointermove',start.x+9,start.y+4.5,{shiftKey:true});await f.event('onPointermove',start.x+18,start.y+9,{shiftKey:true});await f.event('onPointerup',start.x+18,start.y+9,{shiftKey:true});
   assert.deepEqual(clone(f.store.data.project),before);await f.click(f.button('Confirm marking edit'));assert.equal(edited.length,1);
   edited[0][3].nodes.forEach((node,i)=>{assert(Math.abs(node.xMm-before.markings[0].surfaceShape.nodes[i].xMm-18/camera.factor)<1e-8);assert(Math.abs(node.yMm-before.markings[0].surfaceShape.nodes[i].yMm+9/camera.factor)<1e-8);});
+ }finally{f.app.unmount();}
+});
+
+await check('invalidating a source during a captured gesture removes its group and the next fresh gesture undoes independently',async()=>{
+ const {f,edited}=await fixture();try{const handle=resizeHandles(f).find(n=>n.attrs['data-handle']==='se'),start={x:Number(handle.attrs.x)+364,y:Number(handle.attrs.y)+274};await f.event('onPointerdown',start.x,start.y);await f.event('onPointermove',start.x+20,start.y+10);const next=clone(f.store.data);next.project.markings[0].surfaceShape.nodes[0].xMm+=1;assert.equal(await f.store.refresh(async()=>({ok:true,data:next})),true);await flush();await f.event('onPointerup',start.x+20,start.y+10);assert.equal(draftHistory(false),false);await f.key('Enter');assert.equal(edited.length,0);const width=Number(f.byLabel('Attached marking width').value),fresh=resizeHandles(f).find(n=>n.attrs['data-handle']==='se'),point={x:Number(fresh.attrs.x)+364,y:Number(fresh.attrs.y)+274};await f.event('onPointerdown',point.x,point.y);await f.event('onPointermove',point.x+16,point.y+8);await f.event('onPointerup',point.x+16,point.y+8);assert(Number(f.byLabel('Attached marking width').value)>width);assert(draftHistory(false));await flush();assert.equal(Number(f.byLabel('Attached marking width').value),width);assert(draftHistory(true));await flush();assert(Number(f.byLabel('Attached marking width').value)>width);
+ }finally{f.app.unmount();}
+});
+
+await check('requesting leave flushes the last queued pointer into the draft before an implicit capture loss can roll it back',async()=>{
+ const {f,edited}=await fixture();try{const original=clone(f.store.data.project),before=Number(f.byLabel('Attached marking width').value),handle=resizeHandles(f).find(n=>n.attrs['data-handle']==='se'),start={x:Number(handle.attrs.x)+364,y:Number(handle.attrs.y)+274},target=walk(f.root).find(n=>n.tag==='canvas');await f.event('onPointerdown',start.x,start.y);const event={type:'pointermove',button:0,pointerId:1,clientX:start.x+24,clientY:start.y+12,currentTarget:target,target,preventDefault(){}};capture().onPointermove(event);assert.equal(Number(f.byLabel('Attached marking width').value),before,'the animation frame has deliberately not run yet');prepareSurfaceTransforms();await flush();const prepared=Number(f.byLabel('Attached marking width').value);assert(prepared>before);capture().onLostpointercapture({...event,type:'lostpointercapture'});await flush();assert.equal(Number(f.byLabel('Attached marking width').value),prepared);assert.deepEqual(clone(f.store.data.project),original);assert.equal(edited.length,0);assert(draftHistory(false));await flush();assert.equal(Number(f.byLabel('Attached marking width').value),before);assert(draftHistory(true));await flush();assert.equal(Number(f.byLabel('Attached marking width').value),prepared);
  }finally{f.app.unmount();}
 });
 

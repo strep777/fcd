@@ -2722,6 +2722,9 @@
                 "items": {
                   "type": "object",
                   "properties": {
+                    "materialResolved": {
+                      "type": "boolean"
+                    },
                     "colorHash": {
                       "type": "string",
                       "pattern": "^[a-f0-9]{64}$"
@@ -2961,7 +2964,7 @@
                         },
                         "faceIds": {
                           "minItems": 1,
-                          "maxItems": 50000,
+                          "maxItems": 200000,
                           "type": "array",
                           "items": {
                             "type": "string",
@@ -3045,7 +3048,7 @@
                           "minimum": 0
                         },
                         "faceDistortion": {
-                          "maxItems": 50000,
+                          "maxItems": 200000,
                           "type": "array",
                           "items": {
                             "type": "object",
@@ -3178,7 +3181,8 @@
                       "type": "string",
                       "enum": [
                         "anatomy-1",
-                        "anatomy-2"
+                        "anatomy-2",
+                        "anatomy-3"
                       ]
                     },
                     "rotationRad": {
@@ -3719,7 +3723,7 @@
                   "maximum": 1000000
                 },
                 "fragments": {
-                  "maxItems": 50000,
+                  "maxItems": 200000,
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -6437,6 +6441,9 @@
             "items": {
               "type": "object",
               "properties": {
+                "materialResolved": {
+                  "type": "boolean"
+                },
                 "colorHash": {
                   "type": "string",
                   "pattern": "^[a-f0-9]{64}$"
@@ -6676,7 +6683,7 @@
                     },
                     "faceIds": {
                       "minItems": 1,
-                      "maxItems": 50000,
+                      "maxItems": 200000,
                       "type": "array",
                       "items": {
                         "type": "string",
@@ -6760,7 +6767,7 @@
                       "minimum": 0
                     },
                     "faceDistortion": {
-                      "maxItems": 50000,
+                      "maxItems": 200000,
                       "type": "array",
                       "items": {
                         "type": "object",
@@ -6880,7 +6887,8 @@
                       "type": "string",
                       "enum": [
                         "anatomy-1",
-                        "anatomy-2"
+                        "anatomy-2",
+                        "anatomy-3"
                       ]
                     },
                     "rotationRad": {
@@ -7421,7 +7429,7 @@
                   "maximum": 1000000
                 },
                 "fragments": {
-                  "maxItems": 50000,
+                  "maxItems": 200000,
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -7730,7 +7738,8 @@
                 "type": "string",
                 "enum": [
                   "anatomy-1",
-                  "anatomy-2"
+                  "anatomy-2",
+                  "anatomy-3"
                 ]
               },
               "rotationRad": {
@@ -8271,7 +8280,7 @@
             "maximum": 1000000
           },
           "fragments": {
-            "maxItems": 50000,
+            "maxItems": 200000,
             "type": "array",
             "items": {
               "type": "object",
@@ -11116,6 +11125,9 @@
           "items": {
             "type": "object",
             "properties": {
+              "materialResolved": {
+                "type": "boolean"
+              },
               "colorHash": {
                 "type": "string",
                 "pattern": "^[a-f0-9]{64}$"
@@ -11355,7 +11367,7 @@
                   },
                   "faceIds": {
                     "minItems": 1,
-                    "maxItems": 50000,
+                    "maxItems": 200000,
                     "type": "array",
                     "items": {
                       "type": "string",
@@ -11439,7 +11451,7 @@
                     "minimum": 0
                   },
                   "faceDistortion": {
-                    "maxItems": 50000,
+                    "maxItems": 200000,
                     "type": "array",
                     "items": {
                       "type": "object",
@@ -11558,6 +11570,9 @@
       "items": {
         "type": "object",
         "properties": {
+          "materialResolved": {
+            "type": "boolean"
+          },
           "colorHash": {
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
@@ -11797,7 +11812,7 @@
               },
               "faceIds": {
                 "minItems": 1,
-                "maxItems": 50000,
+                "maxItems": 200000,
                 "type": "array",
                 "items": {
                   "type": "string",
@@ -11881,7 +11896,7 @@
                 "minimum": 0
               },
               "faceDistortion": {
-                "maxItems": 50000,
+                "maxItems": 200000,
                 "type": "array",
                 "items": {
                   "type": "object",
@@ -13839,7 +13854,8 @@
                 "type": "string",
                 "enum": [
                   "anatomy-1",
-                  "anatomy-2"
+                  "anatomy-2",
+                  "anatomy-3"
                 ]
               },
               "rotationRad": {
@@ -14380,7 +14396,7 @@
             "maximum": 1000000
           },
           "fragments": {
-            "maxItems": 50000,
+            "maxItems": 200000,
             "type": "array",
             "items": {
               "type": "object",

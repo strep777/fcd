@@ -185,7 +185,7 @@ export async function colorCuts(worker:string,project:Project,run:SurfaceRun,mar
    // parent-boundary stations as well for seam-edit compatibility, without
    // duplicating every interior UV of a wide parent patch into each insert.
    const reportVertices=new Set([...binding.report.boundary,...(binding.report.holes??[]).flat(),...faceIds.flatMap(id=>faces.get(id)!.vertices)]);
-   pieces.push(piece);bindings.push({...binding,colorHash,pieceId:piece.id,geometryHash:pieceGeometryHash(piece),trim,report:{...binding.report,uv:binding.report.uv.filter(v=>reportVertices.has(v.vertexId)),boundaryToleranceMm:Math.max(.001,binding.report.boundaryToleranceMm??0),faceIds,faceDistortion:binding.report.faceDistortion?.filter(f=>faceIds.includes(f.faceId))}});
+   pieces.push(piece);bindings.push({...binding,materialResolved:true,colorHash,pieceId:piece.id,geometryHash:pieceGeometryHash(piece),trim,report:{...binding.report,uv:binding.report.uv.filter(v=>reportVertices.has(v.vertexId)),boundaryToleranceMm:Math.max(.001,binding.report.boundaryToleranceMm??0),faceIds,faceDistortion:binding.report.faceDistortion?.filter(f=>faceIds.includes(f.faceId))}});
   }}
  }
  if(pieces.length>500)throw new DomainError('COLOR_CUT_LIMIT');

@@ -39,7 +39,10 @@ export function openMaterialMesh(source:Surface,provenance:Map<string,MaterialFa
  // island multiplies pieces before any flattening has justified those cuts.
  // Keep the structural starting layout for a single-material body; multi-
  // material domains get additional sections only after a measured solve fails.
- if(allowTopologyCuts&&new Set([...provenance.values()].map(p=>p.color)).size<=1){const sections=garmentSections(source,newId);if(sections){const updated=refineMaterialProvenance(provenance,sections.children);if(updated){source=sections.surface;provenance=updated;}}}
+ if(allowTopologyCuts&&new Set([...provenance.values()].map(row=>row.color)).size===1){
+  const sections=garmentSections(source,newId);
+  if(sections){const updated=refineMaterialProvenance(provenance,sections.children);if(updated){source=sections.surface;provenance=updated;}}
+ }
  const mesh={...source,assembly:undefined,textures:undefined,textureFaces:undefined,cutLines:undefined,cutBaseConstraints:undefined,faces:source.faces.map(f=>({...f,region:'design:'+provenance.get(f.id)!.color}))};
  const completion=allowTopologyCuts?completePlanarSeams(mesh):{surface:mesh,seams:0};
  let completed={surface:mesh as Surface,seams:0};

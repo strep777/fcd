@@ -21,7 +21,10 @@ it('cuts a supported source whose exact color boundaries generate more than 5000
  expect(restored.bindings.every(b=>b.report.distortionMax<1e-6)).toBe(true);
  expect(JSON.stringify(p)).toBe(before);
 },180000);
-it('still rejects an original model above the native input budget',async()=>{
- const p=project();p.surface=gridMesh(160,157);
- await expect(unwrapSurface(worker,p.surface,p,{partitionStrategy:'design'})).rejects.toMatchObject({code:'UNWRAP_LIMIT'});
-},30000);
+it('retains a dense planar original as one exact piece instead of rejecting or inventing sewing cuts',async()=>{
+ const p=project();p.pieces=[];p.surface=gridMesh(160,157);p.surface.faces.forEach(f=>f.region='body');const before=JSON.stringify(p);
+ const run=await unwrapSurface(worker,p.surface,p,{partitionStrategy:'design',automaticCuts:true,colorBoundaryCuts:false});
+ expect(run.pieces).toHaveLength(1);expect(run.bindings).toHaveLength(1);
+ expect(new Set(run.bindings.flatMap(b=>b.report.faceIds))).toEqual(new Set(p.surface.faces.map(f=>f.id)));
+ expect(run.bindings[0].report.edgeErrorMax).toBeLessThan(1e-6);expect(JSON.stringify(p)).toBe(before);
+},180000);

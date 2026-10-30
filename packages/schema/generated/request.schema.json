@@ -408,7 +408,8 @@
                             "type": "string",
                             "enum": [
                               "anatomy-1",
-                              "anatomy-2"
+                              "anatomy-2",
+                              "anatomy-3"
                             ]
                           },
                           "rotationRad": {
@@ -949,7 +950,7 @@
                         "maximum": 1000000
                       },
                       "fragments": {
-                        "maxItems": 50000,
+                        "maxItems": 200000,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -3297,7 +3298,8 @@
                             "type": "string",
                             "enum": [
                               "anatomy-1",
-                              "anatomy-2"
+                              "anatomy-2",
+                              "anatomy-3"
                             ]
                           },
                           "rotationRad": {
@@ -3838,7 +3840,7 @@
                         "maximum": 1000000
                       },
                       "fragments": {
-                        "maxItems": 50000,
+                        "maxItems": 200000,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -5900,6 +5902,9 @@
                         "items": {
                           "type": "object",
                           "properties": {
+                            "materialResolved": {
+                              "type": "boolean"
+                            },
                             "colorHash": {
                               "type": "string",
                               "pattern": "^[a-f0-9]{64}$"
@@ -6139,7 +6144,7 @@
                                 },
                                 "faceIds": {
                                   "minItems": 1,
-                                  "maxItems": 50000,
+                                  "maxItems": 200000,
                                   "type": "array",
                                   "items": {
                                     "type": "string",
@@ -6223,7 +6228,7 @@
                                   "minimum": 0
                                 },
                                 "faceDistortion": {
-                                  "maxItems": 50000,
+                                  "maxItems": 200000,
                                   "type": "array",
                                   "items": {
                                     "type": "object",
@@ -6343,7 +6348,8 @@
                                   "type": "string",
                                   "enum": [
                                     "anatomy-1",
-                                    "anatomy-2"
+                                    "anatomy-2",
+                                    "anatomy-3"
                                   ]
                                 },
                                 "rotationRad": {
@@ -6884,7 +6890,7 @@
                               "maximum": 1000000
                             },
                             "fragments": {
-                              "maxItems": 50000,
+                              "maxItems": 200000,
                               "type": "array",
                               "items": {
                                 "type": "object",
@@ -7603,7 +7609,8 @@
                           "type": "string",
                           "enum": [
                             "anatomy-1",
-                            "anatomy-2"
+                            "anatomy-2",
+                            "anatomy-3"
                           ]
                         },
                         "rotationRad": {
@@ -8144,7 +8151,7 @@
                       "maximum": 1000000
                     },
                     "fragments": {
-                      "maxItems": 50000,
+                      "maxItems": 200000,
                       "type": "array",
                       "items": {
                         "type": "object",
@@ -8671,7 +8678,8 @@
                             "type": "string",
                             "enum": [
                               "anatomy-1",
-                              "anatomy-2"
+                              "anatomy-2",
+                              "anatomy-3"
                             ]
                           },
                           "rotationRad": {
@@ -9212,7 +9220,7 @@
                         "maximum": 1000000
                       },
                       "fragments": {
-                        "maxItems": 50000,
+                        "maxItems": 200000,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -11274,6 +11282,9 @@
                         "items": {
                           "type": "object",
                           "properties": {
+                            "materialResolved": {
+                              "type": "boolean"
+                            },
                             "colorHash": {
                               "type": "string",
                               "pattern": "^[a-f0-9]{64}$"
@@ -11513,7 +11524,7 @@
                                 },
                                 "faceIds": {
                                   "minItems": 1,
-                                  "maxItems": 50000,
+                                  "maxItems": 200000,
                                   "type": "array",
                                   "items": {
                                     "type": "string",
@@ -11597,7 +11608,7 @@
                                   "minimum": 0
                                 },
                                 "faceDistortion": {
-                                  "maxItems": 50000,
+                                  "maxItems": 200000,
                                   "type": "array",
                                   "items": {
                                     "type": "object",
@@ -11717,7 +11728,8 @@
                                   "type": "string",
                                   "enum": [
                                     "anatomy-1",
-                                    "anatomy-2"
+                                    "anatomy-2",
+                                    "anatomy-3"
                                   ]
                                 },
                                 "rotationRad": {
@@ -12258,7 +12270,7 @@
                               "maximum": 1000000
                             },
                             "fragments": {
-                              "maxItems": 50000,
+                              "maxItems": 200000,
                               "type": "array",
                               "items": {
                                 "type": "object",
@@ -18020,7 +18032,8 @@
                             "type": "string",
                             "enum": [
                               "anatomy-1",
-                              "anatomy-2"
+                              "anatomy-2",
+                              "anatomy-3"
                             ]
                           },
                           "rotationRad": {
@@ -18561,7 +18574,7 @@
                         "maximum": 1000000
                       },
                       "fragments": {
-                        "maxItems": 50000,
+                        "maxItems": 200000,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -19439,6 +19452,9 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "materialResolved": {
+                            "type": "boolean"
+                          },
                           "colorHash": {
                             "type": "string",
                             "pattern": "^[a-f0-9]{64}$"
@@ -19678,7 +19694,7 @@
                               },
                               "faceIds": {
                                 "minItems": 1,
-                                "maxItems": 50000,
+                                "maxItems": 200000,
                                 "type": "array",
                                 "items": {
                                   "type": "string",
@@ -19762,7 +19778,7 @@
                                 "minimum": 0
                               },
                               "faceDistortion": {
-                                "maxItems": 50000,
+                                "maxItems": 200000,
                                 "type": "array",
                                 "items": {
                                   "type": "object",
@@ -19895,7 +19911,8 @@
                             "type": "string",
                             "enum": [
                               "anatomy-1",
-                              "anatomy-2"
+                              "anatomy-2",
+                              "anatomy-3"
                             ]
                           },
                           "rotationRad": {
@@ -20436,7 +20453,7 @@
                         "maximum": 1000000
                       },
                       "fragments": {
-                        "maxItems": 50000,
+                        "maxItems": 200000,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -22151,6 +22168,9 @@
                   "items": {
                     "type": "object",
                     "properties": {
+                      "materialResolved": {
+                        "type": "boolean"
+                      },
                       "colorHash": {
                         "type": "string",
                         "pattern": "^[a-f0-9]{64}$"
@@ -22390,7 +22410,7 @@
                           },
                           "faceIds": {
                             "minItems": 1,
-                            "maxItems": 50000,
+                            "maxItems": 200000,
                             "type": "array",
                             "items": {
                               "type": "string",
@@ -22474,7 +22494,7 @@
                             "minimum": 0
                           },
                           "faceDistortion": {
-                            "maxItems": 50000,
+                            "maxItems": 200000,
                             "type": "array",
                             "items": {
                               "type": "object",
@@ -22594,7 +22614,8 @@
                             "type": "string",
                             "enum": [
                               "anatomy-1",
-                              "anatomy-2"
+                              "anatomy-2",
+                              "anatomy-3"
                             ]
                           },
                           "rotationRad": {
@@ -23135,7 +23156,7 @@
                         "maximum": 1000000
                       },
                       "fragments": {
-                        "maxItems": 50000,
+                        "maxItems": 200000,
                         "type": "array",
                         "items": {
                           "type": "object",
@@ -25395,6 +25416,322 @@
           "required": [
             "markingId",
             "shape"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "requestId",
+        "projectId",
+        "expectedRevision",
+        "method",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "requestId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "projectId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "method": {
+          "type": "string",
+          "const": "marking.surface.editMany"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "edits": {
+              "minItems": 1,
+              "maxItems": 500,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "markingId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "shape": {
+                    "type": "object",
+                    "properties": {
+                      "wrap": {
+                        "type": "boolean"
+                      },
+                      "anchorFaceId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "curves": {
+                        "maxItems": 2000,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "startIndex": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 1999
+                            },
+                            "c1": {
+                              "type": "object",
+                              "properties": {
+                                "xMm": {
+                                  "type": "number",
+                                  "minimum": -1000000,
+                                  "maximum": 1000000
+                                },
+                                "yMm": {
+                                  "type": "number",
+                                  "minimum": -1000000,
+                                  "maximum": 1000000
+                                }
+                              },
+                              "required": [
+                                "xMm",
+                                "yMm"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "c2": {
+                              "type": "object",
+                              "properties": {
+                                "xMm": {
+                                  "type": "number",
+                                  "minimum": -1000000,
+                                  "maximum": 1000000
+                                },
+                                "yMm": {
+                                  "type": "number",
+                                  "minimum": -1000000,
+                                  "maximum": 1000000
+                                }
+                              },
+                              "required": [
+                                "xMm",
+                                "yMm"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "startIndex",
+                            "c1",
+                            "c2"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "regions": {
+                        "minItems": 1,
+                        "maxItems": 500,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        }
+                      },
+                      "holes": {
+                        "maxItems": 32,
+                        "type": "array",
+                        "items": {
+                          "minItems": 3,
+                          "maxItems": 2000,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "xMm": {
+                                "type": "number",
+                                "minimum": -1000000,
+                                "maximum": 1000000
+                              },
+                              "yMm": {
+                                "type": "number",
+                                "minimum": -1000000,
+                                "maximum": 1000000
+                              }
+                            },
+                            "required": [
+                              "xMm",
+                              "yMm"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "spline": {
+                        "type": "object",
+                        "properties": {
+                          "algorithm": {
+                            "type": "string",
+                            "const": "closed-catmull-rom-1"
+                          },
+                          "tension": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "toleranceMm": {
+                            "type": "number",
+                            "minimum": 0.01,
+                            "maximum": 0.5
+                          }
+                        },
+                        "required": [
+                          "algorithm",
+                          "tension",
+                          "toleranceMm"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "nodes": {
+                        "minItems": 3,
+                        "maxItems": 2000,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "xMm": {
+                              "type": "number",
+                              "minimum": -1000000,
+                              "maximum": 1000000
+                            },
+                            "yMm": {
+                              "type": "number",
+                              "minimum": -1000000,
+                              "maximum": 1000000
+                            }
+                          },
+                          "required": [
+                            "xMm",
+                            "yMm"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "origin": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number",
+                            "minimum": -1000000,
+                            "maximum": 1000000
+                          },
+                          {
+                            "type": "number",
+                            "minimum": -1000000,
+                            "maximum": 1000000
+                          },
+                          {
+                            "type": "number",
+                            "minimum": -1000000,
+                            "maximum": 1000000
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "axes": {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 3,
+                            "maxItems": 3
+                          },
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 3,
+                            "maxItems": 3
+                          },
+                          {
+                            "type": "array",
+                            "prefixItems": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ],
+                            "items": false,
+                            "minItems": 3,
+                            "maxItems": 3
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 3,
+                        "maxItems": 3
+                      }
+                    },
+                    "required": [
+                      "nodes",
+                      "origin",
+                      "axes"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "markingId",
+                  "shape"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "edits"
           ],
           "additionalProperties": false
         }

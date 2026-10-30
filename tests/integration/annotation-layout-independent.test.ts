@@ -3,6 +3,7 @@ import {resolve} from 'node:path';
 import {mkdir,writeFile} from 'node:fs/promises';
 import fontkit from '@pdf-lib/fontkit';
 import {PDFDocument,PDFArray,PDFDict,PDFName,PDFRawStream,decodePDFRawStream} from 'pdf-lib';
+import {patternTextWidth} from '../../packages/pattern/annotation-text';
 import {interiorRectangle,patternAnnotationLayout} from '../../packages/pattern/annotation-layout';
 import {Repository} from '../../apps/desktop/main/repository';
 import {analyze} from '../../apps/desktop/main/worker';
@@ -14,7 +15,7 @@ import {project,rectangle} from '../fixtures';
 import type {Piece} from '../../packages/schema/index';
 
 type XY={xMm:number;yMm:number};
-const worker=resolve('target/release/fpcad-worker.exe'),directory=resolve('test-results/2026-10-27-placement-seams');
+const worker=resolve('target/release/fpcad-worker.exe'),directory=resolve('test-results/2026-10-28-imported-cut/annotations');
 const ring=(points:number[][])=>points.map(([xMm,yMm])=>({id:crypto.randomUUID(),xMm,yMm}));
 const inside=(p:XY,r:XY[])=>{let value=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const a=r[i],b=r[j];if((a.yMm>p.yMm)!==(b.yMm>p.yMm)&&p.xMm<(b.xMm-a.xMm)*(p.yMm-a.yMm)/(b.yMm-a.yMm)+a.xMm)value=!value;}return value;};
 function cloth(p:XY,outer:XY[],holes:XY[][]){return inside(p,outer)&&!holes.some(h=>inside(p,h));}
@@ -32,11 +33,13 @@ function verifyInk(piece:Piece,annotation:ReturnType<typeof patternAnnotationLay
   for(const [dx,dy] of [[0,0],[annotation.fontSizeMm*.05,0],[-annotation.fontSizeMm*.05,0],[0,annotation.fontSizeMm*.05],[0,-annotation.fontSizeMm*.05]])expect(cloth({xMm:p.xMm+dx,yMm:p.yMm+dy},outer,holes)).toBe(true);
  }
  for(const label of [...annotation.caption,...annotation.arrows.map(a=>a.label)]){
-  const run=font.layout(label.text);
+  const run=font.layout(label.text,{kern:false,locl:false,liga:false});
   for(const mode of ['svg','pdf'] as const){
-   const advance=mode==='pdf'?run.glyphs.reduce((sum,g)=>sum+g.advanceWidth,0):run.positions.reduce((sum,p)=>sum+p.xAdvance,0),naturalWidth=advance/font.unitsPerEm*label.fontSizeMm;
+   const advance=run.positions.reduce((sum,p)=>sum+p.xAdvance,0),naturalWidth=advance/font.unitsPerEm*label.fontSizeMm;
+   expect(label.widthMm).toBeCloseTo(naturalWidth,9);
    const size=mode==='pdf'?Math.min(label.fontSizeMm,label.widthMm*font.unitsPerEm/advance):label.fontSizeMm;
-   const sx=mode==='svg'?label.widthMm/advance:size/font.unitsPerEm,sy=size/font.unitsPerEm,start=label.xMm-(mode==='svg'?label.widthMm:naturalWidth*size/label.fontSizeMm)/2;
+   const sx=size/font.unitsPerEm,sy=size/font.unitsPerEm,start=label.xMm-advance*sx/2;
+   expect(sx).toBe(sy);expect(size).toBeCloseTo(label.fontSizeMm,9);
    let pen=0;
    for(let i=0;i<run.glyphs.length;i++){
     const glyph=run.glyphs[i],position=mode==='pdf'?{xOffset:0,yOffset:0,xAdvance:glyph.advanceWidth}:run.positions[i],b=glyph.bbox;
@@ -96,7 +99,8 @@ it('actual worker geometry keeps mirrored and rotated nested annotations inside 
 });
 it('PDF uses the same physical annotation and retains A4 and a true 100 mm ruler',async()=>{
  const p=project();p.pieces=[{...rectangle(100,140),name:'前爪 WMWM gyp',grainRad:0}];const g=await analyze(worker,p),svg=svgExport(p,g,[]),bytes=await pdfExport(p,g,[]),pdf=await PDFDocument.load(bytes);
- expect(svg).toContain('textLength=');expect(pdf.getPageCount()).toBe(1);
+ expect(svg).not.toMatch(/textLength=|lengthAdjust=/);expect(svg).toContain('font-kerning:none');expect(pdf.getPageCount()).toBe(1);
+ const embedded=svg.match(/data:font\/ttf;base64,([^"]+)/)?.[1];expect(embedded).toBeDefined();expect(Buffer.from(embedded!,'base64')).toEqual(await exportFont());
  const page=pdf.getPage(0);expect(page.getWidth()*25.4/72).toBeCloseTo(210,9);expect(page.getHeight()*25.4/72).toBeCloseTo(297,9);
  const contents=page.node.Contents(),refs=contents instanceof PDFArray?contents.asArray():[contents],operators=refs.map(r=>{const s=pdf.context.lookup(r!);return s instanceof PDFRawStream?new TextDecoder().decode(decodePDFRawStream(s).decode()):'';}).join('\n');
  expect([...operators.matchAll(/([-\d.eE]+) ([-\d.eE]+) m\s+([-\d.eE]+) ([-\d.eE]+) l\s+S/g)].some(m=>Math.abs((Number(m[3])-Number(m[1]))*25.4/72-100)<1e-8&&Number(m[2])===Number(m[4]))).toBe(true);
@@ -114,9 +118,16 @@ it('PDF uses the same physical annotation and retains A4 and a true 100 mm ruler
  }
  const placed=layout(p,g)[0],height=Number(svg.match(/viewBox="0 0 [^ ]+ ([^"]+)"/)![1]),y0=height-277;
  for(const expected of [...placed.annotation.caption,...placed.annotation.arrows.map(a=>a.label)]){
-  const emitted=actual.find(([text])=>text===expected.text);expect(emitted,`missing actual PDF annotation ${expected.text}`).toBeDefined();const [,size,x,y]=emitted!,run=font.layout(expected.text),advance=run.glyphs.reduce((n,g)=>n+g.advanceWidth,0),width=advance/font.unitsPerEm*size;
-  expect(width).toBeLessThanOrEqual(expected.widthMm+1e-8);expect(x+width/2-10).toBeCloseTo(expected.xMm,7);expect(y-10+y0).toBeCloseTo(expected.yMm,7);
+  const emitted=actual.find(([text])=>text===expected.text);expect(emitted,`missing actual PDF annotation ${expected.text}`).toBeDefined();const [,size,x,y]=emitted!,run=font.layout(expected.text,{kern:false,locl:false,liga:false}),advance=run.glyphs.reduce((n,g)=>n+g.advanceWidth,0),width=advance/font.unitsPerEm*size;
+  expect(size).toBeCloseTo(expected.fontSizeMm,7);expect(width).toBeCloseTo(expected.widthMm,7);expect(x+width/2-10).toBeCloseTo(expected.xMm,7);expect(y-10+y0).toBeCloseTo(expected.yMm,7);
   let pen=0;for(let i=0;i<run.glyphs.length;i++){const b=run.glyphs[i].bbox,s=size/font.unitsPerEm;if(b.maxX>b.minX&&b.maxY>b.minY)rectangleFits({xMm:x-10+(pen+(b.minX+b.maxX)/2)*s,yMm:y-10+y0+(b.minY+b.maxY)/2*s,widthMm:(b.maxX-b.minX)*s,heightMm:(b.maxY-b.minY)*s},placed.seam,placed.seamHoles);pen+=run.glyphs[i].advanceWidth;}
  }
  await writeFile(resolve(directory,'annotation-actual-size.pdf'),bytes);
+});
+
+it('natural widths agree with the actual bundled font including Latin, accents, CJK and disabled ligatures',()=>{
+ for(const text of ['前腿 WMWM gyp','Fur / grain','Grain','AV To fi ffi','Été façade — € 100 mm','毛向 / 布向','パターン']){
+  const run=font.layout(text,{kern:false,locl:false,liga:false}),width=run.positions.reduce((sum,p)=>sum+p.xAdvance,0)/font.unitsPerEm;
+  expect(patternTextWidth(text),text).toBeCloseTo(width,10);
+ }
 });

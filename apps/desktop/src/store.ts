@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref,shallowRef,markRaw,computed,watch } from 'vue';
 import {useDelayedActivity} from './modules/useDelayedActivity';
+import {surfaceTransformsDirty} from './modules/surfaceTransformDraftGuard';
 import type { Session,Response } from '../../../packages/schema/index';
-interface TaskOptions {label?:string;cancel?:()=>Promise<Response>}
+interface TaskOptions {label?:string;cancel?:()=>Promise<Response>;surfaceTransformCommit?:boolean}
 export const useSession=defineStore('session',()=>{
  const data=ref<Session>({project:null,geometry:[],canUndo:false,canRedo:false,savedRevision:null,recovery:[],history:[],recent:[],jobs:[]});
  const busy=ref(false),errorScope=ref('home'),pageErrors=ref<Record<string,string>>({}),notice=ref('');let generation=0,dismissedNotice='';
@@ -24,6 +25,8 @@ export const useSession=defineStore('session',()=>{
  }
  async function run(action:()=>Promise<Response>,options:TaskOptions={}){
   if(busy.value)return false;
+  // Shared drawers and model tools must not replace a pending transform session.
+  if(surfaceTransformsDirty.value&&!options.surfaceTransformCommit){setError(errorScope.value,'UNSAVED_MARKING_TRANSFORMS');return false;}
   const scope=errorScope.value;++generation;busy.value=true;setError(scope,'');taskOutcome.value='';cancelling.value=false;taskCancelFailed.value=false;cancelFailureCode='';cancelAction=options.cancel;taskErrorScope=scope;task.value={label:options.label,startedAt:Date.now(),cancellable:!!options.cancel};
   try{const response=await action();if(!response.ok){if(cancelling.value&&response.error.code==='CANCELLED')taskOutcome.value='cancelled';else setError(scope,response.error.code);return false;}clearCancelError(scope);if(response.cancelled){if(cancelling.value)taskOutcome.value='cancelled';return false;}publish(response.data);return true;}
   catch{setError(scope,'CONNECTION_ERROR');return false;}

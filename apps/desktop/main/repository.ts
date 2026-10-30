@@ -159,7 +159,13 @@ export class Repository {
         if(after.markings?.some(m=>ids.includes(m.id)&&m.locked))throw new DomainError('MARKING_LOCKED');
         after.patternLibrary=after.patternLibrary.filter(r=>r.piece.id!==command.pieceId);
         pruneSources([command.pieceId]);after.surfaceRun=undefined;after.previewMarkings=undefined;
-      }else if(command.type==='markings.batch'){after.markings=[...(after.markings??[]).filter(m=>!command.markings.some(n=>n.id===m.id)),...command.markings];after.surfaceRun=undefined;after.previewMarkings=undefined;}
+      }else if(command.type==='markings.batch'){
+        const existing=new Set(after.markings?.map(marking=>marking.id)),replacements=new Map(command.markings.map(marking=>[marking.id,marking]));
+        // Marking order is paint stacking order. Updating a batch must have the
+        // same placement as single-record replacement; only new IDs append.
+        after.markings=[...(after.markings??[]).map(marking=>replacements.get(marking.id)??marking),...command.markings.filter(marking=>!existing.has(marking.id))];
+        after.surfaceRun=undefined;after.previewMarkings=undefined;
+      }
       else if(command.type==='marking.placement.review'){
         if(command.markingIds.some(id=>!after.markings?.some(m=>m.id===id&&m.placement)))throw new DomainError('ENTITY_MISSING');
         const stale=staleMarkingIds(after),dependencies=(after.markings??[]).filter(m=>m.inference&&!stale.has(m.id)&&command.markingIds.includes(m.inference.sourceMarkingId));

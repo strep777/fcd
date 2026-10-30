@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fontkit from '@pdf-lib/fontkit';
 import {build} from 'esbuild';
 import {parse,compileScript} from '@vue/compiler-sfc';
 import {readFile,mkdir,mkdtemp,writeFile} from 'node:fs/promises';
@@ -116,15 +117,18 @@ for(const cm of [0,10,2.5]){
   checks.push({case:'rejected model transform retains numerical draft and project revision',passed:true});
  }finally{f.app.unmount();}
 }
-for(const grainRad of [undefined,Math.PI/2,0]){
+const annotationFont=fontkit.create(await readFile('assets/fonts/FurryPatternSansSC-Regular.ttf'));
+for(const language of ['en','zh'])for(const grainRad of [undefined,Math.PI/2,0]){
  const piece={id:'direction-piece',name:'Front paw',closed:true,furRad:0,grainRad,nodes:[[0,0],[80,0],[80,100],[0,100]].map(([xMm,yMm],i)=>({id:'p'+i,xMm,yMm}))},layout=patternAnnotationLayout(piece);
- const f=await mount(PatternDirection,{layout});try{
+ const f=await mount(PatternDirection,{layout,language});try{
   const directions=walk(f.root).filter(n=>n.attrs['data-angle-rad']!==undefined),fur=directions.find(n=>n.attrs.class==='piece-direction-fur');assert.equal(fur.attrs['data-angle-rad'],0);assert.equal(directions.length,grainRad===Math.PI/2?2:1);
   f.byLabel('Piece fur and fabric direction');
   for(const arrow of layout.arrows){const group=directions.find(n=>n.attrs.class==='piece-direction-'+arrow.kind),polyline=walk(group).find(n=>n.tag==='polyline'),points=polyline.attrs.points.split(' ').map(pair=>pair.split(',').map(Number));assert.deepEqual(points,arrow.points.map(p=>[p.xMm,-p.yMm]));const [start,end]=arrow.points;assert(Math.abs(Math.atan2(end.yMm-start.yMm,end.xMm-start.xMm)-arrow.angle)<1e-10);assert(points.every(([x,y])=>x>0&&x<80&&y<0&&y>-100));}
-  const captions=walk(f.root).filter(n=>n.attrs.class==='piece-caption');assert.equal(captions.map(n=>n.textContent).join(''),'Front paw');captions.forEach((caption,i)=>{assert.equal(caption.attrs['font-size'],layout.fontSizeMm);assert.equal(caption.attrs.textLength,layout.caption[i].widthMm);});
-  assert(grainRad===0?f.root.textContent.includes('Fur / grain'):f.root.textContent.includes('Fur'));
-  checks.push({case:`direction arrows preserve fur and ${grainRad===undefined?'unknown':grainRad===0?'matching':'separate'} fabric direction`,passed:true});
+  const captions=walk(f.root).filter(n=>n.attrs.class==='piece-caption');assert.equal(captions.map(n=>n.textContent).join(''),'Front paw');captions.forEach((caption,i)=>{assert.equal(caption.attrs['font-size'],layout.fontSizeMm);assert.equal(caption.attrs.textLength,undefined);assert.equal(caption.attrs.lengthAdjust,undefined);assert.equal(caption.attrs.transform,undefined);});
+  const names=language==='en'?{'毛向':'Fur','布向':'Grain','毛向 / 布向':'Fur / grain'}:{};
+  for(const arrow of layout.arrows){const group=directions.find(n=>n.attrs.class==='piece-direction-'+arrow.kind),text=walk(group).find(n=>n.tag==='text'),expected=names[arrow.label.text]??arrow.label.text,run=annotationFont.layout(expected,{kern:false,locl:false,liga:false}),width=run.positions.reduce((sum,p)=>sum+p.xAdvance,0)/annotationFont.unitsPerEm;assert.equal(text.textContent,expected);assert.equal(text.attrs.textLength,undefined);assert.equal(text.attrs.lengthAdjust,undefined);assert.equal(text.attrs.transform,undefined);const size=Number(text.attrs['font-size']);assert(Math.abs(size-Math.min(arrow.label.fontSizeMm,arrow.label.widthMm/width))<1e-9);assert(size*width<=arrow.label.widthMm+1e-9);}
+  assert(grainRad===0?f.root.textContent.includes(language==='en'?'Fur / grain':'毛向 / 布向'):f.root.textContent.includes(language==='en'?'Fur':'毛向'));
+  checks.push({case:`${language} direction arrows preserve natural glyphs, fur and ${grainRad===undefined?'unknown':grainRad===0?'matching':'separate'} fabric direction`,passed:true});
  }finally{f.app.unmount();}
 }
 await writeFile('test-results/model-manufacturing-controls-component.json',JSON.stringify({passed:true,verification:'Vue custom renderer component handlers; no WebView2 display verification',checks},null,2));

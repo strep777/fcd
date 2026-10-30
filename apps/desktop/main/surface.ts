@@ -3,6 +3,7 @@ import {nativeSolveIdentity,restoreCachedReports} from './native-solve-cache';
 import {assertUserCutsValid} from '../../../packages/surface/cut-path-contract';
 import {designManufacturingOutline} from './design-outline';
 import {intrinsicTreeSeed} from '../../../packages/surface/intrinsic-tree-seed';
+import {garmentAnatomy} from '../../../packages/surface/garment-anatomy';
 import {parentPort} from 'node:worker_threads';
 import {numericalTriangleArea} from '../../../packages/surface/numerical';
 import {projectedReport} from '../../../packages/surface/projected-report';
@@ -19,7 +20,7 @@ import {planarReports,simplifyReportBoundary} from '../../../packages/surface/pl
 import {scopeFaces} from '../../../packages/surface/cut-geometry';
 import {pointBounds} from '../../../packages/pattern/edit';
 import {inspectImage} from '../../../packages/reference/image-input';
-import {MESH_VERTICES,MESH_FACES,MESH_FILE_BYTES,UNWRAP_FACES,UNWRAP_REPAIR_PASSES} from '../../../packages/surface/limits';
+import {MESH_VERTICES,MESH_FACES,MESH_FILE_BYTES,UNWRAP_REPAIR_PASSES} from '../../../packages/surface/limits';
 import {automaticCutMesh} from './automatic-cuts';
 import {randomUUID} from 'node:crypto';
 import {readFile,stat} from 'node:fs/promises';
@@ -105,7 +106,8 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
  // Material boundaries subdivide input triangles; budget the source and each
  // native solve separately, while retaining the generated-mesh resource cap.
  if(generatedFrom&&(generatedFrom!==project.surface||options.partitionStrategy!=='design'))throw new DomainError('INVALID_MESH');
- if((generatedFrom?scopeFaces(generatedFrom).length:surface.faces.length)>UNWRAP_FACES)throw new DomainError('UNWRAP_LIMIT');
+ // The display model is not a solve chart. The independent material layer
+ // opens physical domains first; only individual solves use the chart budget.
  if(surface.faces.length>MESH_FACES)throw new DomainError('RESOURCE_LIMIT');validateSurface(surface);if(!options.automaticCuts&&surface.cutConstraints?.some(c=>c.locked))throw new DomainError('LOCKED_CUTS_REQUIRE_AUTO');let cut=options.automaticCuts?automaticCutMesh(surface,options):{mesh:surface,cutEdges:[] as [string,string][]};
  // These arrays are immutable within a solve; refinements replace them. Keep
  // lookup/index tables per array so small trial panels do not scan the body.
@@ -113,7 +115,7 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
  const vertexTable=(vertices:Surface['vertices'])=>{let table=vertexTables.get(vertices);if(!table){table={points:new Map(vertices.map(v=>[v.id,v])),order:new Map(vertices.map((v,i)=>[v.id,i]))};vertexTables.set(vertices,table);}return table;};
  let sewingStage=false;
  const solveInput=(mesh:Surface,method:string,iterations:number,seed?:SurfaceRun['bindings'][number]['report']['uv'])=>{
-  if(mesh.faces.length>UNWRAP_FACES)throw new DomainError('UNWRAP_LIMIT');
+  if(mesh.faces.length>MESH_FACES)throw new DomainError('RESOURCE_LIMIT');
   // A domain solve needs only its own vertices, in the same relative order.
   // Re-sending the entire model for every small panel wastes parsing and IPC.
   const used=new Set(mesh.faces.flatMap(f=>f.vertices)),table=vertexTable(mesh.vertices),vertices=[...used].sort((a,b)=>table.order.get(a)!-table.order.get(b)!).map(id=>table.points.get(id)!);
@@ -180,6 +182,7 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
  // one original face, so conservatively keep its global no-rejoin guard.
  const rejoinTrialSeams=!!generatedFrom&&!!canRejoinSourceFaces&&!(sourceSurface.cutConstraints??[]).some(edge=>edge.locked);
  const finalDartJoins=new WeakMap<Surface,(reports:SurfaceRun['bindings'][number]['report'][])=>Promise<SurfaceRun['bindings'][number]['report'][]>>();
+ const garmentSource=generatedFrom??sourceSurface,importedGarment=garmentAnatomy(garmentSource),garmentPlane=garmentSource.template?.parameters.bodyMode==='padded'?0:importedGarment?.neck[2];
  const solveDesign=async(mesh:Surface)=>{
   sewingStage=false;
   const result:SurfaceRun['bindings'][number]['report'][]=[],components=designComponents(mesh.faces),faceMap=new Map(mesh.faces.map(f=>[f.id,f]));
@@ -204,6 +207,15 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
    // temporary facet charts below whenever the full native check permits it.
    const facets=task.depth===0?physicalFacets(mesh,task.faces):undefined;
    if(facets){rememberPartition(mesh,facets,failure==='UNWRAP_DISTORTION'?'distortion':'topology');queue.push(...facets.map(faces=>({faces,depth:task.depth+1})));continue;}
+   // A failed wraparound garment domain gets a continuous side-opening
+   // proposal before repeated point darts. A valid colour island receives
+   // no such cut. Signed physical area makes this independent of face count.
+   let earlySection:ReturnType<typeof sectionDesignDomain>;
+   if(task.depth===0&&refinedSurface&&garmentPlane!==undefined){
+    const points=vertexTable(mesh.vertices).points;let positive=0,negative=0;
+    for(const face of task.faces){const[a,b,c]=face.vertices.map(id=>points.get(id)!),z=(b.xMm-a.xMm)*(c.yMm-a.yMm)-(b.yMm-a.yMm)*(c.xMm-a.xMm);positive+=Math.max(0,z);negative+=Math.max(0,-z);}
+    if(Math.min(positive,negative)>Math.max(positive,negative)*.1)earlySection=sectionDesignDomain(mesh,task.faces,randomUUID,{normal:[0,0,1],position:garmentPlane});
+   }
    // Try an opening dart before making independent panels. Keep it only when
    // the measured result passes the same quality limits.
     // Trial darts stay local. Failed slits must not survive into child charts:
@@ -225,7 +237,7 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
    // Tessellation density must not decide whether a panel gets a dart.
    // Use a bounded search on the complete chart before introducing a section.
 
-   for(let trial=0;trial<4;trial++){solvePhase='dart';
+   for(let trial=0;trial<4&&!earlySection;trial++){solvePhase='dart';
     const failingFaces=dartReports.flatMap(r=>r.faceDistortion??[]).filter(d=>qualityFailure({areaErrorMax:d.areaError,edgeErrorMax:d.edgeError,distortionMax:d.distortion})).map(d=>d.faceId);
     const dart=necessaryTopologyCuts(dartPart,[failingFaces.length?failingFaces:dartPart.faces.map(f=>f.id)]);
     if(!dart.edges.length)break;
@@ -265,7 +277,7 @@ export async function unwrapSurface(worker:string,surface:Surface,project:Projec
    // proposal until its triangulation quality and complete provenance pass.
    // Sewing calibration must use the same interior sections: reverting to
    // mesh-edge partitions here reintroduced stair-step seams after preview.
-   let section=refinedSurface&&task.faces.length>=2?sectionDesignDomain(mesh,task.faces,randomUUID):undefined;
+   let section=earlySection??(refinedSurface&&task.faces.length>=2?sectionDesignDomain(mesh,task.faces,randomUUID):undefined);
    if(section&&refinedSurface!(section.surface,section.children)===false)section=undefined;
    let children:Surface['faces'][];
    if(section){

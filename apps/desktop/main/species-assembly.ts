@@ -40,7 +40,7 @@ export async function assembleSpecies(source:Surface,assetDirectory=existsSync('
  }
  let union=hold(wasm.Manifold.union(solids));const components=union.decompose();owned.push(...components);if(components.length!==1)throw new DomainError('DISCONNECTED_TEMPLATE');
  // Keep the new rounded silhouettes and small paw features. A custom-template import budget
- // (3000 vertices / 5000 triangles) is unrelated to the supported 50000-face unwrap budget.
+ // (3000 vertices / 5000 triangles) is unrelated to the manufacturing solve budget.
  const wearerMode=source.template.parameters.bodyMode==='dtd'||source.template.parameters.bodyMode==='padded';
  if(wearerMode){
   const joined=union.getMesh();fairWearerJoins(joined,source.template.parameters.bodyMode==='padded'?140:85);union=hold(wasm.Manifold.ofMesh(joined));

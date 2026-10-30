@@ -9,7 +9,7 @@ import {partName,sideName} from '../../../packages/reference/body-parts';
 import {surfaceSpline} from '../../../packages/surface/spline';
 import {contourPiece,sampleShapeContour} from '../../../packages/surface/shape-contour';
 import {boxIndex,type Box} from '../../../packages/surface/spatial';
-import {UNWRAP_FACES} from '../../../packages/surface/limits';
+import {createPlacementClips,garmentAnatomy} from '../../../packages/surface/garment-anatomy';
 import {moveNode} from '../../../packages/pattern/edit';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
@@ -25,6 +25,10 @@ import {boundedMarkingRings,distinctMarkingStations} from './marking-path-budget
 export const markingSource=(project:Project,id?:string)=>project.pieces.find(p=>p.id===id)??project.patternLibrary?.find(r=>r.piece.id===id)?.piece;
 export type XY=[number,number];type Job={subjects:XY[][];clips?:XY[][];subtract?:XY[][];union?:boolean;origin?:XY};
 export const area=(r:XY[])=>r.reduce((s,p,i)=>{const q=r[(i+1)%r.length],o=r[0];return s+(p[0]-o[0])*(q[1]-o[1])-(q[0]-o[0])*(p[1]-o[1]);},0)/2;
+// Physical registration cannot discard a valid half-space merely because it
+// occupies little projected XY area. Test determinant roundoff, not a fixed
+// pixel/area threshold; a grazing projection can cover substantial cloth.
+const nondegenerateProjection=(r:XY[])=>{if(r.length<3)return false;const o=r[0],magnitude=r.reduce((s,p,i)=>{const q=r[(i+1)%r.length];return s+Math.abs((p[0]-o[0])*(q[1]-o[1]))+Math.abs((q[0]-o[0])*(p[1]-o[1]));},0);return Math.abs(area(r))*2>16*Number.EPSILON*magnitude;};
 export const positive=(r:XY[])=>area(r)<0?[...r].reverse():r;
 const bounds=(r:XY[])=>[Math.min(...r.map(p=>p[0])),Math.min(...r.map(p=>p[1])),Math.max(...r.map(p=>p[0])),Math.max(...r.map(p=>p[1]))];
 const overlap=(a:number[],b:number[])=>a[0]<=b[2]&&b[0]<=a[2]&&a[1]<=b[3]&&b[1]<=a[3];
@@ -49,6 +53,21 @@ export async function clip(worker:string,jobs:Job[],precisionDigits=4,signal?:Ab
  const flush=async()=>{if(!batch.length)return;const result=schema.parse(await request(worker,{protocolVersion:1,operation:'geometry.clip',jobs:batch.map(job=>({...job,precisionDigits}))},signal));if(result.results.length!==batch.length)throw new DomainError('WORKER_PROTOCOL');results.push(...result.results.map(r=>r.rings));batch=[];points=0;};
  for(const job of jobs){const n=[...job.subjects,...job.clips??[],...job.subtract??[]].reduce((s,r)=>s+r.length,0);if(batch.length>=500||points+n>50000)await flush();if(n>200000)throw new DomainError('PROJECTION_LIMIT');batch.push(job);points+=n;}await flush();return results;
 }
+/** Interior faces need no repeated intersection with a complex source contour.
+ * Any face box touching a source edge keeps the complete original rings. Thus
+ * the broad phase never inserts polygon stations or artificial tile borders. */
+function projectionSubjects(rings:XY[][],triangles:XY[][]){
+ const pointCount=rings.reduce((n,r)=>n+r.length,0);
+ if(pointCount<64||pointCount*triangles.length<500000)return triangles.map(()=>rings);
+ const edges=rings.flatMap(r=>r.map((a,i)=>[a,r[(i+1)%r.length]])),index=boxIndex(edges.map(e=>bounds(e) as Box)),maxX=bounds(rings[0])[2];
+ return triangles.map(triangle=>{const box=bounds(triangle) as Box;
+  // Use a conservative guard wider than the clipping lattice roundoff.
+  if(index.query([box[0]-1e-7,box[1]-1e-7,box[2]+1e-7,box[3]+1e-7]).length)return rings;
+  const p:XY=[triangle.reduce((s,p)=>s+p[0],0)/3,triangle.reduce((s,p)=>s+p[1],0)/3];let inside=false;
+  for(const i of index.query([p[0],p[1],maxX,p[1]])){const [a,b]=edges[i];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;}
+  return inside?[positive(triangle)]:[];
+ });
+}
 export function staleMarkingIds(project:Project,checkPaths=true):Set<string>{
  if(!project.markings?.length)return new Set();
  const surfaceHash=project.surface?hash(JSON.stringify(project.surface)):null,markings=project.markings??[];
@@ -60,34 +79,46 @@ export function markingIssues(project:Project):Issue[]{
  return markings.flatMap(m=>{const dependency=m.inference?markings.find(source=>source.id===m.inference!.sourceMarkingId&&!source.inference):null;return m.paths.flatMap<Issue>(path=>stale.has(m.id)?[{ruleId:m.id+':'+path.pieceId+':marking',entityId:path.pieceId,severity:'error',messageKey:'STALE_MARKING'}]:(m.placement&&!m.placement.reviewed||m.inference&&dependency?.placement&&!dependency.placement.reviewed)?[{ruleId:m.id+':'+path.pieceId+':placement',entityId:path.pieceId,severity:'error',messageKey:'AUTOMATIC_PLACEMENT_REVIEW'}]:m.inference&&!m.inference.reviewed?[{ruleId:m.id+':'+path.pieceId+':inference',entityId:path.pieceId,severity:'error',messageKey:'INFERRED_MARKING_REVIEW'}]:[]);});
 }
 /** Orthographic front/back projection with exact polygonal visibility subtraction, not nearest-face approximation. */
-export async function projectMarking(worker:string,project:Project,sourceId:string,view:'front'|'back',offsetXmm:number,offsetYmm:number,replaceManual=false,automatic=false,context?:PlacementContext,faceScope?:Set<string>,signal?:AbortSignal,chartFaces?:Set<string>):Promise<Marking>{
+export async function projectMarking(worker:string,project:Project,sourceId:string,view:'front'|'back',offsetXmm:number,offsetYmm:number,replaceManual=false,automatic=false,context?:PlacementContext,faceScope?:Set<string>,signal?:AbortSignal,chartFaces?:Set<string>,targetClips?:ReturnType<typeof createPlacementClips>):Promise<Marking>{
  if(signal?.aborted)throw new DomainError('CANCELLED');
  const candidate=project.patternLibrary?.find(r=>r.piece.id===sourceId);if(context&&(!candidate||!placementAnatomies(candidate).some(a=>a.part===context.part&&a.side===context.side)))throw new DomainError('ANATOMY_REQUIRED');const selected=candidate?contextRegion(candidate,context):undefined;const related=project.markings?.filter(m=>m.sourcePieceId===sourceId&&m.view===view)??[],unregistered=related.filter(m=>!m.placement);if((automatic||context)&&unregistered.some(m=>m.locked))throw new DomainError('MARKING_LOCKED');if((automatic||context)&&!replaceManual&&unregistered.some(m=>m.editMode==='uv-manual'||m.source==='manual'&&!m.editMode))throw new DomainError('MANUAL_MARKING_REVIEW');const old=related.find(m=>(!automatic&&!context&&!m.placement)||m.placement?.part===selected?.anatomy?.part&&m.placement?.side===selected?.anatomy?.side);if(old?.locked)throw new DomainError('MARKING_LOCKED');if(old&&(old.editMode==='uv-manual'||old.source==='manual'&&!old.editMode)&&!replaceManual)throw new DomainError('MANUAL_MARKING_REVIEW');
  const region=project.patternLibrary?.find(r=>r.piece.id===sourceId),placement=automatic||old?.placement?anatomicalPlacement(project,selected??region??(()=>{throw new DomainError('ANATOMY_REQUIRED');})()):undefined;
  // A missing location is a skipped source. Moving each pigment independently
  // to the nearest triangle would break the registered colour-group layout.
- const projected=await projectReferenceGeometry(worker,project,sourceId,view,offsetXmm,offsetYmm,placement,faceScope,signal,chartFaces);
+ const projected=await projectReferenceGeometry(worker,project,sourceId,view,offsetXmm,offsetYmm,placement,faceScope,signal,chartFaces,targetClips);
  const {mesh,source,bindings,fragments,paths}=projected;if(signal?.aborted)throw new DomainError('CANCELLED');
  const marking=markingSchema.parse({id:old?.id??randomUUID(),name:candidate?.anatomy?.contexts&&placement?derivedName(source.name,' / '+partName(placement.part)+' '+sideName(placement.side)):source.name,color:source.color,...(placement?{placement}:{}),source:'reference',...(candidate?.fabrication?{fabrication:candidate.fabrication}:{}),editMode:'projected',sourcePieceId:source.id,sourceHash:pieceGeometryHash(source),surfaceId:mesh.id,topologyVersion:mesh.topologyVersion,surfaceHash:hash(JSON.stringify(mesh)),view,offsetXmm,offsetYmm,fragments,paths});return bindings.some(b=>b.trim)?mappedMarking(worker,{...project,bindings},marking,signal):marking;
 }
 /** Pure projection also supports recalculating an existing saved placement at
  * manufacturing precision, without re-registering its reviewed pose or size. */
-export async function projectReferenceGeometry(worker:string,project:Project,sourceId:string,view:'front'|'back',offsetXmm:number,offsetYmm:number,placement?:Marking['placement'],faceScope?:Set<string>,signal?:AbortSignal,chartFaces?:Set<string>){
+export async function projectReferenceGeometry(worker:string,project:Project,sourceId:string,view:'front'|'back',offsetXmm:number,offsetYmm:number,placement?:Marking['placement'],faceScope?:Set<string>,signal?:AbortSignal,chartFaces?:Set<string>,targetClips?:ReturnType<typeof createPlacementClips>){
  if(signal?.aborted)throw new DomainError('CANCELLED');
- const mesh=project.surface,source=markingSource(project,sourceId);if(!mesh||!source)throw new DomainError('SURFACE_MISSING');const invalidBindings=new Set(bindingIssues(project).filter(i=>i.severity==='error').map(i=>i.entityId));const bindings=(project.bindings??[]).filter(b=>!invalidBindings.has(b.pieceId));if(mesh.faces.length>UNWRAP_FACES)throw new DomainError('PROJECTION_LIMIT');
+ const mesh=project.surface,source=markingSource(project,sourceId);if(!mesh||!source)throw new DomainError('SURFACE_MISSING');const invalidBindings=new Set(bindingIssues(project).filter(i=>i.severity==='error').map(i=>i.entityId));const bindings=(project.bindings??[]).filter(b=>!invalidBindings.has(b.pieceId));
  const geometry=await analyze(worker,{...project,pieces:[source]},signal);if(geometry[0].issues.some(i=>i.severity==='error'))throw new DomainError('INVALID_GEOMETRY');const rings=[geometry[0].seam??source.nodes,...(geometry[0].seamHoles??source.holes??[])].map(r=>r.map(p=>{const point=placement?placedPoint(p,placement,offsetXmm,offsetYmm):{xMm:p.xMm+offsetXmm,yMm:p.yMm+offsetYmm};return [point.xMm,point.yMm] as XY;})),sourceBounds=bounds(rings[0]),vertices=new Map(mesh.vertices.map(v=>[v.id,v])),sign=view==='front'?1:-1;
  const faceBindings=new Map<string,NonNullable<Project['bindings']>>();for(const b of bindings)for(const id of b.report.faceIds)faceBindings.set(id,[...(faceBindings.get(id)??[]),b]);
  // Orthographic projections see every physical occluder. A wrapped decal is
  // instead evaluated in its intrinsic chart: uncharted world coordinates
  // cannot occlude chart coordinates. Target selection remains separate below.
- const faces=mesh.faces.filter(f=>!chartFaces||chartFaces.has(f.id)).map(f=>{const v=f.vertices.map(id=>vertices.get(id)!),triangle=v.map(p=>[sign*p.xMm,p.yMm] as XY);return {f,triangle,depth:v.map(p=>sign*p.zMm),bounds:bounds(triangle),det:area(triangle),bindings:faceBindings.get(f.id)??[]};}).filter(f=>Math.abs(f.det)>1e-6);
+ const registeredGarment=placement?.algorithm==='anatomy-3'&&!!garmentAnatomy(mesh);
+ const hasProjection=(ring:XY[])=>registeredGarment?nondegenerateProjection(ring):Math.abs(area(ring))>1e-6;
+ const faces=mesh.faces.filter(f=>!chartFaces||chartFaces.has(f.id)).map(f=>{const v=f.vertices.map(id=>vertices.get(id)!),triangle=v.map(p=>[sign*p.xMm,p.yMm] as XY);return {f,triangle,depth:v.map(p=>sign*p.zMm),bounds:bounds(triangle),det:area(triangle),bindings:faceBindings.get(f.id)??[]};}).filter(f=>hasProjection(f.triangle));
  const index=boxIndex(faces.map(f=>f.bounds as Box));let comparisons=0;const nearby=(bounds:number[])=>index.query(bounds as Box).map(i=>faces[i]).filter(f=>{if(++comparisons>2000000)throw new DomainError('PROJECTION_LIMIT');return true;});
  const uvMaps=new Map(bindings.map(b=>[b.pieceId,new Map(b.report.uv.map(p=>[p.vertexId,p]))]));
- const targets=faces.filter(f=>f.det>0&&(!faceScope||faceScope.has(f.f.id))&&overlap(f.bounds,sourceBounds)&&(!placement||placement.regions.includes(f.f.region)));const jobs:Job[]=targets.map(face=>{
+ const scope=targetClips??(placement?createPlacementClips(mesh,placement.regions,registeredGarment?view:undefined):undefined);
+ // Automatic registration on a recognized open garment assigns its complete
+ // physical part, including folds hidden by another part. Visibility is
+ // appropriate for a dragged decal, but creates false unpainted islands under
+ // the armpits of an otherwise continuous fabric design. The continuous part
+ // scope and a continuous garment middle plane separate the reference views.
+ // Triangle normals near a grazing crease can alternate signs; choosing the
+ // view by those signs would create one tiny colour island per triangle.
+ // every automatic placement remains unreviewed. Arbitrary imported objects
+ // and all manual projections retain exact occlusion subtraction.
+ const targets=faces.filter(f=>(registeredGarment||f.det>0)&&(!faceScope||faceScope.has(f.f.id))&&overlap(f.bounds,sourceBounds)).map(face=>({...face,clips:scope?scope(face.f).map(ring=>ring.map(w=>[w.reduce((sum,n,i)=>sum+n*face.triangle[i][0],0),w.reduce((sum,n,i)=>sum+n*face.triangle[i][1],0)] as XY)).filter(hasProjection):[face.triangle]})).filter(f=>f.clips.length);const subjects=projectionSubjects(rings,targets.map(f=>f.triangle)),jobs:Job[]=targets.map((face,i)=>{
  const depth=(p:XY)=>weights(p,face.triangle).reduce((s,w,i)=>s+w*face.depth[i],0),subtract:XY[][]=[];
- for(const other of nearby(face.bounds)){if(other.f.id===face.f.id||!overlap(other.bounds,face.bounds)||Math.max(...other.depth)<Math.min(...face.depth)-1e-6)continue;
+ for(const other of registeredGarment?[]:nearby(face.bounds)){if(other.f.id===face.f.id||!overlap(other.bounds,face.bounds)||Math.max(...other.depth)<Math.min(...face.depth)-1e-6)continue;
  const occluder=halfPlane(other.triangle,p=>weights(p,other.triangle).reduce((s,w,i)=>s+w*other.depth[i],0)-depth(p)-1e-6);if(occluder.length>=3&&Math.abs(area(occluder))>1e-6)subtract.push(positive(occluder));}
- return {subjects:rings,clips:[positive(face.triangle)],subtract};
+ return {subjects:subjects[i],clips:face.clips.map(positive),subtract,origin:rings[0][0]};
  });
  const clipped=await clip(worker,jobs,12,signal);
  const ambiguousJobs:Job[]=[];targets.forEach((face,i)=>{if(!clipped[i].length)return;for(const other of nearby(face.bounds)){if(other.f.id===face.f.id||!overlap(face.bounds,other.bounds))continue;const delta=(p:XY)=>weights(p,other.triangle).reduce((s,w,j)=>s+w*other.depth[j],0)-weights(p,face.triangle).reduce((s,w,j)=>s+w*face.depth[j],0);if(face.triangle.every(p=>Math.abs(delta(p))<1e-6)&&trianglesOverlap(face.triangle,other.triangle))ambiguousJobs.push({subjects:clipped[i],clips:[positive(other.triangle)]});}});
@@ -97,7 +128,7 @@ export async function projectReferenceGeometry(worker:string,project:Project,sou
   // A coarse face may contain thousands of derived curve samples. Enforce the
   // storage budget before storing barycentric rings. Partition exactly here:
   // projected XY tolerances can be amplified on nearly side-on surface faces.
-  const rings=await boundedMarkingRings(clipped[i].map(r=>triangleClip(r,face.triangle)).filter(r=>r.length>=3&&Math.abs(area(r))>1e-6),12,jobs=>clip(worker,jobs,12,signal),true);
+  const rings=await boundedMarkingRings(clipped[i].map(r=>triangleClip(r,face.triangle)).filter(r=>r.length>=3&&hasProjection(r)),12,jobs=>clip(worker,jobs,12,signal),true);
   if(!rings.length)continue;if(rings.length>32)throw new DomainError('PROJECTION_LIMIT');
   const bary=rings.map(r=>r.map(p=>clippedWeights(p,face.triangle)));fragments.push({faceId:face.f.id,rings:bary});
   for(const binding of face.bindings){const uv=uvMaps.get(binding.pieceId)!,triangle=face.f.vertices.map(id=>uv.get(id)!);const mapped=bary.map(r=>r.map(w=>[w.reduce((s,v,j)=>s+v*triangle[j].xMm,0),w.reduce((s,v,j)=>s+v*triangle[j].yMm,0)] as XY));const existing=uvByPiece.get(binding.pieceId)??[];existing.push(...mapped);uvByPiece.set(binding.pieceId,existing);}
@@ -144,9 +175,10 @@ export async function surfaceMarking(worker:string,project:Project,shape:NonNull
  const rotated={...mesh,vertices:mesh.vertices.map(v=>{const uv=chart?.get(v.id);if(uv)return {...v,xMm:uv.xMm,yMm:uv.yMm,zMm:-uv.distanceMm};const delta=[v.xMm-shape.origin[0],v.yMm-shape.origin[1],v.zMm-shape.origin[2]],r=axes.map(a=>dot(a,delta));return {...v,xMm:r[0],yMm:r[1],zMm:r[2]};})},surfaceHash=hash(JSON.stringify(rotated)),source:Piece={id:randomUUID(),name,nodes:nodes.map(p=>({...p,id:randomUUID()})),holes:shape.holes?.map(r=>r.map(p=>({...p,id:randomUUID()}))),closed:true,allowanceMm:0,cutQty:1,mirror:false,material:'Surface marking source',furRad:0,color};
  const vector=shape.curves?.length?contourPiece(shape,randomUUID):undefined;
  if(vector){source.nodes=vector.nodes;Object.assign(source,{curves:vector.curves});}
- const proposed={...projectionProject,surface:rotated,bindings:projectionProject.bindings?.map(b=>({...b,surfaceHash})),pieces:[...project.pieces,source]},marking=await projectMarking(worker,proposed,source.id,'front',0,0,false,false,undefined,projectionFaces(mesh,shape),undefined,chart?new Set(mesh.faces.filter(f=>f.vertices.every(id=>chart.has(id))).map(f=>f.id)):undefined);
- const allowed=shape.regions?new Set(mesh.faces.filter(f=>shape.regions!.includes(f.region)).map(f=>f.id)):undefined;
- const fragments=allowed?marking.fragments.filter(f=>allowed.has(f.faceId)):marking.fragments;
+ const proposed={...projectionProject,surface:rotated,bindings:projectionProject.bindings?.map(b=>({...b,surfaceHash})),pieces:[...project.pieces,source]},marking=await projectMarking(worker,proposed,source.id,'front',0,0,false,false,undefined,projectionFaces(mesh,shape),undefined,chart?new Set(mesh.faces.filter(f=>f.vertices.every(id=>chart.has(id))).map(f=>f.id)):undefined,shape.regions?createPlacementClips(mesh,shape.regions):undefined);
+ // Clip in original physical coordinates before projecting; virtual anatomical
+ // domains cannot be compared with the imported object's raw group name.
+ const fragments=marking.fragments;
  if(!fragments.length)throw new DomainError('NO_VISIBLE_PROJECTION');
  if(chart){
   const sourceRings=[sampleShapeContour(shape),...shape.holes??[]],ringArea=(r:{xMm:number;yMm:number}[])=>r.reduce((s,p,i)=>{const q=r[(i+1)%r.length];return s+p.xMm*q.yMm-q.xMm*p.yMm;},0)/2;
@@ -157,5 +189,5 @@ export async function surfaceMarking(worker:string,project:Project,shape:NonNull
   if(Math.abs(Math.abs(covered)-expected)>Math.max(.5,expected*.005))throw new DomainError('INCOMPLETE_SURFACE_WRAP');
  }
  const result=markingSchema.parse({...marking,...(fabrication?{fabrication}:{}),id:randomUUID(),source:'surface',sourcePieceId:undefined,surfaceShape:shape,sourceHash:hash(JSON.stringify(shape)),surfaceHash:hash(JSON.stringify(mesh)),fragments});
- return allowed?mappedMarking(worker,project,{...result,paths:[]}):result;
+ return shape.regions?mappedMarking(worker,project,{...result,paths:[]}):result;
 }

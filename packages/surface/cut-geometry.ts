@@ -8,8 +8,11 @@ export function planeSegments(surface:Surface,axis:'x'|'y'|'z',positionMm:number
 }
 export function orientedPlaneSegments(surface:Surface,normal:[number,number,number],positionMm:number,owner:string,regions?:string[],vertices:ReadonlyMap<string,Surface['vertices'][number]>=new Map(surface.vertices.map(v=>[v.id,v]))):FaceCut[]{
  const result:FaceCut[]=[];
- for(const face of surface.faces){if(regions&&!regions.includes(face.region))continue;const d=face.vertices.map(id=>dot(normal,((v)=>[v.xMm,v.yMm,v.zMm])(vertices.get(id)!))-positionMm),points:Bary[]=[];
-  for(let i=0;i<3;i++){const j=(i+1)%3;if(Math.abs(d[i])<1e-7){const w=[0,0,0] as Bary;w[i]=1;points.push(w);}if(d[i]*d[j]<0){const t=d[i]/(d[i]-d[j]),w=[0,0,0] as Bary;w[i]=1-t;w[j]=t;points.push(w);}}
+ for(const face of surface.faces){if(regions&&!regions.includes(face.region))continue;const d=face.vertices.map(id=>dot(normal,((v)=>[v.xMm,v.yMm,v.zMm])(vertices.get(id)!))-positionMm).map(d=>Math.abs(d)<1e-7?0:d),points:Bary[]=[];
+  // A vertex treated as on the plane must not also create a second, almost
+  // coincident intersection on its incident edge. Otherwise one section
+  // manufactures a microscopic triangle and poisons subsequent flattening.
+  for(let i=0;i<3;i++){const j=(i+1)%3;if(d[i]===0){const w=[0,0,0] as Bary;w[i]=1;points.push(w);}if(d[i]*d[j]<0){const t=d[i]/(d[i]-d[j]),w=[0,0,0] as Bary;w[i]=1-t;w[j]=t;points.push(w);}}
   const unique=points.filter((p,i)=>!points.slice(0,i).some(q=>Math.hypot(...p.map((n,j)=>n-q[j]))<1e-8));if(unique.length===2)result.push({faceId:face.id,a:unique[0],b:unique[1],owner});else if(unique.length===3)for(let i=0;i<3;i++)result.push({faceId:face.id,a:unique[i],b:unique[(i+1)%3],owner});
  }if(!result.length)throw Error('SECTION_NO_INTERSECTION');return result;
 }

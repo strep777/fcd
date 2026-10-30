@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 import type {Surface} from '../../packages/schema/index';
 import {mergeDesignCharts} from '../../packages/surface/merge-design-charts';
 import {projectedReport} from '../../packages/surface/projected-report';
-import {seamContinuityGuard} from '../../packages/surface/seam-continuity';
+import {seamContinuityGuard,createSeamContinuityGuard} from '../../packages/surface/seam-continuity';
 import {cutPreview} from '../../apps/desktop/main/cut-preview';
 import {analyze} from '../../apps/desktop/main/worker';
 import {project} from '../fixtures';
@@ -50,6 +50,29 @@ it('independent ownership and angle measurements distinguish both accidental elb
  expect(survivingJunction(mesh,owners,[1,2]).angle).toBeCloseTo(180,10);
  expect(guard(0,1)).toBe(false);expect(guard(1,0)).toBe(false);expect(guard(0,2)).toBe(false);expect(guard(1,2)).toBe(true);
  expect(mesh).toEqual(before);
+});
+
+it.each([{divisions:1},{divisions:2,flipped:true,reverse:true}])('reusing a physical index after a chart merge still rejects a new T-to-90-degree elbow (%j)',variant=>{
+ const {mesh,owners}=tee(variant),points=new Map(mesh.vertices.map(v=>[v.id,v]));
+ // Start with four quadrants: removing the upper-left/lower-left seam
+ // leaves a three-way junction. The next ownership state joins the upper
+ // quadrants into one strip, so that same proposal would leave a 90° elbow.
+ const initial=new Map([...owners].map(([id,owner])=>{const face=mesh.faces.find(f=>f.id===id)!;return[id,owner===0&&face.vertices.reduce((sum,id)=>sum+points.get(id)!.xMm,0)>0?3:owner] as const;}));
+ const signature=()=>mesh.faces.map(f=>[f.id,f.region,...f.vertices.map(id=>{const p=mesh.vertices.find(v=>v.id===id)!;return[p.xMm,p.yMm,p.zMm];})]);
+ const before=signature(),indexed=createSeamContinuityGuard(mesh,material),first=indexed(initial);
+ expect(survivingJunction(mesh,initial,[0,1]).rays).toHaveLength(3);expect(first(0,1)).toBe(true);expect(first(0,3)).toBe(true);
+ const joined=new Map([...initial].map(([id,owner])=>[id,owner===3?0:owner] as const));
+ // Trial coalescing can replace duplicate bank identities without moving
+ // any face, changing its material or changing physical adjacency.
+ for(const face of mesh.faces)face.vertices=face.vertices.map(id=>{const copy={...points.get(id)!,id:randomUUID()};mesh.vertices.push(copy);return copy.id;}) as [string,string,string];
+ expect(signature()).toEqual(before);
+ expect(survivingJunction(mesh,joined,[0,1]).angle).toBeCloseTo(90,10);
+ expect(survivingJunction(mesh,joined,[1,2]).angle).toBeCloseTo(180,10);
+ const after=indexed(joined);expect(after(0,1)).toBe(false);expect(after(1,0)).toBe(false);expect(after(0,2)).toBe(false);expect(after(1,2)).toBe(true);
+ // A second ownership update uses different chart numbers and must keep
+ // the same physical decisions rather than stale owner-pair entries.
+ const relabelled=new Map([...joined].map(([id,owner])=>[id,[21,34,55][owner]] as const)),last=indexed(relabelled);
+ expect(last(21,34)).toBe(false);expect(last(21,55)).toBe(false);expect(last(34,55)).toBe(true);expect(signature()).toEqual(before);
 });
 
 it.each([

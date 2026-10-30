@@ -9,7 +9,18 @@ import {exportGlb,parseGlb} from '../../apps/desktop/main/glb';
 import {automaticCutMesh} from '../../apps/desktop/main/automatic-cuts';
 import {pack,unpack} from '../../apps/desktop/main/archive';
 import {surfaceSchema} from '../../packages/schema/index';
+import {createWorkerSession} from '../../apps/desktop/main/worker';
+import {nativeSurfaceResponseSchema} from '../../packages/surface/native-report';
 const worker=resolve('target/release/fpcad-worker.exe');
+it('the real native solver retains one dense disk above 50000 faces without adding chart cuts',async()=>{
+ const mesh=gridMesh(251,100);mesh.faces.forEach(f=>f.region='one dense disk');const before=JSON.stringify(mesh),session=createWorkerSession(worker);
+ try{
+  const result=nativeSurfaceResponseSchema.parse(await session.request({protocolVersion:1,operation:'surface.unwrap',mesh:{vertices:mesh.vertices,faces:mesh.faces,method:'lscm',repair_cuts:false}}));
+  expect(result.patches).toHaveLength(1);const patch=result.patches[0];
+  expect(new Set(patch.faceIds)).toEqual(new Set(mesh.faces.map(f=>f.id)));expect(patch.uv).toHaveLength(mesh.vertices.length);
+  expect(patch.edgeErrorMax).toBeLessThan(1e-4);expect(patch.areaErrorMax).toBeLessThan(1e-4);expect(patch.holes??[]).toEqual([]);expect(JSON.stringify(mesh)).toBe(before);
+ }finally{await session.dispose();}
+},180000);
 it('200000 original faces survive LOD, archive and uint32 GLB roundtrip',async()=>{
  const mesh=gridMesh(400,250),before=JSON.stringify(mesh);validateSurface(mesh);const lod=previewLod(mesh);expect(lod.faces.length).toBeLessThanOrEqual(12000);expect(lod.errorMm).toBeGreaterThan(0);expect(JSON.stringify(mesh)).toBe(before);expect(meshBounds(mesh.vertices)).toMatchObject({cx:2000,cy:1250,cz:0});
  const original=new Set(mesh.faces.map(f=>f.id));for(const group of lod.sourceFaces.values())for(const id of group)expect(original.has(id)).toBe(true);
@@ -21,7 +32,10 @@ it('50000-face exact LSCM candidate retains every face and physical area without
  const mesh=gridMesh(),p={...project(),pieces:[],surface:mesh},run=await unwrapSurface(worker,mesh,p,{method:'lscm'});expect(run.bindings).toHaveLength(50);expect(new Set(run.bindings.flatMap(b=>b.report.faceIds)).size).toBe(50000);expect(Math.max(...run.bindings.map(b=>b.report.edgeErrorMax))).toBeLessThan(.00001);expect(p.pieces).toEqual([]);
  const area=run.pieces.reduce((sum,p)=>sum+Math.abs(p.nodes.reduce((s,a,i)=>{const b=p.nodes[(i+1)%p.nodes.length];return s+a.xMm*b.yMm-a.yMm*b.xMm;},0))/2,0);expect(area).toBeCloseTo(2500000,1);
  const source=rectangle(2500,1000);source.allowanceMm=0;const marked=await projectMarking(worker,{...p,pieces:[...run.pieces,source],bindings:run.bindings},source.id,'front',0,0);expect(marked.fragments.length).toBe(50000);expect(marked.paths.length).toBe(50);const projectedArea=marked.paths.reduce((sum,path)=>sum+path.rings.reduce((sum,r)=>sum+r.reduce((s,a,i)=>{const b=r[(i+1)%r.length];return s+a.xMm*b.yMm-a.yMm*b.xMm;},0)/2,0),0);expect(projectedArea).toBeCloseTo(2500000,0);
- await expect(unwrapSurface(worker,gridMesh(251,100),p)).rejects.toThrow('UNWRAP_LIMIT');
+ const dense=gridMesh(251,100);dense.faces.forEach(f=>f.region='body');const denseBefore=JSON.stringify(dense);
+ const denseRun=await unwrapSurface(worker,dense,{...p,pieces:[],surface:dense},{partitionStrategy:'design',automaticCuts:true,colorBoundaryCuts:false});
+ expect(denseRun.pieces).toHaveLength(1);expect(new Set(denseRun.bindings.flatMap(b=>b.report.faceIds))).toEqual(new Set(dense.faces.map(f=>f.id)));
+ expect(denseRun.bindings.every(b=>b.report.edgeErrorMax<1e-6)).toBe(true);expect(JSON.stringify(dense)).toBe(denseBefore);
 },120000);
 it('incremental automatic cuts preserve locked seams, disk patches and all original face IDs',()=>{
  const mesh=gridMesh(30,20);mesh.faces.forEach(f=>f.region='one');const a=mesh.vertices[15].id,b=mesh.vertices[46].id;mesh.cutConstraints=[{a,b,locked:true}];const cut=automaticCutMesh(mesh,{maxFacesPerPatch:100,maxPieces:500,normalAngleDeg:180});expect(cut.mesh.faces.map(f=>f.id)).toEqual(mesh.faces.map(f=>f.id));expect(cut.cutEdges.some(e=>e.includes(a)&&e.includes(b))).toBe(true);const groups=new Map<string,SurfaceGroup>();type SurfaceGroup={faces:number;vertices:Set<string>;edges:Map<string,number>};for(const f of cut.mesh.faces){const g=groups.get(f.region)??{faces:0,vertices:new Set(),edges:new Map()};g.faces++;f.vertices.forEach((a,i)=>{g.vertices.add(a);const k=[a,f.vertices[(i+1)%3]].sort().join(':');g.edges.set(k,(g.edges.get(k)??0)+1);});groups.set(f.region,g);}for(const g of groups.values()){expect(g.faces).toBeLessThanOrEqual(100);expect(g.vertices.size-g.edges.size+g.faces).toBe(1);}

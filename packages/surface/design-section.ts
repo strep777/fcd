@@ -3,14 +3,16 @@ import {createSurfaceRefiner,edgeKey,type Child} from './refine';
 import {orientedPlaneSegments} from './cut-geometry';
 import {designComponents} from './design-partition';
 import {continuousSection} from './section-continuity';
+import {createSectionClearance} from './section-clearance';
+import {numericalTriangleArea} from './numerical';
 
 /** A trial sewing section crosses triangle interiors. Choose a plane with
  * vertex clearance, then reject poor subdivisions instead of manufacturing
  * microscopic panels or moving the original surface to hide them. */
-export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()=>string){
+export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()=>string,preferred?:{normal:[number,number,number];position:number}){
  if(faces.length<2)return;
  const vertices=new Map(mesh.vertices.map(v=>[v.id,v])),sourceFaces=new Map(mesh.faces.map(f=>[f.id,f])),points=(f:Surface['faces'][number])=>f.vertices.map(id=>vertices.get(id)!),axes=['xMm','yMm','zMm'] as const;
- const rows=faces.map(face=>{const p=points(face),u=axes.map(a=>p[1][a]-p[0][a]),v=axes.map(a=>p[2][a]-p[0][a]),normal=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]].map(v=>v/2);return{face,p:axes.map(a=>p.reduce((s,v)=>s+v[a],0)/3),normal,area:Math.hypot(...normal)};}),total=rows.reduce((s,r)=>s+r.area,0),candidates:{axis:number;normal:[number,number,number];position:number;score:number}[]=[];
+ const rows=faces.map(face=>{const p=points(face),u=axes.map(a=>p[1][a]-p[0][a]),v=axes.map(a=>p[2][a]-p[0][a]),normal=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]].map(v=>v/2);return{face,p:axes.map(a=>p.reduce((s,v)=>s+v[a],0)/3),normal,area:Math.hypot(...normal)};}),total=rows.reduce((s,r)=>s+r.area,0),candidates:{axis:number;normal:[number,number,number];position:number;score:number;aligned?:boolean}[]=[];
  const normals:[number,number,number][]=[[1,0,0],[0,1,0],[0,0,1]];
  const dot=(a:number[],b:number[])=>a.reduce((sum,n,i)=>sum+n*b[i],0),center=[0,1,2].map(i=>rows.reduce((sum,r)=>sum+r.area*r.p[i],0)/total);
  // Integrate each triangle's second moment. A centroid-only covariance changes
@@ -50,7 +52,12 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
  };
  for(let axis=0;axis<normals.length;axis++){
   const values=[...new Set(samples.map(id=>coordinate(id,axis)))].sort((a,b)=>a-b),extent=values.at(-1)!-values[0];if(extent<1e-6)continue;
-  const gaps=values.slice(1).map((v,i)=>({position:(v+values[i])/2,clearance:v-values[i]})).sort((a,b)=>b.clearance-a.clearance).slice(0,32);
+  const gaps:{position:number;clearance:number;reuse?:number}[]=values.slice(1).map((v,i)=>({position:(v+values[i])/2,clearance:v-values[i]})).sort((a,b)=>b.clearance-a.clearance).slice(0,32);
+  // Continue an existing material/opening boundary before offsetting a seam
+  // into a neighbouring colour. Weight physical length, not boundary vertices.
+  const stations=new Map<number,{position:number;length:number}>();
+  for(const [key,count]of edgeCounts)if(count===1){const [a,b]=key.split(':'),x=coordinate(a,axis),y=coordinate(b,axis);if(Math.abs(x-y)>1e-7)continue;const p=vertices.get(a)!,q=vertices.get(b)!,length=Math.hypot(p.xMm-q.xMm,p.yMm-q.yMm,p.zMm-q.zMm),position=(x+y)/2,stationKey=Math.round(position*1e7),row=stations.get(stationKey)??{position,length:0};row.position=(row.position*row.length+position*length)/(row.length+length);row.length+=length;stations.set(stationKey,row);}
+  for(const row of stations.values())if(row.length>Math.sqrt(total)*.1)gaps.push({position:row.position,clearance:0,reuse:row.length});
   // Design-space stations remain available when dense material intersections
   // make every vertex-clearance gap microscopic. They cross triangle interiors
   // rather than rounding a failed section back onto the tessellation.
@@ -60,11 +67,12 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
   for(const gap of gaps){
    const fractions=coordinates.map(p=>fraction(p[0]-gap.position,p[1]-gap.position,p[2]-gap.position)),left=rows.reduce((s,r,i)=>s+r.area*fractions[i],0),areas=[left,total-left];if(Math.min(...areas)<total*.2)continue;
    const concentration=[0,1].reduce((s,side)=>s+Math.hypot(...[0,1,2].map(k=>rows.reduce((s,r,i)=>s+r.normal[k]*(side?1-fractions[i]:fractions[i]),0))),0),balance=Math.abs(left/total-.5);
-   candidates.push({axis,normal:normals[axis],position:gap.position,score:1-concentration/total+.05*balance-.01*gap.clearance/extent-.3*defects.filter(d=>Math.abs(coordinate(d.id,axis)-gap.position)<1e-7).reduce((sum,d)=>sum+d.defect,0)/(totalDefect||1)});
+   candidates.push({axis,normal:normals[axis],position:gap.position,aligned:!!gap.reuse,score:gap.reuse?-1-gap.reuse/Math.sqrt(total):1-concentration/total+.05*balance-.01*gap.clearance/extent-.3*defects.filter(d=>Math.abs(coordinate(d.id,axis)-gap.position)<1e-7).reduce((sum,d)=>sum+d.defect,0)/(totalDefect||1)});
   }
  }
+ if(preferred)candidates.push({...preferred,axis:-1,score:-Infinity});
  candidates.sort((a,b)=>Math.abs(a.score-b.score)>1e-10?a.score-b.score:a.axis-b.axis||a.position-b.position);
- const refine=candidates.length?createSurfaceRefiner(mesh):undefined;
+ const refine=candidates.length?createSurfaceRefiner(mesh):undefined,clearance=createSectionClearance({...mesh,faces},vertices);
  const quality=(record:Child,v:Map<string,Surface['vertices'][number]>)=>{const [a,b,c]=record.face.vertices.map(id=>v.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],w=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm],length=Math.max(Math.hypot(...u),Math.hypot(...w),Math.hypot(c.xMm-b.xMm,c.yMm-b.yMm,c.zMm-b.zMm));return Math.hypot(u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0])/length**2;};
  // Check clipped polygons before allocating a conforming mesh. Searching only
  // the first few planes often selects the same sliver-producing orientation;
@@ -83,8 +91,11 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
   }return true;
  });
  for(const plane of candidates)try{
-  if(!safePlane(plane))continue;
-  const cuts=orientedPlaneSegments({...mesh,faces},plane.normal,plane.position,'design-section',undefined,vertices);if(!continuousSection({...mesh,faces},cuts,vertices))continue;
+  // An authored material station must not move merely because it crosses
+  // close to an unrelated tessellation vertex. Certify its actual refined
+  // triangles below, then let the unchanged native physical checks decide.
+  if(!plane.aligned&&!safePlane(plane))continue;
+  const cuts=orientedPlaneSegments({...mesh,faces},plane.normal,plane.position,'design-section',undefined,vertices);if(!continuousSection({...mesh,faces},cuts,vertices)||!clearance(cuts))continue;
   const refined=refine!(cuts,newId),v=new Map(refined.surface.vertices.map(p=>[p.id,p])),protectedEdges=new Set([...(refined.owned.get('design-section')??[]),...(refined.surface.cutConstraints??[])].map(e=>edgeKey(e.a,e.b)));
   // The two same-side children form a convex quadrilateral. Select its better
   // diagonal, preserving the section and every parent barycentric station.
@@ -95,7 +106,7 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
    const replacement=ids.map((ids,k)=>({face:{...(k?b:a).face,vertices:ids as [string,string,string]},triangle:ids.map(id=>coords.get(id)!)}));
    if(Math.min(...replacement.map(r=>quality(r,v)))>Math.min(quality(a,v),quality(b,v))*1.01){children[i]=replacement[0];children[j]=replacement[1];}
   }
-  let acceptable=true;for(const [parent,children] of refined.children){const original=sourceFaces.get(parent)!,q=quality({face:original,triangle:[]},vertices),originalEdges=new Set(original.vertices.map((a,i)=>edgeKey(a,original.vertices[(i+1)%3])));if(children.some(c=>quality(c,v)<Math.min(.015,q*.2)))acceptable=false;
+  let acceptable=true;for(const [parent,children] of refined.children){const original=sourceFaces.get(parent)!,q=quality({face:original,triangle:[]},vertices),originalEdges=new Set(original.vertices.map((a,i)=>edgeKey(a,original.vertices[(i+1)%3])));if(children.some(c=>plane.aligned?!numericalTriangleArea(c.face.vertices.map(id=>{const p=v.get(id)!;return[p.xMm,p.yMm,p.zMm];})):quality(c,v)<Math.min(.015,q*.2)))acceptable=false;
    // Material intersections already use a 1e-6 mm canonical station budget.
    // Repeated optional sections must not subdivide one of those stations into
    // ever shorter ears: absolute planarity can hide large relative strain on
@@ -113,12 +124,25 @@ export function sectionDesignDomain(mesh:Surface,faces:Surface['faces'],newId:()
     return [w.reduce((s,n,i)=>s+n*t.uv[i][0],0),w.reduce((s,n,i)=>s+n*t.uv[i][1],0)] as [number,number];
    }) as [[number,number],[number,number],[number,number]]
   }))??[t]);
-  const childFaces=faces.flatMap(f=>refined.children.get(f.id)?.map(c=>c.face)??[f]),sides=childFaces.map(f=>({face:f,value:f.vertices.reduce((sum,id)=>sum+dot(plane.normal,((p)=>[p.xMm,p.yMm,p.zMm])(v.get(id)!))-plane.position,0)/3})),parts=[sides.filter(r=>r.value<0),sides.filter(r=>r.value>=0)].flatMap(rows=>designComponents(rows.map(r=>r.face)));
-  if(parts.length<2||parts.length>4||parts.some(p=>!p.length))continue;
+  const childFaces=faces.flatMap(f=>refined.children.get(f.id)?.map(c=>c.face)??[f]),sides=childFaces.map(f=>({face:f,value:f.vertices.reduce((sum,id)=>sum+dot(plane.normal,((p)=>[p.xMm,p.yMm,p.zMm])(v.get(id)!))-plane.position,0)/3}));
+  let parts=[sides.filter(r=>r.value<0),sides.filter(r=>r.value>=0)].flatMap(rows=>designComponents(rows.map(r=>r.face)));
   // A balanced pair of half-spaces can still detach a microscopic third
   // component at a curved joint. Reject that proposal and try another plane;
   // never manufacture the numerical island as a separate sewing panel.
   const partArea=(part:Surface['faces'])=>part.reduce((sum,f)=>{const [a,b,c]=f.vertices.map(id=>v.get(id)!),u=[b.xMm-a.xMm,b.yMm-a.yMm,b.zMm-a.zMm],w=[c.xMm-a.xMm,c.yMm-a.yMm,c.zMm-a.zMm];return sum+Math.hypot(u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0])/2;},0);
+  if(plane.aligned&&parts.length>2){
+   // A material edge can meet the section many times. Keep only the useful
+   // continuations: reconnect small same-material islands across OPTIONAL
+   // new edges, never across a saved locked seam. No face is discarded.
+   const locked=new Set((refined.surface.cutConstraints??[]).filter(e=>e.locked).map(e=>edgeKey(e.a,e.b)));
+   const corner=(part:Surface['faces'])=>{let result=[Infinity,Infinity,Infinity];for(const f of part)for(const id of f.vertices){const p=v.get(id)!,a=[p.xMm,p.yMm,p.zMm];if((a[0]-result[0]||a[1]-result[1]||a[2]-result[2])<0)result=a;}return result;};
+   while(parts.length>2){const areas=parts.map(partArea),corners=parts.map(corner),order=(a:number,b:number)=>corners[a][0]-corners[b][0]||corners[a][1]-corners[b][1]||corners[a][2]-corners[b][2],small=areas.map((area,i)=>({area,i})).sort((a,b)=>Math.abs(a.area-b.area)>total*1e-12?a.area-b.area:order(a.i,b.i))[0];if(parts.length<=4&&small.area>=total*.02)break;
+    const owners=new Map(parts.flatMap((part,i)=>i===small.i?[]:part.flatMap(f=>f.vertices.map((a,j)=>[edgeKey(a,f.vertices[(j+1)%3]),i] as const)))),shared=new Map<number,number>();
+    for(const f of parts[small.i])for(let j=0;j<3;j++){const a=f.vertices[j],b=f.vertices[(j+1)%3],key=edgeKey(a,b);if(locked.has(key))continue;const target=owners.get(key);if(target===undefined||target===small.i)continue;const p=v.get(a)!,q=v.get(b)!;shared.set(target,(shared.get(target)??0)+Math.hypot(p.xMm-q.xMm,p.yMm-q.yMm,p.zMm-q.zMm));}
+    const target=[...shared].sort((a,b)=>Math.abs(b[1]-a[1])>1e-9?b[1]-a[1]:order(a[0],b[0]))[0]?.[0];if(target===undefined)break;parts[target].push(...parts[small.i]);parts=parts.filter((_,i)=>i!==small.i);
+   }
+  }
+  if(parts.length<2||parts.length>4||parts.some(p=>!p.length))continue;
   if(parts.some(part=>partArea(part)<total*.02))continue;
   return{...refined,parts,plane};
  }catch{/* An unusable proposal leaves the mesh and other charts unchanged. */}

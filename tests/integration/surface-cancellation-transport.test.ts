@@ -24,6 +24,13 @@ it('includes global spacing updates in cancellation but excludes ordinary projec
  pending.forEach(task=>task.resolve(success));await Promise.all([spacing,edit]);
 });
 
+it('registers one atomic marking edit round as a single cancellable request and removes its intent after completion',async()=>{
+ const projectId=randomUUID(),client=desktopClient(transport),edits=[{markingId:randomUUID(),shape:{origin:[0,0,0] as [number,number,number],axes:[[1,0,0],[0,1,0],[0,0,1]] as [[number,number,number],[number,number,number],[number,number,number]],nodes:[{xMm:0,yMm:0},{xMm:20,yMm:0},{xMm:0,yMm:20}]}}],work=client.editSurfaceMarkings(projectId,4,edits);
+ await Promise.resolve();expect(pending).toHaveLength(1);expect(pending[0].request).toMatchObject({method:'marking.surface.editMany',projectId,expectedRevision:4,payload:{edits}});
+ await client.cancelSurface(projectId,4);expect(cancellations()[0].payload).toEqual({targetRequestIds:[pending[0].request.requestId]});
+ pending[0].resolve(success);await work;await client.cancelSurface(projectId,4);expect(cancellations()[1].payload).toEqual({targetRequestIds:[]});
+});
+
 beforeEach(async()=>{
  vi.resetModules();bridge.invoke.mockReset();bridge.listen.mockReset().mockResolvedValue(()=>{});pending=[];
  vi.stubGlobal('window',{});vi.stubGlobal('navigator',{language:'en-US'});

@@ -2,15 +2,21 @@ import {svgPrintPlan,selectedPrintPages,printPageSvg} from '../../../packages/ma
 import {zipSync,strToU8,Unzip,type AsyncFlateStreamHandler,type UnzipDecoder} from 'fflate';
 import {inflateRawSync} from 'node:zlib';
 import type {Geometry,Paper,Project} from '../../../packages/schema/index';
-import {workflowFileSchema} from '../../../packages/schema/index';
+import {workflowFileSchema,projectSchema} from '../../../packages/schema/index';
 import {pack,unpack} from './archive';
+import {shareArchiveGeometry,restoreArchiveGeometry} from './archive-geometry';
 import {svgExport,gate} from './export';
+import {bundleFontPath,exportFontSync} from './export-assets';
 import {markingFingerprint} from './markings';
 import {DomainError,hash} from './repository';
 import {assertOutputBudget} from '../../../packages/manufacturing/output-limits';
 
-export const workflowBytes=(project:Project)=>strToU8(JSON.stringify(workflowFileSchema.parse({format:'fpcad-workflow',version:1,project}),null,2));
-export function readWorkflow(bytes:Uint8Array){if(bytes.length>200*1024*1024)throw new DomainError('RESOURCE_LIMIT');return workflowFileSchema.parse(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes))).project;}
+export function workflowBytes(project:Project){
+ const normalized=projectSchema.parse(project),shared=shareArchiveGeometry(normalized),compact=Object.keys(shared.resources).length>0;
+ const value=compact?{format:'fpcad-workflow',version:2,geometryEncoding:'shared-json-1',project:shared.project,geometry:{version:1,resources:shared.resources}}:{format:'fpcad-workflow',version:1,project:normalized};
+ const bytes=strToU8(JSON.stringify(value,null,compact?undefined:2));if(bytes.length>200*1024*1024)throw new DomainError('RESOURCE_LIMIT');return bytes;
+}
+export function readWorkflow(bytes:Uint8Array){if(bytes.length>200*1024*1024)throw new DomainError('RESOURCE_LIMIT');const file=workflowFileSchema.parse(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes)));return file.version===1?file.project:projectSchema.parse(restoreArchiveGeometry(file.project,file.geometry));}
 
 export function selectedProject(project:Project,ids:string[]):Project{
  const chosen=new Set(ids);if(chosen.size!==ids.length||!ids.length||ids.some(id=>!project.pieces.some(p=>p.id===id)))throw new DomainError('ENTITY_MISSING');
@@ -28,7 +34,7 @@ export function cutBundle(project:Project,geometry:Geometry[]){
  const ack=geometry.flatMap(g=>g.issues.filter(i=>i.severity==='warning').map(i=>i.ruleId));
  let previews=false;
  if(valid){try{gate(project,geometry,ack);assertOutputBudget(project,geometry);previews=true;}catch{/* Editable bundles also preserve drafts that are not ready to manufacture. */}}
- if(previews)for(const piece of project.pieces){const subset=selectedProject(project,[piece.id]);files[`pieces/${piece.id}.svg`]=strToU8(svgExport(subset,geometry.filter(g=>g.id===piece.id),ack));}
+ if(previews){files[bundleFontPath]=exportFontSync();for(const piece of project.pieces){const subset=selectedProject(project,[piece.id]);files[`pieces/${piece.id}.svg`]=strToU8(svgExport(subset,geometry.filter(g=>g.id===piece.id),ack,false,1000,'bundle'));}}
  files['catalog.json']=strToU8(JSON.stringify({format:'fpcad-cuts',version:1,projectId:project.id,revision:project.revision,previews,pieces:project.pieces.map(p=>({id:p.id,name:p.name,color:p.color,cutQty:p.cutQty})),files:Object.entries(files).map(([path,bytes])=>({path,size:bytes.length,sha256:hash(bytes)}))}));
  const total=Object.values(files).reduce((sum,b)=>sum+b.length,0);if(total>200*1024*1024)throw new DomainError('RESOURCE_LIMIT');
  return zipSync(files,{level:0});
@@ -39,9 +45,10 @@ class BoundedInflate implements UnzipDecoder{
 }
 export function readCutBundle(bytes:Uint8Array){
  const limit=200*1024*1024;if(bytes.length>limit)throw new DomainError('RESOURCE_LIMIT');
- const files=new Map<string,Uint8Array>(),seen=new Set<string>();let total=0;
+ const files=new Map<string,Uint8Array>(),seen=new Set<string>();let total=0,previewCount=0;
  const unzip=new Unzip(file=>{
-  if(seen.size>=502||seen.has(file.name.toLowerCase())||!/^project\.fpcad$|^catalog\.json$|^pieces\/[0-9a-f-]{36}\.svg$/i.test(file.name))throw new DomainError('UNSAFE_ARCHIVE');
+  const preview=/^pieces\/[0-9a-f-]{36}\.svg$/i.test(file.name);
+  if(seen.size>=503||seen.has(file.name.toLowerCase())||!(file.name===bundleFontPath||/^project\.fpcad$|^catalog\.json$/i.test(file.name)||preview)||preview&&++previewCount>500)throw new DomainError('UNSAFE_ARCHIVE');
   seen.add(file.name.toLowerCase());if((file.originalSize??0)>limit)throw new DomainError('RESOURCE_LIMIT');
   const chunks:Uint8Array[]=[];
   file.ondata=(error,data,final)=>{if(error)throw new DomainError('INVALID_ARCHIVE');total+=data.length;if(total>limit)throw new DomainError('RESOURCE_LIMIT');chunks.push(data);if(final)files.set(file.name,Buffer.concat(chunks));};file.start();

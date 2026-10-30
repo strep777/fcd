@@ -14,6 +14,12 @@ it('cancels a global spacing update arriving late without treating ordinary edit
  expect(tasks.track({...request,payload:{type:'project.rename',name:'Renamed'}})).toBeUndefined();
 });
 
+it('owns a batch transform round before its worker starts and targets cancellation without affecting a retry',()=>{
+ const tasks=new SurfaceTaskQueue(),request:Extract<Request,{method:'marking.surface.editMany'}>={...cut(),method:'marking.surface.editMany',payload:{edits:[{markingId:randomUUID(),shape:{origin:[0,0,0],axes:[[1,0,0],[0,1,0],[0,0,1]],nodes:[{xMm:0,yMm:0},{xMm:10,yMm:0},{xMm:0,yMm:10}]}}]}};
+ tasks.cancel(projectId,4,[request.requestId]);const pending=tasks.track(request)!;expect(pending.cancelled).toBe(true);tasks.release(pending);
+ const retry=tasks.track({...request,requestId:randomUUID()})!;expect(retry.cancelled).toBe(false);tasks.release(retry);
+});
+
 it.each([{name:'legacy omitted targets',payload:{}},{name:'explicit empty targets',payload:{targetRequestIds:[]}},{name:'explicit UUID targets',payload:{targetRequestIds:[randomUUID()]}}])('preserves the $name cancellation contract without changing its meaning',({payload})=>{
  const request={...cut(),method:'surface.cancel',payload};expect(requestSchema.parse(request)).toEqual(request);
 });

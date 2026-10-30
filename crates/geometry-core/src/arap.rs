@@ -159,6 +159,7 @@ fn refine_seamed(
                 .and_then(|order| crate::sparse::Factor::ordered(matrix, order))
                 .or_else(|| crate::sparse::Factor::reverse_breadth_first(matrix))
                 .map(|factor| factor.solve(rhs))
+                .or_else(|| (n > 20_000).then(|| crate::sparse::solve_iterative(matrix, rhs)).flatten())
         };
         // Short intersection edges and long cloth spans can differ greatly
         // in stiffness. Solve D^-1 A D^-1 y = D^-1 b, then delta = D^-1 y.
@@ -581,8 +582,9 @@ fn refine_conditioned(
         }
     }
     if !springs.is_empty() {
-        // A balanced retry searches for a manufacturable chart, not further
-        // energy reduction after every acceptance constraint already passes.
+        // A sewing solve searches for a manufacturable chart. Continuing to
+        // minimize energy after every physical constraint already passes is
+        // unnecessary for both ordinary and reweighted sewing calibration.
         // Half the seam budget on each bank also bounds their pairwise mismatch.
         let ready = |points: &[[f64; 2]]| {
             let mut absolute = 0.;
@@ -603,7 +605,7 @@ fn refine_conditioned(
         };
         return refine_seamed(
             &elements, &springs, faces, uv, anchors[0], limit,
-            if weights.is_some() { Some(&ready) } else { None },
+            Some(&ready),
         );
     }
     let objective = |points: &[[f64; 2]]| energy(&elements, points);
@@ -706,6 +708,7 @@ fn refine_conditioned(
                 .as_ref()
                 .map(|f| f.solve(&rhs))
                 .filter(|x| x.iter().all(|v| v.is_finite()))
+                .or_else(|| (n > 20_000).then(|| crate::sparse::solve_iterative(&stiffness, &rhs)).flatten())
                 .unwrap_or_else(|| free.iter().enumerate().map(|(i, &v)| uv[v][axis] * solve_scale[i]).collect());
             let product = multiply(&x);
             let mut residual: Vec<_> = rhs.iter().zip(product).map(|(a, b)| a - b).collect();
@@ -882,15 +885,14 @@ mod tests {
     }
 
     #[test]
-    fn quality_ready_does_not_shorten_ordinary_or_unseamed_balanced_energy_solves() {
+    fn sewing_stops_only_at_certified_quality_while_unseamed_energy_still_converges() {
         let (mut mesh,faces,seed)=opened_cone_for_quality(1.);
         let globals: Vec<_>=(0..mesh.vertices.len()).collect();
         let mut early=seed.clone();
         let early_report=refine_balanced(&mesh,&globals,&faces,&mut early,[0,1],100).unwrap();
         let mut ordinary=seed.clone();
         let ordinary_report=refine(&mesh,&globals,&faces,&mut ordinary,[0,1],100).unwrap();
-        assert!(ordinary_report.converged);
-        assert!(ordinary_report.iterations > early_report.iterations);
+        assert!(ordinary_report.iterations < 100);
         assert_independent_ready_quality(&mesh,&faces,&ordinary);
         mesh.method="arap".into();
         let mut unseamed=seed;

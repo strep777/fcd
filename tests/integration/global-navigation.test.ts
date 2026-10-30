@@ -9,6 +9,8 @@ import {usePatternEditor} from '../../apps/desktop/src/modules/usePatternEditor'
 import * as history from '../../apps/desktop/src/modules/useDraftHistory';
 import * as stamps from '../../packages/ui/draft-history';
 import * as tabs from '../../apps/desktop/src/modules/workflow-tabs';
+import * as transforms from '../../apps/desktop/src/modules/surfaceTransformDraftGuard';
+import * as nativeClose from '../../apps/desktop/src/modules/useNativeDraftCloseGuard';
 import * as localization from '../../apps/desktop/src/localization';
 import * as i18n from '../../apps/desktop/src/i18n';
 import {project} from '../fixtures';
@@ -18,7 +20,7 @@ import type {Response,Session} from '../../packages/schema/index';
 const descriptor=parse(readFileSync('apps/desktop/src/App.vue','utf8')).descriptor;
 const script=compileScript(descriptor,{id:'global-navigation-audit'});
 const compiled=transformSync(script.content,{loader:'ts',format:'cjs'}).code,loaded={exports:{} as any};
-new Function('require','module','exports',compiled)((name:string)=>name==='vue'?Vue:name==='./store'?{useSession}:name==='./localization'?localization:name==='./i18n'?i18n:name.endsWith('/usePatternEditor')?{usePatternEditor}:name.endsWith('/useDraftHistory')?history:name.endsWith('/draft-history')?stamps:name.endsWith('/workflow-tabs')?tabs:name.endsWith('/patternEditorContext')?{patternEditorKey:Symbol('editor')}:{default:{}},loaded,loaded.exports);
+new Function('require','module','exports',compiled)((name:string)=>name==='vue'?Vue:name==='./store'?{useSession}:name==='./localization'?localization:name==='./i18n'?i18n:name.endsWith('/usePatternEditor')?{usePatternEditor}:name.endsWith('/useDraftHistory')?history:name.endsWith('/draft-history')?stamps:name.endsWith('/workflow-tabs')?tabs:name.endsWith('/surfaceTransformDraftGuard')?transforms:name.endsWith('/useNativeDraftCloseGuard')?nativeClose:name.endsWith('/patternEditorContext')?{patternEditorKey:Symbol('editor')}:{default:{}},loaded,loaded.exports);
 const App=loaded.exports.default;
 const renderer=Vue.createRenderer<any,any>({createElement:tag=>({tag,children:[]}),createComment:text=>({text}),createText:text=>({text}),insert:(n,p)=>p.children.push(n),remove(){},setText(){},setElementText(){},parentNode:()=>null,nextSibling:()=>null,patchProp(){}});
 function response(sessionId='initial',recovery=[0]):Response{return {ok:true,data:{sessionId,project:project(),geometry:[],canUndo:false,canRedo:false,savedRevision:null,recovery,history:[],recent:[],jobs:[]} satisfies Session};}

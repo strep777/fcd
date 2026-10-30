@@ -36,7 +36,7 @@ try{
  await page.reload();await workflow(page,'mapping');await page.locator('.surface-panel').getByRole('button',{name:'正面',exact:true}).click();
  let p=await read(),m=p.markings[0],id=m.id;assert.equal(m.paths.length,1);const initialRevision=p.revision;
  await click(50,50);await page.locator('.attached-selection[data-marking-id="'+id+'"]').waitFor();assert.equal((await read()).revision,initialRevision);checks.push('exact click selects an attached marking without changing the project');
- await drag(50,50,110,50);await revision(initialRevision);p=await read();m=p.markings.find(m=>m.id===id);assert.equal(p.revision,initialRevision+1);assert.equal(p.markings.length,1);assert.equal(m.paths.length,2);assert(Math.abs(area(m)-3600)<.05);checks.push('one mouse drag preserves identity, commits once and updates both cut piece paths');
+ await drag(50,50,110,50);assert.equal((await read()).revision,initialRevision,'Ordinary drag release keeps an unsaved adjustment');await page.getByRole('button',{name:'Save all marking adjustments',exact:true}).click();await revision(initialRevision);p=await read();m=p.markings.find(m=>m.id===id);assert.equal(p.revision,initialRevision+1);assert.equal(p.markings.length,1);assert.equal(m.paths.length,2);assert(Math.abs(area(m)-3600)<.05);checks.push('ordinary drag remains local until Save all, which preserves identity, commits once and updates both cut piece paths');
  await page.locator('.surface-tool-rail').getByRole('button',{name:'笔刷添加花纹',exact:true}).click();
  const radius=page.getByLabel('Surface brush radius'),brushShape=page.getByLabel('Surface brush shape');
  assert.deepEqual(await brushShape.locator('option').evaluateAll(options=>options.map(option=>option.value)),['round','square']);

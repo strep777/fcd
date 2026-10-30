@@ -3,11 +3,11 @@
      <defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="var(--border)" stroke-width="0.25"/></pattern><pattern id="major" width="50" height="50" patternUnits="userSpaceOnUse"><rect width="50" height="50" fill="url(#grid)"/><path d="M 50 0 L 0 0 0 50" fill="none" stroke="#a7bfd3" stroke-width="0.4"/></pattern><pattern id="paper-grid" :width="paperSize[0]" :height="paperSize[1]" patternUnits="userSpaceOnUse"><rect :width="paperSize[0]" :height="paperSize[1]" fill="var(--studio-white)"/><path :d="`M ${paperSize[0]} 0 L 0 0 0 ${paperSize[1]}`" fill="none" stroke="#829bb3" :stroke-width="view.w/600"/><rect :x="paper.marginMm" :y="paper.marginMm" :width="paperSize[0]-2*paper.marginMm" :height="paperSize[1]-2*paper.marginMm" fill="none" stroke="var(--border)" stroke-dasharray="3 2" :stroke-width="view.w/1200"/><text x="8" y="12" fill="var(--text-muted)" font-size="5">{{previewPaper}} · {{paperSize[0]}} × {{paperSize[1]}} mm</text></pattern></defs>
      <rect :x="view.x" :y="view.y" :width="view.w" :height="view.h" :fill="stage==='pattern'?'url(#paper-grid)':'url(#major)'"/>
      <line :x1="view.x" y1="0" :x2="view.x+view.w" y2="0" stroke="#829bb3" stroke-width=".4"/><line x1="0" :y1="view.y" x2="0" :y2="view.y+view.h" stroke="#829bb3" stroke-width=".4"/>
-     <g v-for="p in shownPieces" :key="p.id" :data-piece-id="p.id" v-memo="[p,selectedId,choiceIds,stage,tool,view.w,shownMarkings,preview?.id,language]" @pointerdown.stop="down($event,p)">
+     <g v-for="p in shownPieces" :key="p.id" :data-piece-id="p.id" v-memo="[p,selectedId,choiceIds,stage,tool,view.w,paperMarkingsByPiece,preview?.id,language]" @pointerdown.stop="down($event,p)">
       <path :class="{'screen-outline':stage==='cutting'}" v-if="!preview||preview.id!==p.id" :d="cutPath(p.id)" fill-rule="evenodd" :fill="p.color" fill-opacity=".8" stroke="var(--studio-teal)" stroke-width=".6"/>
       <path :class="{'screen-outline':stage==='cutting'}" :d="cachedPiecePath(p)" fill-rule="evenodd" :fill="p.closed?p.color:'none'" :fill-opacity="p.id===selectedId||choiceIds.includes(p.id)?.24:.12" :stroke="p.id===selectedId||choiceIds.includes(p.id)?'var(--studio-teal)':'var(--studio-navy)'" :stroke-width="p.id===selectedId||choiceIds.includes(p.id)?1:.5" stroke-dasharray="3 1.5"/>
-      <template v-for="m in shownMarkings" :key="m.id"><path v-for="path in m.paths.filter(path=>path.pieceId===p.id)" :key="path.pieceId" :d="path.rings.map(r=>r.map((n,i)=>(i?'L':'M')+n.xMm+','+(-n.yMm)).join(' ')+' Z').join(' ')" :fill="m.color" fill-opacity=".95" fill-rule="evenodd" stroke="var(--warning)" stroke-width=".25"><title>{{m.name}}</title></path></template>
-      <PatternDirection :layout="cachedAnnotationLayout(p)" :language="language"/><text class="pattern-annotation" v-for="l in p.labels??[]" :key="l.id" :x="l.xMm" :y="-l.yMm" font-size="4" fill="var(--ink)">{{l.text}}</text>
+      <template v-for="m in paperMarkingsByPiece.get(p.id)" :key="m.id"><path v-for="path in m.paths.filter(path=>path.pieceId===p.id)" :key="path.pieceId" :d="path.rings.map(r=>r.map((n,i)=>(i?'L':'M')+n.xMm+','+(-n.yMm)).join(' ')+' Z').join(' ')" :fill="m.color" fill-opacity=".95" fill-rule="evenodd" stroke="none"><title>{{m.name}}</title></path></template>
+      <PatternDirection :layout="cachedAnnotationLayout(p)" :language="language"/><text class="pattern-annotation" v-for="l in p.labels??[]" :key="l.id" :x="l.xMm" :y="-l.yMm" font-family="FurryPattern Sans SC" xml:space="preserve" font-size="4" fill="var(--ink)">{{l.text}}</text>
       <template v-if="stage==='pattern'&&p.id===selectedId&&tool==='node'"><g v-for="c in p.curves??[]" :key="c.id"><circle :cx="c.c1.xMm" :cy="-c.c1.yMm" r="1.5" fill="var(--warning)"/><circle :cx="c.c2.xMm" :cy="-c.c2.yMm" r="1.5" fill="var(--warning)"/></g></template>
       <g v-if="stage==='pattern'&&p.id===selectedId&&tool==='node'"><circle v-for="n in allNodes(p)" :key="n.id" :cx="n.xMm" :cy="-n.yMm" :r="view.w/180" fill="var(--studio-white)" stroke="var(--studio-teal)" :stroke-width="view.w/650" @pointerdown.stop="down($event,p,n)"/></g>
      </g>
@@ -26,13 +26,15 @@
 <script setup lang="ts">
 import {localize} from './localization';
 
-import {inject,onMounted,onUnmounted,ref,watch} from 'vue';
+import {computed,inject,onMounted,onUnmounted,ref,watch} from 'vue';
+import {paperMarkings} from '../../../packages/manufacturing/paper-markings';
 import ToolIcon from './ToolIcon.vue';
 import PreviewPiecePicker from './PreviewPiecePicker.vue';
 import PatternDirection from './PatternDirection.vue';
 import {usePatternContext} from './modules/patternEditorContext';
 const advanced=inject('advancedMode',ref(false));
-const {measureMm,language,t,stage,selectedId,choiceIds,draftClosed,tool,draft,preview,svg,view,resizeViewport,zoomPercent,scaleRuler,previewBounds,snap,holeTarget,paper,measurement,mappedPoint,candidateMode,shownMarkings,shownPieces,previewPaper,paperSize,fmt,label,cutPath,cachedPiecePath,cachedAnnotationLayout,poly,allNodes,cancel,changeTool,changePreviewTool,rectangle,circle,finish,down,move,up,zoom,zoomBy,setZoomPercent,fit,focusSelection,transform}=usePatternContext();
+const {measureMm,language,t,stage,project,selectedId,choiceIds,draftClosed,tool,draft,preview,svg,view,resizeViewport,zoomPercent,scaleRuler,previewBounds,snap,holeTarget,paper,measurement,mappedPoint,candidateMode,shownMarkings,shownPieces,previewPaper,paperSize,fmt,label,cutPath,cachedPiecePath,cachedAnnotationLayout,poly,allNodes,cancel,changeTool,changePreviewTool,rectangle,circle,finish,down,move,up,zoom,zoomBy,setZoomPercent,fit,focusSelection,transform}=usePatternContext();
+const paperMarkingsByPiece=computed(()=>{const p=project.value;if(!p)return new Map<string,ReturnType<typeof paperMarkings>>();const source={...p,markings:shownMarkings.value,bindings:candidateMode.value?p.surfaceRun?.bindings:p.bindings};return new Map(shownPieces.value.map(piece=>[piece.id,paperMarkings(source,piece.id)]));});
 let resizeObserver:ResizeObserver|undefined;
 onMounted(()=>{if(svg.value){resizeObserver=new ResizeObserver(()=>{if(svg.value)resizeViewport(svg.value.clientWidth,svg.value.clientHeight);});resizeObserver.observe(svg.value);}});
 onUnmounted(()=>resizeObserver?.disconnect());

@@ -5,23 +5,28 @@ import { open, rename, unlink, stat, readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { projectSchema,parseProject, type Project } from '../../../packages/schema/index';
 import { DomainError, hash } from './repository';
+import {shareArchiveGeometry,restoreArchiveGeometry} from './archive-geometry';
 const modules=['character','body','markings','seams','uv','materials','nesting','simulation'];
 const maxBytes=200*1024*1024;
 const byteView=(bytes:Uint8Array)=>Buffer.from(bytes.buffer,bytes.byteOffset,bytes.byteLength);
 function safePath(path:string){return path.length<240&&!path.includes('\\')&&!path.includes(':')&&!path.startsWith('/')&&path.split('/').every(p=>!!p&&p!=='.'&&p!=='..'&&!/[\x00-\x1f]/.test(p)&&!/[. ]$/.test(p)&&!/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(p));}
 const entry=z.object({path:z.string(),size:z.number().int().nonnegative().max(maxBytes),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
-const manifestSchema=z.object({format:z.literal('fpcad'),formatVersion:z.literal(1),schemaVersion:z.union([z.literal(1),z.literal(2)]),migrationVersion:z.union([z.literal(0),z.literal(1)]),applicationVersion:z.string(),unit:z.literal('mm'),createdAt:z.iso.datetime(),updatedAt:z.iso.datetime(),projectId:z.uuid(),contentHash:z.string(),files:z.array(entry).max(32)}).strict();
+const manifestSchema=z.object({format:z.literal('fpcad'),formatVersion:z.literal(1),geometryEncoding:z.literal('shared-json-1').optional(),schemaVersion:z.union([z.literal(1),z.literal(2)]),migrationVersion:z.union([z.literal(0),z.literal(1)]),applicationVersion:z.string(),unit:z.literal('mm'),createdAt:z.iso.datetime(),updatedAt:z.iso.datetime(),projectId:z.uuid(),contentHash:z.string(),files:z.array(entry).max(32)}).strict();
 export function pack(project:Project){
   projectSchema.parse(project);
-  const {pieces,materials,surface,surfaceRun,bindings,maskSources,references,referenceRun,markings,seams,nesting,...meta}=project;
+  const shared=shareArchiveGeometry(project);
+  const {pieces,materials,surface,surfaceRun,bindings,maskSources,referenceRun,markings,seams,nesting,...meta}=shared.project;
+  const references=project.references;delete meta.references;
   const files:Record<string,Uint8Array>={'project.json':strToU8(JSON.stringify(meta)),'patterns.json':strToU8(JSON.stringify({schemaVersion:2,pieces}))};
+  const geometryEncoding=Object.keys(shared.resources).length?'shared-json-1':undefined;
+  if(geometryEncoding)files['geometry.json']=strToU8(JSON.stringify({version:1,resources:shared.resources}));
   const embed=(data:string,path:string)=>{files[path]=Buffer.from(data.slice(data.indexOf(',')+1),'base64');return 'asset:'+path;};
   const storedReferences=references?.map(r=>{if(!r.resources)return r;const a=r.resources,base='images/'+r.id,extension=a.source.mime==='image/jpeg'?'jpg':a.source.mime==='image/webp'?'webp':'png';return {...r,png:embed(r.png,base+'-original.png'),resources:{...a,source:{...a.source,data:embed(a.source.data,base+'-source.'+extension)},proxy:{...a.proxy,png:embed(a.proxy.png,base+'-proxy.png')},thumbnail:{...a.thumbnail,png:embed(a.thumbnail.png,base+'-thumbnail.png')}}};});
   for(const key of modules)files[`${key}.json`]=strToU8(JSON.stringify({schemaVersion:2,items:[]}));
   for(const [key,value] of Object.entries({materials:{schemaVersion:2,materials},body:{schemaVersion:2,surface,surfaceRun},uv:{schemaVersion:2,bindings},markings:{schemaVersion:2,maskSources,references:storedReferences,referenceRun,markings},seams:{schemaVersion:2,seams},nesting:{schemaVersion:2,nesting}}))files[key+'.json']=strToU8(JSON.stringify(value));
   if(Object.values(files).reduce((n,b)=>n+b.length,0)>maxBytes)throw new DomainError('RESOURCE_LIMIT');
   const entries=Object.keys(files).sort((a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b))).map(path=>({path,size:files[path].length,sha256:hash(files[path])}));
-  const manifest={format:'fpcad',formatVersion:1,schemaVersion:2,migrationVersion:1,applicationVersion:'0.8.0',unit:'mm',createdAt:project.createdAt,updatedAt:project.updatedAt,projectId:project.id,contentHash:hash(JSON.stringify(entries)),files:entries};
+  const manifest={format:'fpcad',formatVersion:1,geometryEncoding,schemaVersion:2,migrationVersion:1,applicationVersion:'0.8.0',unit:'mm',createdAt:project.createdAt,updatedAt:project.updatedAt,projectId:project.id,contentHash:hash(JSON.stringify(entries)),files:entries};
   files['manifest.json']=strToU8(JSON.stringify(manifest));
   const bytes=zipSync(files,{level:0});if(bytes.length>maxBytes)throw new DomainError('RESOURCE_LIMIT');return {bytes,contentHash:manifest.contentHash};
 }
@@ -47,6 +52,7 @@ export function unpack(bytes:Uint8Array):Project{
   if(new Set(entries.map(e=>e.path)).size!==entries.length||files.size!==entries.length+1||hash(JSON.stringify(entries))!==m.contentHash)throw new DomainError('HASH_MISMATCH');
   for(const e of entries){const data=files.get(e.path);if(!data||data.length!==e.size||hash(data)!==e.sha256)throw new DomainError('HASH_MISMATCH');}
   const expected=new Set(['manifest.json','project.json','patterns.json',...modules.map(m=>m+'.json')]);
+  if(m.geometryEncoding){if(m.schemaVersion!==2)throw new DomainError('UNSUPPORTED_PROJECT_FEATURE');expected.add('geometry.json');}
   const linkedAssets=new Set<string>();
   // Validate each file envelope here, then validate every domain value once in parseProject.
   // Deep-parsing each group first doubles the copies of large meshes and images.
@@ -64,7 +70,8 @@ export function unpack(bytes:Uint8Array):Project{
     z.object(Object.fromEntries(Object.keys(metaShape).map(key=>[key,z.unknown().optional()]))).strict().parse(meta);
   }
   if([...files.keys()].some(k=>!expected.has(k)&&!linkedAssets.has(k)))throw new DomainError('UNSUPPORTED_PROJECT_FEATURE');
-  const project=parseProject({...meta,...extended,pieces:patterns.pieces});
+  const stored={...meta,...extended,pieces:patterns.pieces};
+  const project=parseProject(m.geometryEncoding?restoreArchiveGeometry(stored,json('geometry.json')):stored);
   if(project.id!==m.projectId||project.createdAt!==m.createdAt||project.updatedAt!==m.updatedAt)throw new DomainError('HASH_MISMATCH');
   return project;
 }

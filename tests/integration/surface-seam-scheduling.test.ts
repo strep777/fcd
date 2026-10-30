@@ -13,6 +13,7 @@ vi.mock('../../packages/surface/candidate-seams',async original=>{const actual=a
 const mounted:Vue.App[]=[];
 beforeEach(()=>{
  setActivePinia(createPinia());calls.integrity.mockClear();calls.seams.mockClear();const events=new EventTarget();
+ vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>setTimeout(()=>callback(performance.now()),0));vi.stubGlobal('cancelAnimationFrame',(handle:ReturnType<typeof setTimeout>)=>clearTimeout(handle));
  vi.stubGlobal('document',{documentElement:{},querySelector:()=>null});vi.stubGlobal('getComputedStyle',()=>({getPropertyValue:()=>''}));vi.stubGlobal('window',{addEventListener:events.addEventListener.bind(events),removeEventListener:events.removeEventListener.bind(events),dispatchEvent:events.dispatchEvent.bind(events)});
 });
 afterEach(()=>{for(const app of mounted.splice(0))app.unmount();vi.unstubAllGlobals();});

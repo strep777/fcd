@@ -2,7 +2,7 @@ import type {PlacementContext} from '../../../packages/reference/placement-regis
 import {z} from 'zod';
 import {Worker} from 'node:worker_threads';
 import {join} from 'node:path';
-import {regionSchema,modelRecordSchema,type LibraryRegionEdit,referenceRunSchema,surfaceRunSchema,markingSchema,referenceSchema,projectSchema,type Reference,type SurfaceBrush,type Marking,type Surface,type Project,type UnwrapOptions,type SurfaceRun} from '../../../packages/schema/index';
+import {regionSchema,modelRecordSchema,type LibraryRegionEdit,referenceRunSchema,surfaceRunSchema,markingSchema,referenceSchema,projectSchema,type Reference,type SurfaceBrush,type SurfaceMarkingEdit,type Marking,type Surface,type Project,type UnwrapOptions,type SurfaceRun} from '../../../packages/schema/index';
 import {DomainError} from './repository';
 import {terminateNativeChildren} from './native-process';
 import {surfaceProgressStepSchema,type SurfaceProgressStep} from '../../../packages/schema/index';
@@ -48,6 +48,7 @@ export function runManualMask(reference:Reference,sourceHash:string,mask:{width:
 export function runReferenceSegment(reference:Reference,seed:{x:number;y:number},tolerance:number,options:ClusterOptions|undefined,fitToleranceMm:number|undefined,proxyPng:string|undefined,signal:AbortSignal){return runTask({kind:'segment',reference,seed,tolerance,options,fitToleranceMm,proxyPng},referenceRunSchema,signal);}
 
 export function runEditSurfaceMarking(workerPath:string,project:Project,markingId:string|undefined,shape:NonNullable<Marking['surfaceShape']>|undefined,stroke:SurfaceBrush|undefined,signal:AbortSignal):Promise<Marking>{return runTask({kind:'surface-edit',workerPath,project:geometryProject(project),markingId,shape,stroke},markingSchema,signal);}
+export function runEditSurfaceMarkings(workerPath:string,project:Project,edits:SurfaceMarkingEdit[],signal:AbortSignal):Promise<Marking[]>{return runTask({kind:'surface-edit-many',workerPath,project:geometryProject(project),edits},z.array(markingSchema).min(1).max(500),signal);}
 
 export function runEditLibraryRegion(workerPath:string,project:Project,pieceId:string,edit:LibraryRegionEdit,signal:AbortSignal,replaceManual=false){return runTask({kind:'library-edit',workerPath,project:geometryProject(project),pieceId,edit,replaceManual},z.object({region:regionSchema,markings:z.array(markingSchema).max(500),models:z.array(modelRecordSchema).max(30)}).strict(),signal);}
 

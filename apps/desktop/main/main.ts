@@ -18,7 +18,7 @@ import {workflowBytes,readWorkflow,cutBundle,readCutBundle,selectedProject,print
 import {unlink} from 'node:fs/promises';
 import {cornerPiece} from '../../../packages/pattern/corners';
 import {randomUUID} from 'node:crypto';
-import {runEditLibraryRegion,runEditSurfaceMarking,runCutPreview,runProjection,runTexture,runSurfaceMarking,runInference} from './surface-runtime';
+import {runEditLibraryRegion,runEditSurfaceMarking,runEditSurfaceMarkings,runCutPreview,runProjection,runTexture,runSurfaceMarking,runInference} from './surface-runtime';
 import {readFile,stat} from 'node:fs/promises';
 import {pairedNotches} from './seam-notches';
 import {fitSpecies,morphTemplate,sculptSurface} from './body-edit';
@@ -76,7 +76,7 @@ async function save(saveAs:boolean){const path=await projectDestination(saveAs);
 async function handle(raw:unknown):Promise<Response>{try{
  if(Buffer.byteLength(JSON.stringify(raw))>64*1024*1024)throw new DomainError('RESOURCE_LIMIT');const req=requestSchema.parse(raw);
  const fingerprint=hash(JSON.stringify(req));
- if(['command.apply','command.undo','command.redo','result.accept','pattern.boolean','nesting.run','surface.unwrap','surface.accept','body.generate','species.generate','species.assemble','reference.segment','reference.mask','seam.notches','species.fit','template.morph','surface.sculpt','pattern.corner','pattern.import','surface.import','template.import','template.fit','reference.accept','reference.auto','reference.splitAll','marking.auto','marking.infer','marking.surface','marking.surface.edit','marking.surface.brush','marking.texture','marking.project','marking.source.edit','library.region.edit','marking.edit'].includes(req.method)&&repository.replay(req.requestId,fingerprint))return {ok:true,data:await state()};
+ if(['command.apply','command.undo','command.redo','result.accept','pattern.boolean','nesting.run','surface.unwrap','surface.accept','body.generate','species.generate','species.assemble','reference.segment','reference.mask','seam.notches','species.fit','template.morph','surface.sculpt','pattern.corner','pattern.import','surface.import','template.import','template.fit','reference.accept','reference.auto','reference.splitAll','marking.auto','marking.infer','marking.surface','marking.surface.edit','marking.surface.editMany','marking.surface.brush','marking.texture','marking.project','marking.source.edit','library.region.edit','marking.edit'].includes(req.method)&&repository.replay(req.requestId,fingerprint))return {ok:true,data:await state()};
  if('projectId' in req)repository.assertRevision(req.projectId,req.expectedRevision);
  // Reuse validated command results; do not reload and parse their large assets again.
  let committedProject:Project|undefined;
@@ -119,6 +119,20 @@ async function handle(raw:unknown):Promise<Response>{try{
   }else{const controller=createSurfaceController();surfaceController=controller;try{const result=await editMarkingSource(workerPath,p,r.pieceId,r.nodeId,r.xMm,r.yMm,r.replaceManual,controller.signal),proposed={...p,pieces:p.pieces.map(piece=>piece.id===result.piece.id?result.piece:piece)},models=await refreshSavedModelMarkings(workerPath,proposed,r.pieceId,r.replaceManual,false,controller.signal);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'marking.source.update',...result,models},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}}break;}
  case 'marking.edit':{const p=repository.snapshot()!,marking=await editMarking(workerPath,p,req.payload.markingId,req.payload.pieceId,req.payload.rings);repository.commit({type:'marking.put',marking},req.requestId,fingerprint);autosave();break;}
  case 'marking.infer':{const p=repository.snapshot()!,r=req.payload,controller=createSurfaceController();surfaceController=controller;try{let m=await runInference(workerPath,p,r.markingId,r.mode,r.distanceMm,r.planeXmm,controller.signal);if(p.bindings?.some(b=>b.trim))m=await mappedMarking(workerPath,p,m,controller.signal);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
+ case 'marking.surface.editMany':{
+  const p=repository.snapshot()!,edits=req.payload.edits,controller=createSurfaceController();
+  if(new Set(edits.map(edit=>edit.markingId)).size!==edits.length)throw new DomainError('INVALID_SELECTION');
+  for(const edit of edits)editableMarking(p,edit.markingId);
+  surfaceController=controller;
+  try{
+   const markings=await runEditSurfaceMarkings(workerPath,p,edits,controller.signal);
+   if(controller.signal.aborted)throw new DomainError('CANCELLED');
+   if(markings.length!==edits.length||markings.some((marking,index)=>marking.id!==edits[index].markingId))throw new DomainError('WORKER_PROTOCOL');
+   repository.assertRevision(p.id,p.revision);
+   committedProject=repository.commit({type:'markings.batch',markings},req.requestId,fingerprint);autosave();
+  }finally{if(surfaceController===controller)surfaceController=undefined;}
+  break;
+ }
  case 'marking.surface.edit':case 'marking.surface.brush':{const p=repository.snapshot()!,controller=createSurfaceController();if(req.payload.markingId)editableMarking(p,req.payload.markingId);surfaceController=controller;try{const m=await runEditSurfaceMarking(workerPath,p,req.payload.markingId,req.method==='marking.surface.edit'?req.payload.shape:undefined,req.method==='marking.surface.brush'?req.payload.stroke:undefined,controller.signal);const markings=[m];if(req.method==='marking.surface.brush'&&req.payload.stroke.symmetric){if(req.payload.markingId||!m.surfaceShape||!p.surface)throw new DomainError('MARKING_EDIT_FRAME');let mirrored=await runSurfaceMarking(workerPath,p,mirrorPaintShape(p.surface,m.surfaceShape),m.color,(m.name+' · 对称').slice(0,120),controller.signal);if(p.bindings?.some(b=>b.trim))mirrored=await mappedMarking(workerPath,p,mirrored,controller.signal);markings.push(mirrored);}if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit(markings.length>1?{type:'markings.batch',markings}:{type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
  case 'marking.surface':{const p=repository.snapshot()!,r=req.payload,controller=createSurfaceController();surfaceController=controller;try{let m=await runSurfaceMarking(workerPath,p,r.shape,r.color,r.name,controller.signal,r.fabrication);if(p.bindings?.some(b=>b.trim))m=await mappedMarking(workerPath,p,m,controller.signal);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}
  case 'marking.texture':{const p=repository.snapshot()!,r=req.payload,controller=createSurfaceController();surfaceController=controller;try{let m=await runTexture(workerPath,p,r.textureId,r.seed,r.tolerance,controller.signal);if(p.bindings?.some(b=>b.trim))m=await mappedMarking(workerPath,p,m,controller.signal);if(controller.signal.aborted)throw new DomainError('CANCELLED');repository.assertRevision(p.id,p.revision);repository.commit({type:'marking.put',marking:m},req.requestId,fingerprint);autosave();}finally{if(surfaceController===controller)surfaceController=undefined;}break;}

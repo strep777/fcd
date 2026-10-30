@@ -1,6 +1,7 @@
 import type {Surface} from '../schema/index';
 import {shapePoint,type Shape,type Point} from './attached-edit';
 import {sampleShapeContour} from './shape-contour';
+import {createPlacementClips} from './garment-anatomy';
 
 type V=[number,number,number];
 const dot=(a:V,b:V)=>a.reduce((s,x,i)=>s+x*b[i],0);
@@ -14,9 +15,9 @@ export function decalChart(surface:Surface,shape:Shape):Map<string,Point&{distan
  if(!shape.wrap||!shape.anchorFaceId)return;
  const anchor=surface.faces.find(f=>f.id===shape.anchorFaceId);if(!anchor)return new Map();
  const positions=new Map(surface.vertices.map(v=>[v.id,[v.xMm,v.yMm,v.zMm] as V]));
- const normals=new Map<string,V>(),neighbors=new Map<string,Set<string>>();
+ const normals=new Map<string,V>(),neighbors=new Map<string,Set<string>>(),regionClips=shape.regions?createPlacementClips(surface,shape.regions):undefined;
  for(const f of surface.faces){
-  if(shape.regions&&!shape.regions.includes(f.region))continue;
+  if(regionClips&&!regionClips(f).length)continue;
   const [a,b,c]=f.vertices.map(id=>positions.get(id)!),n=cross(sub(b,a),sub(c,a));
   for(const id of f.vertices){const old=normals.get(id)??[0,0,0];normals.set(id,old.map((x,i)=>x+n[i]) as V);const row=neighbors.get(id)??new Set<string>();for(const other of f.vertices)if(id!==other)row.add(other);neighbors.set(id,row);}
  }

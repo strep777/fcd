@@ -5,6 +5,68 @@
 use std::collections::VecDeque;
 
 type FactorColumn = (usize, f64, Vec<(usize, f64)>);
+
+/// Sparse IC(0) preconditioning for charts exceeding the direct factor's fill
+/// budget. This is a numerical working layer only: every original unknown,
+/// triangle and boundary spring remains in A*x=b. It never adds sewing cuts.
+/// Positive pivot safeguards affect the preconditioner, not the equations.
+pub(crate) fn solve_iterative(matrix: &[Vec<(usize, f64)>], rhs: &[f64]) -> Option<Vec<f64>> {
+    let n = matrix.len();
+    if n == 0 || rhs.len() != n { return None; }
+    let diagonal: Vec<f64> = matrix.iter().enumerate().map(|(i, row)|
+        row.iter().find(|&&(j, _)| j == i).map(|&(_, a)| a).unwrap_or(0.)).collect();
+    if diagonal.iter().any(|d| !d.is_finite() || *d <= 0.) { return None; }
+    let scale: Vec<_> = diagonal.iter().map(|a| a.sqrt()).collect();
+    let mut lower: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
+    let mut pivots = vec![1.; n];
+    for i in 0..n {
+        for &(j, a) in &matrix[i] {
+            if j >= n || !a.is_finite() { return None; }
+            if j >= i { continue; }
+            let mut value = a / scale[i] / scale[j];
+            let (mut p, mut q) = (0, 0);
+            while p < lower[i].len() && q < lower[j].len() {
+                let (k, l) = lower[i][p]; let (h, r) = lower[j][q];
+                if k == h { value -= l * pivots[k] * r; p += 1; q += 1; }
+                else if k < h { p += 1; } else { q += 1; }
+            }
+            let l = value / pivots[j];
+            if !l.is_finite() { return None; }
+            lower[i].push((j, l));
+        }
+        let d = 1. - lower[i].iter().map(|&(j, l)| l*l*pivots[j]).sum::<f64>();
+        // Incomplete fill can destroy positive definiteness even when A is
+        // SPD. A bounded positive IC pivot retains an SPD preconditioner.
+        pivots[i] = if d > 0.01 { d } else { 1. };
+    }
+    let precondition = |r: &[f64]| {
+        let mut z: Vec<_> = r.iter().zip(&scale).map(|(r,s)| r/s).collect();
+        for i in 0..n { z[i] -= lower[i].iter().map(|&(j,l)| l*z[j]).sum::<f64>(); }
+        for i in 0..n { z[i] /= pivots[i]; }
+        for i in (0..n).rev() { let v=z[i]; for &(j,l) in &lower[i] { z[j] -= l*v; } }
+        for i in 0..n { z[i] /= scale[i]; } z
+    };
+    let multiply = |x: &[f64]| matrix.iter().map(|row| row.iter().map(|&(j,a)| a*x[j]).sum::<f64>()).collect::<Vec<_>>();
+    let inner = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a,b)| a*b).sum::<f64>();
+    let tolerance=1e-10*inner(rhs,rhs).sqrt().max(1.);
+    let mut x=vec![0.;n]; let mut r=rhs.to_vec(); let mut z=precondition(&r);
+    let mut p=z.clone(); let mut rz=inner(&r,&z);
+    for _ in 0..2000 {
+        if inner(&r,&r).sqrt()<=tolerance {
+            let exact:Vec<_>=rhs.iter().zip(multiply(&x)).map(|(b,a)| b-a).collect();
+            if inner(&exact,&exact).sqrt()<=tolerance { return Some(x); }
+            r=exact;z=precondition(&r);p=z.clone();rz=inner(&r,&z);
+        }
+        let ap=multiply(&p);let denominator=inner(&p,&ap);
+        if !denominator.is_finite() || denominator<=0. || !rz.is_finite() { return None; }
+        let alpha=rz/denominator;
+        for i in 0..n { x[i]+=alpha*p[i];r[i]-=alpha*ap[i]; }
+        z=precondition(&r);let next=inner(&r,&z);let beta=next/rz;
+        for i in 0..n { p[i]=z[i]+beta*p[i]; }rz=next;
+    }
+    let residual:Vec<_>=rhs.iter().zip(multiply(&x)).map(|(b,a)| b-a).collect();
+    (inner(&residual,&residual).sqrt()<=tolerance).then_some(x)
+}
 pub(crate) struct Factor {
     columns: Vec<FactorColumn>,
     scale: Option<Vec<f64>>,
@@ -24,7 +86,7 @@ pub(crate) struct ReusableFactor {
 impl ReusableFactor {
     pub(crate) fn new(matrix: &[Vec<(usize, f64)>], order: &[usize]) -> Option<Self> {
         let n = matrix.len();
-        if n > 20_000 || order.len() != n { return None; }
+        if n > 50_000 || order.len() != n { return None; }
         let mut position = vec![usize::MAX; n];
         for (k, &i) in order.iter().enumerate() {
             if i >= n || position[i] != usize::MAX { return None; }
@@ -115,7 +177,7 @@ impl Factor {
             })
         }).collect();
         if let Some(scale) = scale {
-            if matrix.len() <= 20_000 && matrix.iter().flatten().all(|&(j, a)| j < scale.len() && a.is_finite()) {
+            if matrix.len() <= 50_000 && matrix.iter().flatten().all(|&(j, a)| j < scale.len() && a.is_finite()) {
                 let normalized: Vec<Vec<(usize, f64)>> = matrix.iter().enumerate().map(|(i, row)| {
                     row.iter().map(|&(j, a)| (j, a / scale[i] / scale[j])).collect()
                 }).collect();
@@ -139,7 +201,7 @@ impl Factor {
     }
     pub(crate) fn reverse_breadth_first(matrix: &[Vec<(usize, f64)>]) -> Option<Self> {
         let n = matrix.len();
-        if n > 20_000
+        if n > 50_000
             || matrix
                 .iter()
                 .flatten()
@@ -186,7 +248,7 @@ impl Factor {
     /// approximate inverse is introduced into the physical equations.
     pub(crate) fn ordered(matrix: &[Vec<(usize, f64)>], order: &[usize]) -> Option<Self> {
         let n = matrix.len();
-        if n > 20_000
+        if n > 50_000
             || order.len() != n
             || matrix
                 .iter()
@@ -289,7 +351,7 @@ impl Factor {
 /// boundary-length linearizations whose numeric coefficients change.
 pub(crate) fn nested_order(matrix: &[Vec<(usize, f64)>]) -> Option<Vec<usize>> {
     let n = matrix.len();
-    if n > 20_000
+    if n > 50_000
         || matrix
             .iter()
             .flatten()
@@ -656,4 +718,43 @@ mod tests {
             }
         }
     }
+}
+/// Rank-revealing Householder QR for small, ill-conditioned cloth charts.
+/// Solve the original conformal equations, without squaring the condition
+/// number in A'A. All source triangles and their physical weights remain.
+pub fn solve_least_squares(rows: &[(Vec<(usize, f64)>, f64)], n: usize) -> Option<Vec<f64>> {
+    let m = rows.len();
+    if n == 0 || n > 256 || m < n || m > 2048 { return None; }
+    let mut a = vec![vec![0.; n]; m];
+    let mut b: Vec<_> = rows.iter().map(|r| r.1).collect();
+    for (i, (row, _)) in rows.iter().enumerate() {
+        for &(j, value) in row { a[i][j] += value; }
+    }
+    let scale: Vec<f64> = (0..n).map(|j| a.iter().map(|r| r[j]*r[j]).sum::<f64>().sqrt()).collect();
+    if scale.iter().any(|s| !s.is_finite() || *s <= 0.) { return None; }
+    for row in &mut a { for j in 0..n { row[j] /= scale[j]; } }
+    let mut order: Vec<_> = (0..n).collect();
+    for k in 0..n {
+        let pivot = (k..n).max_by(|&j,&l| {
+            let norm = |j:usize| a[k..].iter().map(|r| r[j]*r[j]).sum::<f64>();
+            norm(j).total_cmp(&norm(l))
+        })?;
+        for row in &mut a { row.swap(k,pivot); } order.swap(k,pivot);
+        let norm = a[k..].iter().map(|r| r[k]*r[k]).sum::<f64>().sqrt();
+        if norm < 1e-14 || !norm.is_finite() { return None; }
+        let alpha = -norm.copysign(a[k][k]);
+        let mut v: Vec<_> = a[k..].iter().map(|r| r[k]).collect(); v[0] -= alpha;
+        let beta = 2. / v.iter().map(|x| x*x).sum::<f64>();
+        for j in k+1..n {
+            let dot = beta * v.iter().enumerate().map(|(i,x)| x*a[k+i][j]).sum::<f64>();
+            for (i,x) in v.iter().enumerate() { a[k+i][j] -= dot*x; }
+        }
+        let dot = beta * v.iter().enumerate().map(|(i,x)| x*b[k+i]).sum::<f64>();
+        for (i,x) in v.iter().enumerate() { b[k+i] -= dot*x; }
+        a[k][k] = alpha; for row in &mut a[k+1..] { row[k] = 0.; }
+    }
+    let mut x = vec![0.; n];
+    for i in (0..n).rev() { x[i] = (b[i]-(i+1..n).map(|j|a[i][j]*x[j]).sum::<f64>())/a[i][i]; }
+    let mut result = vec![0.;n]; for i in 0..n { result[order[i]]=x[i]/scale[order[i]]; }
+    result.iter().all(|v|v.is_finite()).then_some(result)
 }

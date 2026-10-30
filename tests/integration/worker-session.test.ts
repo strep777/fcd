@@ -131,9 +131,11 @@ describe('native worker sessions',()=>{
   const input=unwrapInput(),expected=await request(worker,input),inputBytes=Buffer.byteLength(JSON.stringify(input)),outputBytes=Buffer.byteLength(JSON.stringify(expected));
   // A real report contains UV, face metrics and boundary data beyond this mesh.
   // Keep the request legal while cutting off the actual native report.
-  expect(outputBytes).toBeGreaterThan(inputBytes+128);
+  const budget=inputBytes+Math.floor((outputBytes-inputBytes)/2);
+  expect(inputBytes,'the actual serialized request fits inside the chosen response budget').toBeLessThan(budget);
+  expect(outputBytes,'the actual native report exceeds that same budget').toBeGreaterThan(budget);
   const stream=session();
-  await expect(stream.request(input,{timeoutMs:10000,bytes:inputBytes+32})).rejects.toMatchObject({code:'RESOURCE_LIMIT'});
+  await expect(stream.request(input,{timeoutMs:10000,bytes:budget})).rejects.toMatchObject({code:'RESOURCE_LIMIT'});
   await expect(stream.request(input)).rejects.toMatchObject({code:'CANCELLED'});
  });
 

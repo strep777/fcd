@@ -9,6 +9,8 @@ import {usePatternEditor} from '../../apps/desktop/src/modules/usePatternEditor'
 import * as history from '../../apps/desktop/src/modules/useDraftHistory';
 import * as stamps from '../../packages/ui/draft-history';
 import * as tabs from '../../apps/desktop/src/modules/workflow-tabs';
+import * as transforms from '../../apps/desktop/src/modules/surfaceTransformDraftGuard';
+import * as nativeClose from '../../apps/desktop/src/modules/useNativeDraftCloseGuard';
 import * as context from '../../apps/desktop/src/modules/patternEditorContext';
 import * as localization from '../../apps/desktop/src/localization';
 import * as i18n from '../../apps/desktop/src/i18n';
@@ -33,7 +35,7 @@ const children=new Map<string,unknown>();
 function child(name:string){if(!children.has(name))children.set(name,Vue.defineComponent({name,setup(){const store=useSession(),instance=++nextInstance,draft=Vue.ref('');mounts.push({name,sessionId:store.data.sessionId,instance});return()=>Vue.h('section',{'data-probe':name,'data-instance':instance},[Vue.h('input',{'data-draft':name,value:draft.value,onInput:(event:any)=>{draft.value=event.target.value;}}),...(targets[name]??[]).map(id=>Vue.h('div',{id}))]);}}));return children.get(name);}
 const script=compileScript(parse(readFileSync('apps/desktop/src/App.vue','utf8')).descriptor,{id:'session-page-cache',inlineTemplate:true,templateOptions:{compilerOptions:{hoistStatic:false}}});
 const compiled=transformSync(script.content,{loader:'ts',format:'cjs'}).code,loaded={exports:{} as any};
-new Function('require','module','exports',compiled)((name:string)=>name==='vue'?Vue:name==='./store'?{useSession}:name==='./localization'?localization:name==='./i18n'?i18n:name.endsWith('/usePatternEditor')?{usePatternEditor}:name.endsWith('/useDraftHistory')?history:name.endsWith('/draft-history')?stamps:name.endsWith('/workflow-tabs')?tabs:name.endsWith('/patternEditorContext')?context:name.endsWith('.vue')?{__esModule:true,default:child(name.slice(2,-4))}:{},loaded,loaded.exports);
+new Function('require','module','exports',compiled)((name:string)=>name==='vue'?Vue:name==='./store'?{useSession}:name==='./localization'?localization:name==='./i18n'?i18n:name.endsWith('/usePatternEditor')?{usePatternEditor}:name.endsWith('/useDraftHistory')?history:name.endsWith('/draft-history')?stamps:name.endsWith('/workflow-tabs')?tabs:name.endsWith('/surfaceTransformDraftGuard')?transforms:name.endsWith('/useNativeDraftCloseGuard')?nativeClose:name.endsWith('/patternEditorContext')?context:name.endsWith('.vue')?{__esModule:true,default:child(name.slice(2,-4))}:{},loaded,loaded.exports);
 const App=loaded.exports.default;
 async function flush(){for(let i=0;i<5;i++){await Promise.resolve();await Vue.nextTick();}}
 const apps:{unmount:()=>void}[]=[];
